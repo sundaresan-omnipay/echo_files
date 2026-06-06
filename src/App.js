@@ -1,25 +1,2103 @@
-import logo from './logo.svg';
-import './App.css';
+import { useState, useEffect, useCallback, useRef } from "react";
 
-function App() {
+// ─── Supabase client (lightweight, no npm) ───────────────────────────────────
+const SUPABASE_URL     = process.env.REACT_APP_SUPABASE_URL     || "https://ewbyjtclhtcnvbrqfwyz.supabase.co";
+const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3YnlqdGNsaHRjbnZicnFmd3l6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4OTgwMDYsImV4cCI6MjA5NTQ3NDAwNn0.NxpxEPHmLRSKAtyE7me7BGao-o3VpJqIPaumxu60-yw";
+const BUCKET     = "echo_documents";
+const OWNER_EMAIL = process.env.REACT_APP_OWNER_EMAIL || "sundaresan@datman.je";
+
+// ─── DB client — headers refresh on every call so auth tokens work ────────────
+const _REST  = () => `${SUPABASE_URL}/rest/v1`;
+const _STORE = () => `${SUPABASE_URL}/storage/v1`;
+const _AUTH  = () => `${SUPABASE_URL}/auth/v1`;
+
+const h = () => {
+  const token = localStorage.getItem("echo_token") || SUPABASE_ANON_KEY;
+  return { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` };
+};
+
+const db = {
+  auth: {
+    signIn: async (email, password) => {
+      const r = await fetch(`${_AUTH()}/token?grant_type=password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+        body: JSON.stringify({ email, password }),
+      });
+      return r.json();
+    },
+    signUp: async (email, password) => {
+      const r = await fetch(`${_AUTH()}/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+        body: JSON.stringify({ email, password }),
+      });
+      return r.json();
+    },
+    signOut: async () => {
+      const token = localStorage.getItem("echo_token");
+      if (token) {
+        await fetch(`${_AUTH()}/logout`, {
+          method: "POST",
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
+      localStorage.removeItem("echo_token");
+    },
+    getUser: async () => {
+      const token = localStorage.getItem("echo_token");
+      if (!token) return null;
+      const r = await fetch(`${_AUTH()}/user`, {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) { localStorage.removeItem("echo_token"); return null; }
+      return r.json();
+    },
+  },
+  from: (table) => ({
+    select: async (cols = "*", opts = {}) => {
+      let url = `${_REST()}/${table}?select=${cols}`;
+      if (opts.eq) url += `&${opts.eq[0]}=eq.${opts.eq[1]}`;
+      if (opts.order) url += `&order=${opts.order}`;
+      const r = await fetch(url, { headers: h() });
+      if (!r.ok) return [];
+      return r.json();
+    },
+    insert: async (data) => {
+      const r = await fetch(`${_REST()}/${table}`, {
+        method: "POST",
+        headers: { ...h(), Prefer: "return=representation" },
+        body: JSON.stringify(data),
+      });
+      return r.json();
+    },
+    update: async (data, id) => {
+      const r = await fetch(`${_REST()}/${table}?id=eq.${id}`, {
+        method: "PATCH",
+        headers: { ...h(), Prefer: "return=representation" },
+        body: JSON.stringify(data),
+      });
+      return r.json();
+    },
+    delete: async (id) => {
+      await fetch(`${_REST()}/${table}?id=eq.${id}`, { method: "DELETE", headers: h() });
+    },
+  }),
+  storage: {
+    upload: async (path, file) => {
+      const token = localStorage.getItem("echo_token") || SUPABASE_ANON_KEY;
+      const r = await fetch(`${_STORE()}/object/${BUCKET}/${path}`, {
+        method: "POST",
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": file.type, "x-upsert": "true" },
+        body: file,
+      });
+      return r.json();
+    },
+    getPublicUrl: (path) => `${_STORE()}/object/public/${BUCKET}/${path}`,
+    remove: async (paths) => {
+      const r = await fetch(`${_STORE()}/object/${BUCKET}`, {
+        method: "DELETE", headers: h(), body: JSON.stringify({ prefixes: paths }),
+      });
+      return r.json();
+    },
+  },
+};
+
+// ─── SQL Setup hint (run once in Supabase SQL editor) ───────────────────────
+// CREATE TABLE diary_entries (
+//   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+//   date date NOT NULL,
+//   ticket_number text,
+//   title text NOT NULL,
+//   feedback text,
+//   mood text,
+//   tags text[],
+//   content text,
+//   created_at timestamptz DEFAULT now()
+// );
+// CREATE TABLE documents (
+//   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+//   name text NOT NULL,
+//   category text,
+//   description text,
+//   file_path text NOT NULL,
+//   file_size bigint,
+//   file_type text,
+//   tags text[],
+//   created_at timestamptz DEFAULT now()
+// );
+// Also create a public storage bucket named "echo-documents"
+
+// ─── Design tokens ───────────────────────────────────────────────────────────
+const T = {
+  navy0: "#0a0e1a",
+  navy1: "#0d1526",
+  navy2: "#111c33",
+  navy3: "#162040",
+  navy4: "#1c2a52",
+  navy5: "#243366",
+  accent: "#4f8ef7",
+  accentDim: "#2d5fcc",
+  accentGlow: "rgba(79,142,247,0.18)",
+  gold: "#e8c66a",
+  goldDim: "#b8962a",
+  teal: "#3fcfb4",
+  coral: "#f07562",
+  green: "#4ecb8d",
+  text1: "#e8eef8",
+  text2: "#9bacc8",
+  text3: "#5c6e90",
+  border: "rgba(79,142,247,0.15)",
+  borderHover: "rgba(79,142,247,0.35)",
+  glass: "rgba(16,24,48,0.7)",
+};
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const injectStyles = () => {
+  if (document.getElementById("echo-styles")) return;
+  const style = document.createElement("style");
+  style.id = "echo-styles";
+  style.textContent = `
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@600&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    .echo-root {
+      font-family: 'DM Sans', sans-serif;
+      background: ${T.navy0};
+      color: ${T.text1};
+      min-height: 100vh;
+      display: flex;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .echo-root::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% -10%, rgba(79,142,247,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 80% 110%, rgba(63,207,180,0.05) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Sidebar ── */
+    .echo-sidebar {
+      width: 240px;
+      min-height: 100vh;
+      background: ${T.navy1};
+      border-right: 1px solid ${T.border};
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      z-index: 10;
+      flex-shrink: 0;
+    }
+
+    .echo-logo {
+      padding: 28px 24px 20px;
+      border-bottom: 1px solid ${T.border};
+    }
+
+    .echo-logo-text {
+      font-family: 'Playfair Display', serif;
+      font-size: 26px;
+      font-weight: 600;
+      color: ${T.text1};
+      letter-spacing: -0.5px;
+    }
+
+    .echo-logo-sub {
+      font-size: 11px;
+      color: ${T.text3};
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    .echo-nav {
+      padding: 16px 12px;
+      flex: 1;
+    }
+
+    .echo-nav-section {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: ${T.text3};
+      padding: 12px 12px 6px;
+    }
+
+    .echo-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 400;
+      color: ${T.text2};
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+    }
+
+    .echo-nav-item:hover {
+      background: rgba(79,142,247,0.08);
+      color: ${T.text1};
+    }
+
+    .echo-nav-item.active {
+      background: rgba(79,142,247,0.12);
+      border-color: ${T.border};
+      color: ${T.accent};
+    }
+
+    .echo-nav-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .echo-sidebar-footer {
+      padding: 16px;
+      border-top: 1px solid ${T.border};
+      font-size: 12px;
+      color: ${T.text3};
+    }
+
+    /* ── Main ── */
+    .echo-main {
+      flex: 1;
+      overflow-y: auto;
+      position: relative;
+      z-index: 1;
+    }
+
+    .echo-topbar {
+      position: sticky;
+      top: 0;
+      background: rgba(10,14,26,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid ${T.border};
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 50;
+    }
+
+    .echo-page-title {
+      font-size: 18px;
+      font-weight: 500;
+      color: ${T.text1};
+    }
+
+    .echo-page-sub {
+      font-size: 13px;
+      color: ${T.text3};
+      margin-top: 2px;
+    }
+
+    .echo-content {
+      padding: 32px;
+      max-width: 1100px;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: ${T.navy2};
+      border: 1px solid ${T.border};
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+
+    .card-glass {
+      background: ${T.glass};
+      backdrop-filter: blur(8px);
+      border: 1px solid ${T.border};
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+    }
+
+    .btn-primary {
+      background: ${T.accent};
+      color: #fff;
+      border-color: ${T.accent};
+    }
+
+    .btn-primary:hover {
+      background: #3d7ee8;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(79,142,247,0.3);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: ${T.text2};
+      border-color: ${T.border};
+    }
+
+    .btn-ghost:hover {
+      background: rgba(79,142,247,0.08);
+      color: ${T.text1};
+      border-color: ${T.borderHover};
+    }
+
+    .btn-danger {
+      background: transparent;
+      color: #f07562;
+      border-color: rgba(240,117,98,0.3);
+    }
+
+    .btn-danger:hover {
+      background: rgba(240,117,98,0.1);
+    }
+
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    /* ── Form elements ── */
+    .form-group { margin-bottom: 18px; }
+
+    .form-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: ${T.text3};
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 7px;
+    }
+
+    .form-input, .form-textarea, .form-select {
+      width: 100%;
+      background: ${T.navy1};
+      border: 1px solid ${T.border};
+      border-radius: 8px;
+      color: ${T.text1};
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      padding: 9px 12px;
+      transition: border-color 0.15s;
+      outline: none;
+    }
+
+    .form-input:focus, .form-textarea:focus, .form-select:focus {
+      border-color: ${T.accent};
+      box-shadow: 0 0 0 3px rgba(79,142,247,0.1);
+    }
+
+    .form-textarea { resize: vertical; min-height: 100px; }
+
+    .form-select option { background: ${T.navy2}; }
+
+    /* ── Tags ── */
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 9px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 500;
+      border: 1px solid;
+    }
+
+    .tag-blue { background: rgba(79,142,247,0.12); color: ${T.accent}; border-color: rgba(79,142,247,0.25); }
+    .tag-gold { background: rgba(232,198,106,0.12); color: ${T.gold}; border-color: rgba(232,198,106,0.25); }
+    .tag-teal { background: rgba(63,207,180,0.12); color: ${T.teal}; border-color: rgba(63,207,180,0.25); }
+    .tag-coral { background: rgba(240,117,98,0.12); color: ${T.coral}; border-color: rgba(240,117,98,0.25); }
+    .tag-green { background: rgba(78,203,141,0.12); color: ${T.green}; border-color: rgba(78,203,141,0.25); }
+
+    /* ── Diary entries ── */
+    .diary-entry {
+      background: ${T.navy2};
+      border: 1px solid ${T.border};
+      border-radius: 12px;
+      padding: 18px 22px;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .diary-entry::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      background: ${T.accent};
+      opacity: 0;
+      transition: opacity 0.18s;
+    }
+
+    .diary-entry:hover {
+      border-color: ${T.borderHover};
+      background: rgba(22,32,64,0.9);
+      transform: translateX(2px);
+    }
+
+    .diary-entry:hover::before { opacity: 1; }
+
+    /* ── Document cards ── */
+    .doc-card {
+      background: ${T.navy2};
+      border: 1px solid ${T.border};
+      border-radius: 12px;
+      padding: 18px;
+      transition: all 0.18s ease;
+      cursor: pointer;
+    }
+
+    .doc-card:hover {
+      border-color: ${T.borderHover};
+      background: rgba(22,32,64,0.9);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+
+    .doc-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-bottom: 12px;
+    }
+
+    /* ── Mood badges ── */
+    .mood-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      border: 1px solid ${T.border};
+      background: transparent;
+      cursor: pointer;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.12s;
+    }
+
+    .mood-btn:hover, .mood-btn.selected {
+      background: rgba(79,142,247,0.12);
+      border-color: ${T.accent};
+      transform: scale(1.1);
+    }
+
+    /* ── Upload zone ── */
+    .upload-zone {
+      border: 2px dashed ${T.border};
+      border-radius: 12px;
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.18s;
+    }
+
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: ${T.accent};
+      background: rgba(79,142,247,0.05);
+    }
+
+    /* ── Search ── */
+    .search-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: ${T.navy1};
+      border: 1px solid ${T.border};
+      border-radius: 8px;
+      padding: 0 12px;
+    }
+
+    .search-bar input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: ${T.text1};
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      padding: 9px 0;
+      flex: 1;
+    }
+
+    .search-bar input::placeholder { color: ${T.text3}; }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(5,8,16,0.75);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal {
+      background: ${T.navy1};
+      border: 1px solid ${T.border};
+      border-radius: 16px;
+      padding: 28px;
+      width: 100%;
+      max-width: 580px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: ${T.text1};
+      margin-bottom: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* ── Stats ── */
+    .stat-card {
+      background: ${T.navy2};
+      border: 1px solid ${T.border};
+      border-radius: 12px;
+      padding: 16px 20px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 600;
+      color: ${T.text1};
+      font-family: 'DM Mono', monospace;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: ${T.text3};
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 4px;
+    }
+
+    /* ── Date badge ── */
+    .date-badge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 46px;
+      height: 46px;
+      border-radius: 10px;
+      background: rgba(79,142,247,0.1);
+      border: 1px solid rgba(79,142,247,0.2);
+      flex-shrink: 0;
+    }
+
+    .date-badge-day {
+      font-size: 17px;
+      font-weight: 600;
+      color: ${T.accent};
+      font-family: 'DM Mono', monospace;
+      line-height: 1;
+    }
+
+    .date-badge-mon {
+      font-size: 9px;
+      color: ${T.text3};
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* ── Ticket chip ── */
+    .ticket-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(232,198,106,0.1);
+      border: 1px solid rgba(232,198,106,0.25);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      color: ${T.gold};
+      font-family: 'DM Mono', monospace;
+    }
+
+    /* ── File type icon colors ── */
+    .ftype-pdf { background: rgba(240,117,98,0.12); color: ${T.coral}; }
+    .ftype-img { background: rgba(63,207,180,0.12); color: ${T.teal}; }
+    .ftype-doc { background: rgba(79,142,247,0.12); color: ${T.accent}; }
+    .ftype-xls { background: rgba(78,203,141,0.12); color: ${T.green}; }
+    .ftype-zip { background: rgba(232,198,106,0.12); color: ${T.gold}; }
+    .ftype-gen { background: rgba(156,113,230,0.12); color: #9c71e6; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(79,142,247,0.25); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(79,142,247,0.4); }
+
+    /* ── Misc ── */
+    .divider { border: none; border-top: 1px solid ${T.border}; margin: 16px 0; }
+    .mono { font-family: 'DM Mono', monospace; }
+    .flex { display: flex; }
+    .flex-col { display: flex; flex-direction: column; }
+    .gap-8 { gap: 8px; }
+    .gap-12 { gap: 12px; }
+    .gap-16 { gap: 16px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .mt-8 { margin-top: 8px; }
+    .mt-16 { margin-top: 16px; }
+    .mt-24 { margin-top: 24px; }
+    .mb-8 { margin-bottom: 8px; }
+    .mb-16 { margin-bottom: 16px; }
+    .spin { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .fade-in { animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ── Diary tabs ── */
+    .diary-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid ${T.border};
+      margin-bottom: 22px;
+    }
+    .diary-tab {
+      padding: 9px 18px;
+      font-size: 13px;
+      font-weight: 500;
+      color: ${T.text3};
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s;
+      font-family: 'DM Sans', sans-serif;
+    }
+    .diary-tab:hover { color: ${T.text2}; }
+    .diary-tab.active { color: ${T.accent}; border-bottom-color: ${T.accent}; }
+
+    /* ── Diary view sub-sections ── */
+    .diary-section-heading {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: ${T.text3};
+      margin-bottom: 10px;
+      padding-bottom: 7px;
+      border-bottom: 1px solid ${T.border};
+    }
+
+    /* ── Team / Feedback cards ── */
+    .team-card {
+      background: ${T.navy2};
+      border: 1px solid ${T.border};
+      border-radius: 10px;
+      padding: 11px 14px;
+      margin-bottom: 8px;
+    }
+
+    /* ── Checklist items ── */
+    .checklist-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      background: ${T.navy2};
+      border: 1px solid ${T.border};
+      border-radius: 8px;
+      margin-bottom: 6px;
+    }
+
+    /* ── Small status / priority badges ── */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 600;
+      border: 1px solid;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── Focus area badge ── */
+    .focus-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      background: rgba(79,142,247,0.1);
+      color: ${T.accent};
+      border: 1px solid rgba(79,142,247,0.2);
+    }
+
+    /* ── Entry stat badges (list view) ── */
+    .entry-stat-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 10px;
+      font-weight: 500;
+      background: rgba(79,142,247,0.07);
+      color: ${T.text3};
+      border: 1px solid ${T.border};
+    }
+
+    .config-banner {
+      background: rgba(232,198,106,0.08);
+      border: 1px solid rgba(232,198,106,0.25);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: ${T.gold};
+      margin-bottom: 20px;
+    }
+  `;
+  document.head.appendChild(style);
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const today = () => new Date().toISOString().split("T")[0];
+
+function fmtDate(d) {
+  const dt = new Date(d + "T00:00:00");
+  return `${dt.getDate()} ${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`;
+}
+
+function fileTypeInfo(name = "", mime = "") {
+  const ext = name.split(".").pop()?.toLowerCase();
+  if (["pdf"].includes(ext)) return { icon: "📄", cls: "ftype-pdf", label: "PDF" };
+  if (["jpg","jpeg","png","gif","webp","svg"].includes(ext)) return { icon: "🖼️", cls: "ftype-img", label: "Image" };
+  if (["doc","docx"].includes(ext)) return { icon: "📝", cls: "ftype-doc", label: "Word" };
+  if (["xls","xlsx","csv"].includes(ext)) return { icon: "📊", cls: "ftype-xls", label: "Sheet" };
+  if (["zip","rar","7z"].includes(ext)) return { icon: "🗜️", cls: "ftype-zip", label: "Archive" };
+  return { icon: "📎", cls: "ftype-gen", label: ext?.toUpperCase() || "File" };
+}
+
+function fmtSize(bytes) {
+  if (!bytes) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+const MOODS = [
+  { emoji: "🚀", label: "Productive", key: "productive" },
+  { emoji: "✅", label: "Resolved", key: "resolved" },
+  { emoji: "⚡", label: "Challenged", key: "challenged" },
+  { emoji: "😤", label: "Frustrated", key: "frustrated" },
+  { emoji: "🤝", label: "Collaborative", key: "collaborative" },
+];
+
+const FOCUS_AREAS = [
+  "Test Execution", "Automation", "Code Review", "Mentoring",
+  "Sprint Planning", "Debugging", "CI/CD", "Meetings", "Documentation", "Release"
+];
+
+const TEAM_STATUSES = [
+  { key: "excellent", label: "Excellent", color: T.green },
+  { key: "on_track",  label: "On Track",  color: T.teal  },
+  { key: "needs_help",label: "Needs Help",color: T.gold  },
+  { key: "blocked",   label: "Blocked",   color: T.coral },
+];
+
+const FEEDBACK_TYPES = [
+  { key: "praise",      label: "Praise",      color: T.teal  },
+  { key: "constructive",label: "Constructive",color: T.gold  },
+  { key: "critical",    label: "Critical",    color: T.coral },
+];
+
+const PRIORITIES = [
+  { key: "high",  label: "High", color: T.coral },
+  { key: "medium",label: "Med",  color: T.gold  },
+  { key: "low",   label: "Low",  color: T.teal  },
+];
+
+const statusColor   = (s) => TEAM_STATUSES.find(x => x.key === s)?.color   || T.text3;
+const feedbackColor = (t) => FEEDBACK_TYPES.find(x => x.key === t)?.color  || T.text3;
+const priorityColor = (p) => PRIORITIES.find(x => x.key === p)?.color      || T.text3;
+
+const DOC_CATEGORIES = ["Identity", "Finance", "Legal", "Medical", "Work", "Property", "Travel", "Education", "Other"];
+
+const isConfigured = () => SUPABASE_URL && SUPABASE_ANON_KEY;
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function ConfigBanner() {
+  if (isConfigured()) return null;
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <div className="config-banner">
+      ⚠️ <strong>Setup required:</strong> Open echo-app.jsx and replace <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> with your project credentials. Also run the SQL in the comments and create a public storage bucket named <code>echo-documents</code>.
     </div>
   );
 }
 
-export default App;
+// ─── Dashboard ───────────────────────────────────────────────────────────────
+function Dashboard({ setView, diaryCount, docCount }) {
+  const [recentEntries, setRecentEntries] = useState([]);
+  const [recentDocs, setRecentDocs] = useState([]);
+
+  useEffect(() => {
+    if (!isConfigured()) return;
+    db.from("diary_entries").select("*", { order: "date.desc" }).then(d => setRecentEntries((d || []).slice(0, 3)));
+    db.from("documents").select("*", { order: "created_at.desc" }).then(d => setRecentDocs((d || []).slice(0, 4)));
+  }, []);
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  return (
+    <div className="echo-content fade-in">
+      <ConfigBanner />
+
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ fontSize: 24, fontWeight: 600, color: T.text1 }}>{greeting}</div>
+        <div style={{ fontSize: 14, color: T.text3, marginTop: 4 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</div>
+      </div>
+
+      <div className="grid-4 mb-16">
+        {[
+          { label: "Diary Entries", value: diaryCount, color: T.accent, icon: "📓" },
+          { label: "Documents", value: docCount, color: T.teal, icon: "🗂️" },
+          { label: "This Month", value: recentEntries.filter(e => e.date?.startsWith(new Date().toISOString().slice(0,7))).length, color: T.gold, icon: "📅" },
+          { label: "Today's Date", value: new Date().getDate(), color: T.coral, icon: "📌" },
+        ].map((s) => (
+          <div key={s.label} className="stat-card">
+            <div style={{ fontSize: 22, marginBottom: 8 }}>{s.icon}</div>
+            <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
+            <div className="stat-label">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid-2">
+        <div className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>Recent Diary</div>
+            <button className="btn btn-ghost btn-sm" onClick={() => setView("diary")}>View all →</button>
+          </div>
+          {recentEntries.length === 0
+            ? <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "20px 0" }}>No diary entries yet. Start logging your day.</div>
+            : recentEntries.map(e => (
+              <div key={e.id} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
+                <div className="date-badge">
+                  <div className="date-badge-day">{e.date?.split("-")[2]}</div>
+                  <div className="date-badge-mon">{MONTHS[parseInt(e.date?.split("-")[1]) - 1]}</div>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3, flexWrap: "wrap" }}>
+                    {e.focus_area && <span className="focus-badge" style={{ fontSize: 10, padding: "2px 7px" }}>{e.focus_area}</span>}
+                    {e.mood && <span style={{ fontSize: 13 }}>{MOODS.find(m => m.key === e.mood)?.emoji}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {e.content ? e.content.slice(0, 50) + (e.content.length > 50 ? "…" : "") : "Daily log"}
+                  </div>
+                </div>
+              </div>
+            ))}
+        </div>
+
+        <div className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>Recent Documents</div>
+            <button className="btn btn-ghost btn-sm" onClick={() => setView("locker")}>View all →</button>
+          </div>
+          {recentDocs.length === 0
+            ? <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "20px 0" }}>No documents stored yet. Upload to your DigiLocker.</div>
+            : recentDocs.map(d => {
+              const fi = fileTypeInfo(d.name, d.file_type);
+              return (
+                <div key={d.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
+                  <div className={`doc-icon ${fi.cls}`} style={{ width: 32, height: 32, borderRadius: 7, fontSize: 14, margin: 0 }}>{fi.icon}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</div>
+                    <div style={{ fontSize: 11, color: T.text3 }}>{d.category || "—"} · {fmtSize(d.file_size)}</div>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Diary ───────────────────────────────────────────────────────────────────
+function SectionInput({ children }) {
+  return (
+    <div style={{ background: "rgba(79,142,247,0.04)", border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+      {children}
+    </div>
+  );
+}
+
+function DiaryEntryModal({ entry, previousEntry, onClose, onSave }) {
+  const initCF = !entry && previousEntry?.carry_forward
+    ? previousEntry.carry_forward.filter(i => !i.done).map(i => ({ ...i, done: false }))
+    : [];
+  const initReminders = !entry && previousEntry?.reminders
+    ? previousEntry.reminders.filter(i => !i.checked).map(i => ({ ...i, checked: false }))
+    : [];
+
+  const [form, setForm] = useState(() => entry ? {
+    ...entry,
+    jira_links:     entry.jira_links     || [],
+    collaborators:  entry.collaborators  || [],
+    tags:           entry.tags           || [],
+    team_updates:   entry.team_updates   || [],
+    feedback_given: entry.feedback_given || [],
+    carry_forward:  entry.carry_forward  || [],
+    reminders:      entry.reminders      || [],
+    focus_area:     entry.focus_area     || "",
+    blockers:       entry.blockers       || "",
+    mood:           entry.mood           || "",
+    content:        entry.content        || "",
+  } : {
+    date: today(), focus_area: "", mood: "", content: "", blockers: "",
+    jira_links: [], collaborators: [], tags: [], team_updates: [], feedback_given: [],
+    carry_forward: initCF,
+    reminders: initReminders,
+  });
+
+  const [tab, setTab] = useState("day");
+  const [jiraInput, setJiraInput] = useState("");
+  const [collabInput, setCollabInput] = useState("");
+  const [tagInput, setTagInput] = useState("");
+  const [teamForm, setTeamForm] = useState({ name: "", update: "", status: "on_track" });
+  const [feedbackForm, setFeedbackForm] = useState({ to: "", type: "constructive", note: "" });
+  const [cfInput, setCfInput] = useState("");
+  const [cfPriority, setCfPriority] = useState("medium");
+  const [reminderInput, setReminderInput] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const addJira = () => {
+    const t = jiraInput.trim();
+    if (t && !form.jira_links.includes(t)) { set("jira_links", [...form.jira_links, t]); setJiraInput(""); }
+  };
+  const addCollab = () => {
+    const t = collabInput.trim();
+    if (t && !form.collaborators.includes(t)) { set("collaborators", [...form.collaborators, t]); setCollabInput(""); }
+  };
+  const addTag = () => {
+    const t = tagInput.trim().toLowerCase();
+    if (t && !form.tags.includes(t)) { set("tags", [...form.tags, t]); setTagInput(""); }
+  };
+
+  const addTeamUpdate = () => {
+    if (!teamForm.name.trim() || !teamForm.update.trim()) return;
+    set("team_updates", [...form.team_updates, { ...teamForm }]);
+    setTeamForm({ name: "", update: "", status: "on_track" });
+  };
+  const removeTeamUpdate = (idx) => set("team_updates", form.team_updates.filter((_, i) => i !== idx));
+
+  const addFeedback = () => {
+    if (!feedbackForm.to.trim() || !feedbackForm.note.trim()) return;
+    set("feedback_given", [...form.feedback_given, { ...feedbackForm }]);
+    setFeedbackForm({ to: "", type: "constructive", note: "" });
+  };
+  const removeFeedback = (idx) => set("feedback_given", form.feedback_given.filter((_, i) => i !== idx));
+
+  const addCarryForward = () => {
+    if (!cfInput.trim()) return;
+    set("carry_forward", [...form.carry_forward, { text: cfInput.trim(), done: false, priority: cfPriority }]);
+    setCfInput("");
+  };
+  const toggleCF = (idx) => set("carry_forward", form.carry_forward.map((item, i) => i === idx ? { ...item, done: !item.done } : item));
+  const removeCF = (idx) => set("carry_forward", form.carry_forward.filter((_, i) => i !== idx));
+
+  const addReminder = () => {
+    if (!reminderInput.trim()) return;
+    set("reminders", [...form.reminders, { text: reminderInput.trim(), checked: false }]);
+    setReminderInput("");
+  };
+  const toggleReminder = (idx) => set("reminders", form.reminders.map((item, i) => i === idx ? { ...item, checked: !item.checked } : item));
+  const removeReminder = (idx) => set("reminders", form.reminders.filter((_, i) => i !== idx));
+
+  const save = async () => {
+    if (!form.date) return;
+    setSaving(true);
+    await onSave({ ...form, title: fmtDate(form.date) });
+    setSaving(false);
+    onClose();
+  };
+
+  const pendingCF = form.carry_forward.filter(i => !i.done).length;
+  const pendingR  = form.reminders.filter(i => !i.checked).length;
+
+  const TABS = [
+    { key: "day",     label: "My Day" },
+    { key: "team",    label: `Team${form.team_updates.length > 0 ? ` (${form.team_updates.length})` : ""}` },
+    { key: "actions", label: `Actions${pendingCF + pendingR > 0 ? ` · ${pendingCF + pendingR} open` : ""}` },
+  ];
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 680 }}>
+        <div className="modal-title">
+          <span>{entry ? "Edit Entry" : "New Entry"}</span>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="diary-tabs">
+          {TABS.map(t => (
+            <button key={t.key} className={`diary-tab${tab === t.key ? " active" : ""}`} onClick={() => setTab(t.key)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── My Day ── */}
+        {tab === "day" && (
+          <div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Date *</label>
+                <input type="date" className="form-input" value={form.date} onChange={e => set("date", e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Focus Area</label>
+                <select className="form-select" value={form.focus_area} onChange={e => set("focus_area", e.target.value)}>
+                  <option value="">— Select —</option>
+                  {FOCUS_AREAS.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Energy / Mood</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {MOODS.map(m => (
+                  <button key={m.key} className={`mood-btn${form.mood === m.key ? " selected" : ""}`} title={m.label}
+                    onClick={() => set("mood", form.mood === m.key ? "" : m.key)}>
+                    {m.emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">What I Did Today</label>
+              <textarea className="form-textarea" style={{ minHeight: 110 }}
+                placeholder="Key tasks, PRs reviewed, tests written, pipeline changes, decisions made..."
+                value={form.content || ""} onChange={e => set("content", e.target.value)} />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Blockers</label>
+              <textarea className="form-textarea" style={{ minHeight: 60 }}
+                placeholder="Dependencies, missing access, unclear requirements, anything slowing progress..."
+                value={form.blockers || ""} onChange={e => set("blockers", e.target.value)} />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Jira Tickets</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type="text" className="form-input" placeholder="Ticket ID or URL (e.g. PROJ-123)" value={jiraInput}
+                  onChange={e => setJiraInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addJira())} />
+                <button className="btn btn-ghost btn-sm" onClick={addJira}>Add</button>
+              </div>
+              {form.jira_links.length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                  {form.jira_links.map(l => (
+                    <span key={l} className="ticket-chip" style={{ cursor: "pointer" }} onClick={() => set("jira_links", form.jira_links.filter(x => x !== l))}>
+                      {l} ✕
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Collaborators</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type="text" className="form-input" placeholder="Names of people you worked with" value={collabInput}
+                  onChange={e => setCollabInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addCollab())} />
+                <button className="btn btn-ghost btn-sm" onClick={addCollab}>Add</button>
+              </div>
+              {form.collaborators.length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                  {form.collaborators.map(c => (
+                    <span key={c} className="tag tag-blue" style={{ cursor: "pointer" }} onClick={() => set("collaborators", form.collaborators.filter(x => x !== c))}>
+                      👤 {c} ✕
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Tags</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type="text" className="form-input" placeholder="Add tag, press Enter" value={tagInput}
+                  onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addTag())} />
+                <button className="btn btn-ghost btn-sm" onClick={addTag}>Add</button>
+              </div>
+              {form.tags.length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                  {form.tags.map(t => (
+                    <span key={t} className="tag tag-teal" style={{ cursor: "pointer" }} onClick={() => set("tags", form.tags.filter(x => x !== t))}>
+                      {t} ✕
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Team ── */}
+        {tab === "team" && (
+          <div>
+            <div className="diary-section-heading">Team Progress</div>
+            <SectionInput>
+              <div className="grid-2" style={{ marginBottom: 10 }}>
+                <div>
+                  <label className="form-label">Member</label>
+                  <input type="text" className="form-input" placeholder="Name" value={teamForm.name}
+                    onChange={e => setTeamForm(f => ({ ...f, name: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">Status</label>
+                  <select className="form-select" value={teamForm.status} onChange={e => setTeamForm(f => ({ ...f, status: e.target.value }))}>
+                    {TEAM_STATUSES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label className="form-label">Progress / Update</label>
+                <textarea className="form-textarea" style={{ minHeight: 60 }} placeholder="What did this person work on or accomplish?"
+                  value={teamForm.update} onChange={e => setTeamForm(f => ({ ...f, update: e.target.value }))} />
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={addTeamUpdate}>+ Log Update</button>
+            </SectionInput>
+            {form.team_updates.length === 0
+              ? <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "12px 0 20px" }}>No team updates logged yet.</div>
+              : form.team_updates.map((u, idx) => (
+                <div key={idx} className="team-card" style={{ borderLeft: `3px solid ${statusColor(u.status)}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 5 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: T.text1 }}>👤 {u.name}</span>
+                      <span className="status-badge" style={{ background: `${statusColor(u.status)}18`, color: statusColor(u.status), borderColor: `${statusColor(u.status)}40` }}>
+                        {TEAM_STATUSES.find(s => s.key === u.status)?.label}
+                      </span>
+                    </div>
+                    <button className="btn btn-ghost btn-sm" style={{ padding: "1px 6px", fontSize: 11 }} onClick={() => removeTeamUpdate(idx)}>✕</button>
+                  </div>
+                  <div style={{ fontSize: 13, color: T.text2 }}>{u.update}</div>
+                </div>
+              ))
+            }
+
+            <div className="diary-section-heading" style={{ marginTop: 24 }}>Feedback Given</div>
+            <SectionInput>
+              <div className="grid-2" style={{ marginBottom: 10 }}>
+                <div>
+                  <label className="form-label">To</label>
+                  <input type="text" className="form-input" placeholder="Recipient" value={feedbackForm.to}
+                    onChange={e => setFeedbackForm(f => ({ ...f, to: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">Type</label>
+                  <select className="form-select" value={feedbackForm.type} onChange={e => setFeedbackForm(f => ({ ...f, type: e.target.value }))}>
+                    {FEEDBACK_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label className="form-label">Note</label>
+                <textarea className="form-textarea" style={{ minHeight: 60 }} placeholder="What feedback did you give?"
+                  value={feedbackForm.note} onChange={e => setFeedbackForm(f => ({ ...f, note: e.target.value }))} />
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={addFeedback}>+ Log Feedback</button>
+            </SectionInput>
+            {form.feedback_given.length === 0
+              ? <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "12px 0 20px" }}>No feedback logged yet.</div>
+              : form.feedback_given.map((fb, idx) => (
+                <div key={idx} className="team-card" style={{ borderLeft: `3px solid ${feedbackColor(fb.type)}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 5 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: T.text1 }}>→ {fb.to}</span>
+                      <span className="status-badge" style={{ background: `${feedbackColor(fb.type)}18`, color: feedbackColor(fb.type), borderColor: `${feedbackColor(fb.type)}40` }}>
+                        {FEEDBACK_TYPES.find(t => t.key === fb.type)?.label}
+                      </span>
+                    </div>
+                    <button className="btn btn-ghost btn-sm" style={{ padding: "1px 6px", fontSize: 11 }} onClick={() => removeFeedback(idx)}>✕</button>
+                  </div>
+                  <div style={{ fontSize: 13, color: T.text2 }}>{fb.note}</div>
+                </div>
+              ))
+            }
+          </div>
+        )}
+
+        {/* ── Actions ── */}
+        {tab === "actions" && (
+          <div>
+            <div className="diary-section-heading">
+              Carry Forward
+              {!entry && initCF.length > 0 && (
+                <span style={{ fontSize: 11, color: T.gold, marginLeft: 8, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+                  ↑ {initCF.length} rolled from previous entry
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <input type="text" className="form-input" placeholder="Something to pick up tomorrow..." value={cfInput}
+                onChange={e => setCfInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addCarryForward())} />
+              <select className="form-select" style={{ width: 80 }} value={cfPriority} onChange={e => setCfPriority(e.target.value)}>
+                {PRIORITIES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+              <button className="btn btn-ghost btn-sm" onClick={addCarryForward}>Add</button>
+            </div>
+            {form.carry_forward.length === 0
+              ? <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "12px 0 20px" }}>Nothing to carry forward.</div>
+              : form.carry_forward.map((item, idx) => (
+                <div key={idx} className="checklist-item">
+                  <input type="checkbox" checked={item.done} onChange={() => toggleCF(idx)} style={{ accentColor: T.accent, width: 15, height: 15, flexShrink: 0, cursor: "pointer" }} />
+                  <span style={{ flex: 1, fontSize: 13, color: item.done ? T.text3 : T.text1, textDecoration: item.done ? "line-through" : "none" }}>{item.text}</span>
+                  <span className="status-badge" style={{ background: `${priorityColor(item.priority)}18`, color: priorityColor(item.priority), borderColor: `${priorityColor(item.priority)}40` }}>
+                    {item.priority}
+                  </span>
+                  <button className="btn btn-ghost btn-sm" style={{ padding: "1px 6px", fontSize: 11 }} onClick={() => removeCF(idx)}>✕</button>
+                </div>
+              ))
+            }
+
+            <div className="diary-section-heading" style={{ marginTop: 24 }}>
+              Reminders & Checks
+              {!entry && initReminders.length > 0 && (
+                <span style={{ fontSize: 11, color: T.gold, marginLeft: 8, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+                  ↑ {initReminders.length} rolled from previous entry
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <input type="text" className="form-input" placeholder="Check deployment status, follow up on PR..." value={reminderInput}
+                onChange={e => setReminderInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addReminder())} />
+              <button className="btn btn-ghost btn-sm" onClick={addReminder}>Add</button>
+            </div>
+            {form.reminders.length === 0
+              ? <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "12px 0 20px" }}>No reminders set.</div>
+              : form.reminders.map((item, idx) => (
+                <div key={idx} className="checklist-item">
+                  <input type="checkbox" checked={item.checked} onChange={() => toggleReminder(idx)} style={{ accentColor: T.accent, width: 15, height: 15, flexShrink: 0, cursor: "pointer" }} />
+                  <span style={{ flex: 1, fontSize: 13, color: item.checked ? T.text3 : T.text1, textDecoration: item.checked ? "line-through" : "none" }}>{item.text}</span>
+                  <button className="btn btn-ghost btn-sm" style={{ padding: "1px 6px", fontSize: 11 }} onClick={() => removeReminder(idx)}>✕</button>
+                </div>
+              ))
+            }
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving || !form.date}>
+            {saving ? "Saving…" : entry ? "Update Entry" : "Save Entry"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Diary({ onCountChange }) {
+  const [entries, setEntries] = useState([]);
+  const [prevEntry, setPrevEntry] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [modal, setModal] = useState(null);
+  const [viewEntry, setViewEntry] = useState(null);
+  const [filterMood, setFilterMood] = useState("");
+  const [filterFocus, setFilterFocus] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    if (!isConfigured()) { setLoading(false); return; }
+    const d = await db.from("diary_entries").select("*", { order: "date.desc" });
+    setEntries(d || []);
+    setPrevEntry(d?.[0] || null);
+    onCountChange?.(d?.length || 0);
+    setLoading(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async (form) => {
+    if (form.id) {
+      const { id, ...rest } = form;
+      await db.from("diary_entries").update(rest, id);
+    } else {
+      await db.from("diary_entries").insert(form);
+    }
+    load();
+  };
+
+  const del = async (id) => {
+    if (!window.confirm("Delete this entry?")) return;
+    await db.from("diary_entries").delete(id);
+    setViewEntry(null);
+    load();
+  };
+
+  const filtered = entries.filter(e => {
+    const q = search.toLowerCase();
+    const matchSearch = !q ||
+      e.content?.toLowerCase().includes(q) ||
+      e.focus_area?.toLowerCase().includes(q) ||
+      e.blockers?.toLowerCase().includes(q) ||
+      e.tags?.some(t => t.toLowerCase().includes(q)) ||
+      e.jira_links?.some(l => l.toLowerCase().includes(q)) ||
+      e.collaborators?.some(c => c.toLowerCase().includes(q)) ||
+      e.team_updates?.some(u => u.name?.toLowerCase().includes(q) || u.update?.toLowerCase().includes(q)) ||
+      e.feedback_given?.some(f => f.to?.toLowerCase().includes(q) || f.note?.toLowerCase().includes(q)) ||
+      e.carry_forward?.some(i => i.text?.toLowerCase().includes(q)) ||
+      e.reminders?.some(i => i.text?.toLowerCase().includes(q));
+    const matchMood  = !filterMood  || e.mood       === filterMood;
+    const matchFocus = !filterFocus || e.focus_area === filterFocus;
+    return matchSearch && matchMood && matchFocus;
+  });
+
+  return (
+    <div className="echo-content fade-in">
+      <ConfigBanner />
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
+        <div className="search-bar" style={{ flex: 1, minWidth: 220 }}>
+          <span style={{ color: T.text3, fontSize: 16 }}>🔍</span>
+          <input placeholder="Search notes, tickets, team members, tags…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <select className="form-select" style={{ width: 150 }} value={filterFocus} onChange={e => setFilterFocus(e.target.value)}>
+          <option value="">All focus areas</option>
+          {FOCUS_AREAS.map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+        <select className="form-select" style={{ width: 140 }} value={filterMood} onChange={e => setFilterMood(e.target.value)}>
+          <option value="">All moods</option>
+          {MOODS.map(m => <option key={m.key} value={m.key}>{m.emoji} {m.label}</option>)}
+        </select>
+        <button className="btn btn-primary" onClick={() => setModal("new")}>+ New Entry</button>
+      </div>
+
+      {loading && <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>Loading entries…</div>}
+
+      {!loading && filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "60px 20px", color: T.text3 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📓</div>
+          <div style={{ fontSize: 16, color: T.text2, marginBottom: 6 }}>{search ? "No entries match your search" : "No diary entries yet"}</div>
+          <div style={{ fontSize: 13 }}>{!search && "Start documenting your work day by day."}</div>
+          {!search && <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => setModal("new")}>Log Today</button>}
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {filtered.map(e => {
+          const mood = MOODS.find(m => m.key === e.mood);
+          const pendingCF = e.carry_forward?.filter(i => !i.done).length || 0;
+          const pendingR  = e.reminders?.filter(i => !i.checked).length || 0;
+          return (
+            <div key={e.id} className="diary-entry" onClick={() => setViewEntry(e)}>
+              <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                <div className="date-badge">
+                  <div className="date-badge-day">{e.date?.split("-")[2]}</div>
+                  <div className="date-badge-mon">{MONTHS[parseInt(e.date?.split("-")[1]) - 1]}</div>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                    {e.focus_area && <span className="focus-badge">{e.focus_area}</span>}
+                    {mood && <span title={mood.label} style={{ fontSize: 15 }}>{mood.emoji}</span>}
+                    <div style={{ marginLeft: "auto", display: "flex", gap: 5 }}>
+                      {(e.team_updates?.length || 0) > 0 && (
+                        <span className="entry-stat-badge">👥 {e.team_updates.length}</span>
+                      )}
+                      {pendingCF > 0 && <span className="entry-stat-badge" style={{ color: T.gold, borderColor: "rgba(232,198,106,0.25)" }}>⬆ {pendingCF}</span>}
+                      {pendingR  > 0 && <span className="entry-stat-badge" style={{ color: T.coral, borderColor: "rgba(240,117,98,0.25)" }}>🔔 {pendingR}</span>}
+                    </div>
+                  </div>
+                  {e.content && (
+                    <div style={{ fontSize: 13, color: T.text2, marginBottom: 6, lineHeight: 1.5 }}>
+                      {e.content.slice(0, 85)}{e.content.length > 85 ? "…" : ""}
+                    </div>
+                  )}
+                  {e.blockers && (
+                    <div style={{ fontSize: 12, color: T.coral, marginBottom: 5 }}>⚠ {e.blockers.slice(0, 60)}{e.blockers.length > 60 ? "…" : ""}</div>
+                  )}
+                  {e.jira_links?.length > 0 && (
+                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
+                      {e.jira_links.map(l => <span key={l} className="ticket-chip">{l}</span>)}
+                    </div>
+                  )}
+                  {e.collaborators?.length > 0 && (
+                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
+                      {e.collaborators.slice(0, 4).map(c => <span key={c} className="tag tag-blue">👤 {c}</span>)}
+                      {e.collaborators.length > 4 && <span className="tag tag-blue">+{e.collaborators.length - 4}</span>}
+                    </div>
+                  )}
+                  {e.tags?.length > 0 && (
+                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                      {e.tags.map(t => <span key={t} className="tag tag-teal">{t}</span>)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {(modal === "new" || modal?.id) && (
+        <DiaryEntryModal
+          entry={modal !== "new" ? modal : null}
+          previousEntry={modal === "new" ? prevEntry : null}
+          onClose={() => setModal(null)}
+          onSave={save}
+        />
+      )}
+
+      {viewEntry && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setViewEntry(null)}>
+          <div className="modal" style={{ maxWidth: 700 }}>
+
+            {/* Header */}
+            <div className="modal-title">
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 6 }}>{fmtDate(viewEntry.date)}</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  {viewEntry.focus_area && <span className="focus-badge">{viewEntry.focus_area}</span>}
+                  {viewEntry.mood && (
+                    <span style={{ fontSize: 13, color: T.text3 }}>
+                      {MOODS.find(m => m.key === viewEntry.mood)?.emoji} {MOODS.find(m => m.key === viewEntry.mood)?.label}
+                    </span>
+                  )}
+                  {(viewEntry.jira_links?.length > 0 || viewEntry.collaborators?.length > 0 || viewEntry.tags?.length > 0) && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {viewEntry.jira_links?.map(l => (
+                        <a key={l} href={l.startsWith("http") ? l : `#`} target="_blank" rel="noreferrer"
+                          className="ticket-chip" style={{ textDecoration: "none" }}>{l}</a>
+                      ))}
+                      {viewEntry.collaborators?.map(c => <span key={c} className="tag tag-blue">👤 {c}</span>)}
+                      {viewEntry.tags?.map(t => <span key={t} className="tag tag-teal">{t}</span>)}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setViewEntry(null)}>✕</button>
+            </div>
+
+            {/* What I Did */}
+            {viewEntry.content && (
+              <div style={{ marginBottom: 18 }}>
+                <div className="diary-section-heading">What I Did</div>
+                <div style={{ fontSize: 14, color: T.text2, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{viewEntry.content}</div>
+              </div>
+            )}
+
+            {/* Blockers */}
+            {viewEntry.blockers && (
+              <div style={{ background: "rgba(240,117,98,0.06)", border: "1px solid rgba(240,117,98,0.2)", borderRadius: 8, padding: "11px 14px", marginBottom: 16 }}>
+                <div style={{ fontSize: 10, color: T.coral, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 5, fontWeight: 600 }}>Blockers</div>
+                <div style={{ fontSize: 14, color: T.text2 }}>{viewEntry.blockers}</div>
+              </div>
+            )}
+
+            {/* Team Progress */}
+            {viewEntry.team_updates?.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div className="diary-section-heading">Team Progress</div>
+                {viewEntry.team_updates.map((u, i) => (
+                  <div key={i} className="team-card" style={{ borderLeft: `3px solid ${statusColor(u.status)}` }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: T.text1 }}>👤 {u.name}</span>
+                      <span className="status-badge" style={{ background: `${statusColor(u.status)}18`, color: statusColor(u.status), borderColor: `${statusColor(u.status)}40` }}>
+                        {TEAM_STATUSES.find(s => s.key === u.status)?.label}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13, color: T.text2 }}>{u.update}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Feedback Given */}
+            {viewEntry.feedback_given?.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div className="diary-section-heading">Feedback Given</div>
+                {viewEntry.feedback_given.map((fb, i) => (
+                  <div key={i} className="team-card" style={{ borderLeft: `3px solid ${feedbackColor(fb.type)}` }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: T.text1 }}>→ {fb.to}</span>
+                      <span className="status-badge" style={{ background: `${feedbackColor(fb.type)}18`, color: feedbackColor(fb.type), borderColor: `${feedbackColor(fb.type)}40` }}>
+                        {FEEDBACK_TYPES.find(t => t.key === fb.type)?.label}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13, color: T.text2 }}>{fb.note}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Carry Forward */}
+            {viewEntry.carry_forward?.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div className="diary-section-heading">Carry Forward</div>
+                {viewEntry.carry_forward.map((item, i) => (
+                  <div key={i} className="checklist-item">
+                    <span style={{ fontSize: 14 }}>{item.done ? "✅" : "⬜"}</span>
+                    <span style={{ flex: 1, fontSize: 13, color: item.done ? T.text3 : T.text1, textDecoration: item.done ? "line-through" : "none" }}>{item.text}</span>
+                    <span className="status-badge" style={{ background: `${priorityColor(item.priority)}18`, color: priorityColor(item.priority), borderColor: `${priorityColor(item.priority)}40` }}>
+                      {item.priority}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Reminders */}
+            {viewEntry.reminders?.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div className="diary-section-heading">Reminders & Checks</div>
+                {viewEntry.reminders.map((item, i) => (
+                  <div key={i} className="checklist-item">
+                    <span style={{ fontSize: 14 }}>{item.checked ? "✅" : "🔔"}</span>
+                    <span style={{ flex: 1, fontSize: 13, color: item.checked ? T.text3 : T.text1, textDecoration: item.checked ? "line-through" : "none" }}>{item.text}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <hr className="divider" style={{ margin: "16px 0 12px" }} />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="btn btn-danger btn-sm" onClick={() => del(viewEntry.id)}>Delete</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setModal(viewEntry); setViewEntry(null); }}>Edit</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DigiLocker ───────────────────────────────────────────────────────────────
+function UploadModal({ onClose, onSave }) {
+  const [file, setFile] = useState(null);
+  const [form, setForm] = useState({ name: "", category: "", description: "", tags: [] });
+  const [tagInput, setTagInput] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef();
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleFile = (f) => {
+    setFile(f);
+    if (!form.name) set("name", f.name.replace(/\.[^.]+$/, ""));
+  };
+
+  const addTag = () => {
+    const t = tagInput.trim().toLowerCase();
+    if (t && !form.tags.includes(t)) { set("tags", [...form.tags, t]); setTagInput(""); }
+  };
+
+  const upload = async () => {
+    if (!file || !form.name.trim()) return;
+    setUploading(true);
+    const path = `${Date.now()}-${file.name}`;
+    const uploadRes = await db.storage.upload(path, file);
+    if (uploadRes.error) { alert("Upload failed: " + uploadRes.error.message); setUploading(false); return; }
+    await db.from("documents").insert({
+      name: form.name.trim(),
+      category: form.category,
+      description: form.description,
+      file_path: path,
+      file_size: file.size,
+      file_type: file.type,
+      tags: form.tags,
+    });
+    setUploading(false);
+    onSave();
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-title">
+          <span>Upload Document</span>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+
+        {!file ? (
+          <div
+            className={`upload-zone ${dragOver ? "drag-over" : ""}`}
+            onClick={() => inputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={e => { e.preventDefault(); setDragOver(false); e.dataTransfer.files[0] && handleFile(e.dataTransfer.files[0]); }}
+          >
+            <div style={{ fontSize: 36, marginBottom: 12 }}>📤</div>
+            <div style={{ fontSize: 15, color: T.text1, marginBottom: 6 }}>Drop file here or click to browse</div>
+            <div style={{ fontSize: 12, color: T.text3 }}>PDF, Word, Excel, Images, Archives — any file type</div>
+            <input ref={inputRef} type="file" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
+          </div>
+        ) : (
+          <div style={{ background: "rgba(79,142,247,0.07)", border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "flex", gap: 12, alignItems: "center" }}>
+            <div style={{ fontSize: 24 }}>{fileTypeInfo(file.name).icon}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, color: T.text1 }}>{file.name}</div>
+              <div style={{ fontSize: 11, color: T.text3 }}>{fmtSize(file.size)}</div>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={() => setFile(null)}>✕</button>
+          </div>
+        )}
+
+        <div className="form-group">
+          <label className="form-label">Document Name *</label>
+          <input type="text" className="form-input" placeholder="e.g. Aadhar Card, Offer Letter…" value={form.name} onChange={e => set("name", e.target.value)} />
+        </div>
+
+        <div className="grid-2">
+          <div className="form-group">
+            <label className="form-label">Category</label>
+            <select className="form-select" value={form.category} onChange={e => set("category", e.target.value)}>
+              <option value="">Select…</option>
+              {DOC_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Tags</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input type="text" className="form-input" placeholder="Enter tag" value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addTag())} />
+              <button className="btn btn-ghost btn-sm" onClick={addTag}>+</button>
+            </div>
+          </div>
+        </div>
+
+        {form.tags.length > 0 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+            {form.tags.map(t => <span key={t} className="tag tag-blue" style={{ cursor: "pointer" }} onClick={() => set("tags", form.tags.filter(x => x !== t))}>{t} ✕</span>)}
+          </div>
+        )}
+
+        <div className="form-group">
+          <label className="form-label">Description</label>
+          <textarea className="form-textarea" style={{ minHeight: 70 }} placeholder="Brief note about this document…" value={form.description} onChange={e => set("description", e.target.value)} />
+        </div>
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={upload} disabled={!file || !form.name.trim() || uploading}>
+            {uploading ? "Uploading…" : "Upload Document"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DigiLocker({ onCountChange }) {
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [filterCat, setFilterCat] = useState("");
+  const [showUpload, setShowUpload] = useState(false);
+  const [viewDoc, setViewDoc] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    if (!isConfigured()) { setLoading(false); return; }
+    const d = await db.from("documents").select("*", { order: "created_at.desc" });
+    setDocs(d || []);
+    onCountChange?.(d?.length || 0);
+    setLoading(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const del = async (doc) => {
+    if (!window.confirm(`Delete "${doc.name}"?`)) return;
+    await db.storage.remove([doc.file_path]);
+    await db.from("documents").delete(doc.id);
+    setViewDoc(null);
+    load();
+  };
+
+  const filtered = docs.filter(d => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || d.name?.toLowerCase().includes(q) || d.description?.toLowerCase().includes(q) || d.tags?.some(t => t.includes(q));
+    const matchCat = !filterCat || d.category === filterCat;
+    return matchSearch && matchCat;
+  });
+
+  const categories = [...new Set(docs.map(d => d.category).filter(Boolean))];
+
+  return (
+    <div className="echo-content fade-in">
+      <ConfigBanner />
+
+      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+        <div className="search-bar" style={{ flex: 1, minWidth: 220 }}>
+          <span style={{ color: T.text3 }}>🔍</span>
+          <input placeholder="Search documents, tags, categories…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <select className="form-select" style={{ width: 150 }} value={filterCat} onChange={e => setFilterCat(e.target.value)}>
+          <option value="">All categories</option>
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <button className="btn btn-primary" onClick={() => setShowUpload(true)}>+ Upload</button>
+      </div>
+
+      {categories.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
+          {["All", ...categories].map(c => (
+            <button key={c} className="btn btn-ghost btn-sm" style={filterCat === (c === "All" ? "" : c) ? { borderColor: T.accent, color: T.accent } : {}}
+              onClick={() => setFilterCat(c === "All" ? "" : c)}>{c}</button>
+          ))}
+        </div>
+      )}
+
+      {loading && <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>Loading documents…</div>}
+
+      {!loading && filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "60px 20px", color: T.text3 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🗂️</div>
+          <div style={{ fontSize: 16, color: T.text2, marginBottom: 6 }}>{search ? "No documents match" : "DigiLocker is empty"}</div>
+          <div style={{ fontSize: 13 }}>{!search && "Upload your important documents for secure, easy retrieval."}</div>
+          {!search && <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => setShowUpload(true)}>Upload First Document</button>}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
+        {filtered.map(d => {
+          const fi = fileTypeInfo(d.name, d.file_type);
+          return (
+            <div key={d.id} className="doc-card" onClick={() => setViewDoc(d)}>
+              <div className={`doc-icon ${fi.cls}`}>{fi.icon}</div>
+              <div style={{ fontSize: 14, fontWeight: 500, color: T.text1, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</div>
+              {d.category && <div style={{ fontSize: 11, color: T.text3, marginBottom: 6 }}>{d.category}</div>}
+              <div style={{ fontSize: 11, color: T.text3 }}>{fmtSize(d.file_size)}</div>
+              {d.tags?.length > 0 && (
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}>
+                  {d.tags.slice(0, 2).map(t => <span key={t} className="tag tag-teal" style={{ fontSize: 10 }}>{t}</span>)}
+                  {d.tags.length > 2 && <span className="tag tag-teal" style={{ fontSize: 10 }}>+{d.tags.length - 2}</span>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {showUpload && <UploadModal onClose={() => setShowUpload(false)} onSave={load} />}
+
+      {viewDoc && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setViewDoc(null)}>
+          <div className="modal" style={{ maxWidth: 500 }}>
+            <div className="modal-title">
+              <span>Document Details</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => setViewDoc(null)}>✕</button>
+            </div>
+
+            <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 20 }}>
+              <div className={`doc-icon ${fileTypeInfo(viewDoc.name, viewDoc.file_type).cls}`} style={{ width: 56, height: 56, borderRadius: 12, fontSize: 26 }}>
+                {fileTypeInfo(viewDoc.name, viewDoc.file_type).icon}
+              </div>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 600, color: T.text1 }}>{viewDoc.name}</div>
+                {viewDoc.category && <span className="tag tag-blue" style={{ marginTop: 4, display: "inline-flex" }}>{viewDoc.category}</span>}
+              </div>
+            </div>
+
+            {[
+              ["File Type", fileTypeInfo(viewDoc.name).label],
+              ["File Size", fmtSize(viewDoc.file_size)],
+              ["Uploaded", viewDoc.created_at ? new Date(viewDoc.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"],
+            ].map(([k, v]) => (
+              <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: `1px solid ${T.border}`, fontSize: 14 }}>
+                <span style={{ color: T.text3 }}>{k}</span>
+                <span style={{ color: T.text1 }}>{v}</span>
+              </div>
+            ))}
+
+            {viewDoc.description && (
+              <div style={{ marginTop: 14, fontSize: 13, color: T.text2, lineHeight: 1.6 }}>{viewDoc.description}</div>
+            )}
+
+            {viewDoc.tags?.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 14 }}>
+                {viewDoc.tags.map(t => <span key={t} className="tag tag-teal">{t}</span>)}
+              </div>
+            )}
+
+            <hr className="divider" />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="btn btn-danger btn-sm" onClick={() => del(viewDoc)}>Delete</button>
+              <a href={db.storage.getPublicUrl(viewDoc.file_path)} target="_blank" rel="noopener noreferrer">
+                <button className="btn btn-primary btn-sm">Open / Download ↗</button>
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+function AuthPage({ onLogin }) {
+  const [tab, setTab] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState({ text: "", type: "" }); // type: error | info
+
+  const submit = async () => {
+    if (!email.trim() || !password.trim()) {
+      setMessage({ text: "Email and password are required.", type: "error" });
+      return;
+    }
+    setLoading(true);
+    setMessage({ text: "", type: "" });
+
+    const data = tab === "login"
+      ? await db.auth.signIn(email.trim(), password)
+      : await db.auth.signUp(email.trim(), password);
+
+    setLoading(false);
+
+    if (data.access_token) {
+      localStorage.setItem("echo_token", data.access_token);
+      onLogin(data.user);
+    } else if (tab === "signup" && data.id && !data.access_token) {
+      setMessage({ text: "Account created! Check your email to confirm, then sign in.", type: "info" });
+      setTab("login");
+    } else {
+      const msg = data.error_description || data.msg || data.message || data.error || "Authentication failed. Check your credentials.";
+      setMessage({ text: msg, type: "error" });
+    }
+  };
+
+  const inp = {
+    width: "100%", background: T.navy0, border: `1px solid ${T.border}`, borderRadius: 8,
+    color: T.text1, fontFamily: "'DM Sans', sans-serif", fontSize: 14,
+    padding: "10px 12px", outline: "none", boxSizing: "border-box",
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: T.navy0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', sans-serif", padding: 20 }}>
+      <div style={{ width: "100%", maxWidth: 380, background: T.navy1, border: `1px solid ${T.border}`, borderRadius: 16, padding: 36, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
+
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 34, color: T.text1, marginBottom: 4 }}>echo</div>
+          <div style={{ fontSize: 11, color: T.text3, letterSpacing: 2, textTransform: "uppercase" }}>Personal Workspace</div>
+        </div>
+
+        <div style={{ display: "flex", background: T.navy2, borderRadius: 8, padding: 3, marginBottom: 24 }}>
+          {["login", "signup"].map(t => (
+            <button key={t} onClick={() => { setTab(t); setMessage({ text: "", type: "" }); }} style={{
+              flex: 1, padding: "8px 0", borderRadius: 6, border: "none", cursor: "pointer",
+              fontSize: 13, fontWeight: 500, fontFamily: "'DM Sans', sans-serif",
+              background: tab === t ? T.navy0 : "transparent",
+              color: tab === t ? T.text1 : T.text3, transition: "all 0.15s",
+            }}>
+              {t === "login" ? "Sign In" : "Create Account"}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 11, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Email</label>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && submit()} placeholder="your@email.com" style={inp} />
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: "block", fontSize: 11, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Password</label>
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && submit()} placeholder="••••••••" style={inp} />
+        </div>
+
+        {message.text && (
+          <div style={{
+            background: message.type === "error" ? "rgba(240,117,98,0.08)" : "rgba(63,207,180,0.08)",
+            border: `1px solid ${message.type === "error" ? "rgba(240,117,98,0.3)" : "rgba(63,207,180,0.3)"}`,
+            borderRadius: 8, padding: "10px 12px", marginBottom: 16,
+            fontSize: 13, color: message.type === "error" ? T.coral : T.teal, lineHeight: 1.5,
+          }}>
+            {message.text}
+          </div>
+        )}
+
+        <button onClick={submit} disabled={loading} style={{
+          width: "100%", padding: "11px 0", background: loading ? T.navy3 : T.accent,
+          color: loading ? T.text3 : "#fff", border: "none", borderRadius: 8,
+          fontSize: 14, fontWeight: 500, cursor: loading ? "not-allowed" : "pointer",
+          fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s",
+        }}>
+          {loading ? "Please wait…" : tab === "login" ? "Sign In →" : "Create Account"}
+        </button>
+
+        {tab === "signup" && (
+          <div style={{ fontSize: 12, color: T.text3, textAlign: "center", marginTop: 14, lineHeight: 1.5 }}>
+            By signing up you agree that this is a personal workspace. Supabase email confirmation may be required.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── App Shell ────────────────────────────────────────────────────────────────
+const NAV = [
+  { id: "dashboard", label: "Dashboard", icon: "🏠", section: "Overview" },
+  { id: "diary", label: "Corporate Diary", icon: "📓", dot: T.accent, section: "Modules" },
+  { id: "locker", label: "DigiLocker", icon: "🗂️", dot: T.teal, section: "Modules" },
+];
+
+const PAGE_META = {
+  dashboard: { title: "Dashboard", sub: "Your personal command centre" },
+  diary: { title: "Corporate Diary", sub: "Daily work log — tickets, feedback, notes" },
+  locker: { title: "DigiLocker", sub: "Secure document storage & retrieval" },
+};
+
+export default function Echo() {
+  useEffect(() => { injectStyles(); }, []);
+  const [view, setView]         = useState("dashboard");
+  const [diaryCount, setDiaryCount] = useState(0);
+  const [docCount, setDocCount]     = useState(0);
+  const [user, setUser]             = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    db.auth.getUser().then(u => {
+      if (u?.id) setUser(u);
+      setAuthLoading(false);
+    }).catch(() => setAuthLoading(false));
+  }, []);
+
+  const logout = async () => {
+    await db.auth.signOut();
+    setUser(null);
+    setView("dashboard");
+    setDiaryCount(0);
+    setDocCount(0);
+  };
+
+  if (authLoading) return (
+    <div style={{ minHeight: "100vh", background: T.navy0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', sans-serif" }}>
+      <div style={{ color: T.text3, fontSize: 14 }}>Loading…</div>
+    </div>
+  );
+
+  if (!user) return <AuthPage onLogin={u => { setUser(u); }} />;
+
+  const isOwner = user.email === OWNER_EMAIL;
+  const visibleNav = NAV.filter(n => n.id !== "locker" || isOwner);
+  const sections   = [...new Set(visibleNav.map(n => n.section))];
+
+  return (
+    <div className="echo-root">
+      <aside className="echo-sidebar">
+        <div className="echo-logo">
+          <div className="echo-logo-text">echo</div>
+          <div className="echo-logo-sub">Personal workspace</div>
+        </div>
+
+        <nav className="echo-nav">
+          {sections.map(sec => (
+            <div key={sec}>
+              <div className="echo-nav-section">{sec}</div>
+              {visibleNav.filter(n => n.section === sec).map(n => (
+                <div key={n.id} className={`echo-nav-item ${view === n.id ? "active" : ""}`} onClick={() => setView(n.id)}>
+                  <span style={{ fontSize: 15 }}>{n.icon}</span>
+                  <span>{n.label}</span>
+                  {n.id === "diary" && diaryCount > 0 && (
+                    <span style={{ marginLeft: "auto", fontSize: 11, background: "rgba(79,142,247,0.15)", color: T.accent, padding: "1px 7px", borderRadius: 10 }}>{diaryCount}</span>
+                  )}
+                  {n.id === "locker" && docCount > 0 && (
+                    <span style={{ marginLeft: "auto", fontSize: 11, background: "rgba(63,207,180,0.15)", color: T.teal, padding: "1px 7px", borderRadius: 10 }}>{docCount}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </nav>
+
+        <div className="echo-sidebar-footer">
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</div>
+          {isOwner && <div style={{ fontSize: 10, color: T.teal, marginBottom: 8 }}>Owner</div>}
+          <button onClick={logout} style={{
+            background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6,
+            color: T.text3, cursor: "pointer", fontSize: 11, padding: "5px 12px",
+            fontFamily: "'DM Sans', sans-serif", width: "100%",
+          }}>
+            Sign out
+          </button>
+        </div>
+      </aside>
+
+      <main className="echo-main">
+        <div className="echo-topbar">
+          <div>
+            <div className="echo-page-title">{PAGE_META[view]?.title}</div>
+            <div className="echo-page-sub">{PAGE_META[view]?.sub}</div>
+          </div>
+          <div style={{ fontSize: 13, color: T.text3 }}>{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
+        </div>
+
+        {view === "dashboard" && <Dashboard setView={setView} diaryCount={diaryCount} docCount={docCount} />}
+        {view === "diary"     && <Diary onCountChange={setDiaryCount} />}
+        {view === "locker"    && isOwner && <DigiLocker onCountChange={setDocCount} />}
+        {view === "locker"    && !isOwner && (
+          <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>🔒</div>
+            <div style={{ fontSize: 16 }}>DigiLocker is private.</div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
