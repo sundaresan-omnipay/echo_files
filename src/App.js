@@ -1090,6 +1090,45 @@ const injectStyles = () => {
       .auth-brand { display: none; }
       .auth-form-panel { width: 100%; padding: 40px 28px; }
     }
+
+    /* ── Pattern Interrupt ── */
+    @keyframes piSlideUp {
+      from { opacity: 0; transform: translateY(28px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .pi-backdrop {
+      position: fixed; inset: 0; z-index: 10000;
+      background: rgba(5,8,16,0.9); backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .pi-card {
+      background: ${T.navy2}; border: 1px solid rgba(240,117,98,0.35);
+      border-radius: 20px; padding: 40px 44px; max-width: 500px; width: 100%;
+      box-shadow: 0 30px 80px rgba(240,117,98,0.12);
+      animation: piSlideUp 0.38s cubic-bezier(0.34,1.3,0.64,1);
+    }
+
+    /* ── Shadow Resume ── */
+    @keyframes resumeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .resume-section { animation: resumeIn 0.4s ease both; }
+
+    /* ── Rut Alert ── */
+    @keyframes rutPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(232,198,106,0.25); }
+      55%       { box-shadow: 0 0 0 10px rgba(232,198,106,0); }
+    }
+    .rut-alert { animation: rutPulse 2.8s ease-in-out infinite; }
+
+    /* ── Work Map ── */
+    .wm-node { cursor: pointer; }
+    .wm-edge { pointer-events: none; }
+
+    /* ── Credit Tracker ── */
+    .credit-given    { background: rgba(63,207,180,0.1); color: ${T.teal}; border: 1px solid rgba(63,207,180,0.25); }
+    .credit-received { background: rgba(232,198,106,0.1); color: ${T.gold}; border: 1px solid rgba(232,198,106,0.25); }
   `;
   document.head.appendChild(style);
 };
@@ -1577,6 +1616,65 @@ function Dashboard({ setView, diaryCount, docCount }) {
           </div>
         );
       })()}
+
+      {/* ── Am I in a Rut? Detector ── */}
+      {(() => {
+        const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 21);
+        const recent = heatEntries.filter(e => new Date(e.date + "T00:00:00") >= cutoff);
+        if (recent.length < 6) return null;
+
+        const alerts = [];
+
+        // Focus area rut: one area dominates > 80%
+        const focusCounts = {};
+        recent.forEach(e => { if (e.focus_area) focusCounts[e.focus_area] = (focusCounts[e.focus_area] || 0) + 1; });
+        const topFocus = Object.entries(focusCounts).sort((a,b) => b[1]-a[1])[0];
+        if (topFocus && (topFocus[1] / recent.length) >= 0.80) {
+          alerts.push({ icon: "🔄", label: "Focus Loop", col: T.gold, msg: `"${topFocus[0]}" has been ${Math.round((topFocus[1]/recent.length)*100)}% of your work for 3 weeks.`, sub: "Is this intentional depth — or are you stuck in one lane?" });
+        }
+
+        // Mood rut: same mood > 70%
+        const moodCounts = {};
+        recent.forEach(e => { if (e.mood) moodCounts[e.mood] = (moodCounts[e.mood] || 0) + 1; });
+        const topMood = Object.entries(moodCounts).sort((a,b) => b[1]-a[1])[0];
+        if (topMood && (topMood[1] / recent.length) >= 0.70) {
+          const isNeg = ["frustrated", "challenged"].includes(topMood[0]);
+          alerts.push({ icon: isNeg ? "😤" : "😐", label: "Mood Pattern", col: isNeg ? T.coral : T.text3, msg: `"${topMood[0]}" is your dominant mood for ${topMood[1]} of the last ${recent.length} days.`, sub: isNeg ? "This pattern is worth examining — something may need to change." : "Your emotional range has been narrow lately." });
+        }
+
+        // Stalled carry-forward: same text in 4+ entries
+        const cfCounts = {};
+        recent.forEach(e => (e.carry_forward || []).forEach(cf => { if (!cf.done && cf.text) cfCounts[cf.text] = (cfCounts[cf.text] || 0) + 1; }));
+        const stalledCF = Object.entries(cfCounts).filter(([,c]) => c >= 4).sort((a,b) => b[1]-a[1]);
+        if (stalledCF.length > 0) {
+          alerts.push({ icon: "⚠️", label: "Stalled Task", col: T.coral, msg: `"${stalledCF[0][0].slice(0, 60)}${stalledCF[0][0].length > 60 ? "…" : ""}" has been in carry-forward for ${stalledCF[0][1]}+ days.`, sub: "This may need escalation, redefinition, or removal." });
+        }
+
+        if (alerts.length === 0) return null;
+
+        return (
+          <div className="card rut-alert" style={{ marginTop: 20, border: `1px solid ${T.gold}35`, background: `linear-gradient(135deg, ${T.navy2}, rgba(232,198,106,0.04))` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: T.gold }}>🔍 Pattern Detected — 21-Day Loop Check</div>
+              <div style={{ fontSize: 11, color: T.text3 }}>last {recent.length} entries</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {alerts.map((a, i) => (
+                <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start", paddingBottom: i < alerts.length-1 ? 12 : 0, borderBottom: i < alerts.length-1 ? `1px solid ${T.border}` : "none" }}>
+                  <div style={{ fontSize: 22, flexShrink: 0, marginTop: 1 }}>{a.icon}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: a.col, textTransform: "uppercase" }}>{a.label}</span>
+                    </div>
+                    <div style={{ fontSize: 13, color: T.text1, marginBottom: 3, lineHeight: 1.5 }}>{a.msg}</div>
+                    <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>{a.sub}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1705,128 +1803,6 @@ function saveTeammates(arr) {
 }
 function initials(name) {
   return name.trim().split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
-}
-
-function TeammatesModal({ onClose }) {
-  const [teammates, setTeammates] = useState(() => loadTeammates());
-  const [form, setForm] = useState({ name: "", role: "", emoji: "" });
-  const [editId, setEditId] = useState(null);
-
-  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  const addOrUpdate = () => {
-    if (!form.name.trim()) return;
-    let updated;
-    if (editId !== null) {
-      updated = teammates.map((t, i) => i === editId ? { ...form, name: form.name.trim() } : t);
-      setEditId(null);
-    } else {
-      updated = [...teammates, { ...form, name: form.name.trim() }];
-    }
-    setTeammates(updated);
-    saveTeammates(updated);
-    setForm({ name: "", role: "", emoji: "" });
-  };
-
-  const startEdit = (idx) => {
-    setForm({ ...teammates[idx], emoji: teammates[idx].emoji || "" });
-    setEditId(idx);
-  };
-
-  const remove = (idx) => {
-    const updated = teammates.filter((_, i) => i !== idx);
-    setTeammates(updated);
-    saveTeammates(updated);
-  };
-
-  const cancel = () => { setForm({ name: "", role: "", emoji: "" }); setEditId(null); };
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <div>
-            <div className="modal-title">👥 My Team</div>
-            <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Saved teammates for quick collaborator selection</div>
-          </div>
-          <button className="modal-close" onClick={onClose}>✕</button>
-        </div>
-
-        <div className="modal-body">
-          {/* Add / edit form */}
-          <div style={{ background: "rgba(79,142,247,0.05)", border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 12, letterSpacing: 0.5 }}>
-              {editId !== null ? "Edit Teammate" : "Add Teammate"}
-            </div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-              <input
-                type="text" className="form-input" placeholder="Name *"
-                value={form.name} onChange={e => setF("name", e.target.value)}
-                onKeyDown={e => e.key === "Enter" && addOrUpdate()}
-                style={{ flex: 2 }}
-              />
-              <input
-                type="text" className="form-input" placeholder="Role (e.g. QA Lead)"
-                value={form.role} onChange={e => setF("role", e.target.value)}
-                style={{ flex: 2 }}
-              />
-              <input
-                type="text" className="form-input" placeholder="😊"
-                value={form.emoji} onChange={e => setF("emoji", e.target.value)}
-                style={{ flex: 0, width: 52, textAlign: "center" }}
-                maxLength={2}
-              />
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn btn-primary btn-sm" onClick={addOrUpdate}>
-                {editId !== null ? "Update" : "+ Add"}
-              </button>
-              {editId !== null && (
-                <button className="btn btn-ghost btn-sm" onClick={cancel}>Cancel</button>
-              )}
-            </div>
-          </div>
-
-          {/* Teammates list */}
-          {teammates.length === 0
-            ? <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "20px 0" }}>
-                No teammates saved yet. Add your first one above.
-              </div>
-            : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {teammates.map((t, idx) => (
-                  <div key={idx} style={{
-                    display: "flex", alignItems: "center", gap: 12,
-                    padding: "10px 14px", background: T.navy3,
-                    border: `1px solid ${T.border}`, borderRadius: 8,
-                  }}>
-                    <div style={{
-                      width: 36, height: 36, borderRadius: "50%",
-                      background: `linear-gradient(135deg, ${T.accent}30, ${T.teal}30)`,
-                      border: `1px solid ${T.border}`,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: t.emoji ? 18 : 13, fontWeight: 700, color: T.accent,
-                      flexShrink: 0,
-                    }}>
-                      {t.emoji || initials(t.name)}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>{t.name}</div>
-                      {t.role && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{t.role}</div>}
-                    </div>
-                    <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "3px 10px" }} onClick={() => startEdit(idx)}>Edit</button>
-                    <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "3px 10px", color: T.coral, borderColor: `${T.coral}40` }} onClick={() => remove(idx)}>✕</button>
-                  </div>
-                ))}
-              </div>
-          }
-        </div>
-
-        <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose}>Done</button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // ─── MyTeam page (full-page view accessible from nav) ────────────────────────
@@ -3324,19 +3300,599 @@ function AuthPage({ onLogin }) {
   );
 }
 
+// ─── Pattern Interrupt ───────────────────────────────────────────────────────
+function PatternInterrupt({ onDismiss }) {
+  const [text, setText] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const save = () => {
+    const list = JSON.parse(localStorage.getItem("echo_interrupts") || "[]");
+    list.unshift({ date: new Date().toISOString().split("T")[0], text, ts: Date.now() });
+    localStorage.setItem("echo_interrupts", JSON.stringify(list.slice(0, 30)));
+    setSaved(true);
+    setTimeout(onDismiss, 900);
+  };
+
+  return (
+    <div className="pi-backdrop">
+      <div className="pi-card">
+        <div style={{ fontSize: 32, marginBottom: 10 }}>🌊</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif", marginBottom: 8 }}>Take a breath.</div>
+        <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.65, marginBottom: 6 }}>
+          You've logged <span style={{ color: T.coral, fontWeight: 600 }}>frustrated</span> or <span style={{ color: T.gold, fontWeight: 600 }}>challenged</span> for 3 or more days in a row.
+        </div>
+        <div style={{ fontSize: 12, color: T.text3, marginBottom: 22 }}>This is a private space. No format, no judgement. Just write.</div>
+        <textarea
+          className="form-textarea"
+          rows={5}
+          placeholder="What's really going on?"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          autoFocus
+          style={{ resize: "none", lineHeight: 1.7, marginBottom: 16 }}
+        />
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button className="btn btn-primary" onClick={save} disabled={saved}>{saved ? "✓ Saved" : "Save & Close"}</button>
+          <button className="btn btn-ghost" onClick={onDismiss}>Dismiss</button>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: T.text3 }}>🔒 Private — never exported</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Shadow Resume ────────────────────────────────────────────────────────────
+function ShadowResume() {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isConfigured()) { setLoading(false); return; }
+    db.from("diary_entries").select("*", { order: "date.asc" }).then(d => {
+      setEntries(d || []);
+      setLoading(false);
+    });
+  }, []);
+
+  if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Building resume…</div>;
+
+  if (entries.length < 2) return (
+    <div className="echo-content fade-in" style={{ textAlign: "center", padding: "80px 0" }}>
+      <div style={{ fontSize: 40, marginBottom: 14 }}>📋</div>
+      <div style={{ fontSize: 15, color: T.text2, marginBottom: 8 }}>Not enough data yet</div>
+      <div style={{ fontSize: 13, color: T.text3 }}>Log a few diary entries — Echo will auto-build your resume from them.</div>
+    </div>
+  );
+
+  const allFocusAreas = {}, allCollabs = {}, allTags = {}, allJiras = new Set();
+  entries.forEach(e => {
+    if (e.focus_area) allFocusAreas[e.focus_area] = (allFocusAreas[e.focus_area] || 0) + 1;
+    (e.tags || []).forEach(t => { if (t.trim()) allTags[t.trim()] = (allTags[t.trim()] || 0) + 1; });
+    (e.collaborators || []).forEach(c => { if (c.trim()) allCollabs[c.trim()] = (allCollabs[c.trim()] || 0) + 1; });
+    (e.jira_links || []).forEach(j => { if (j.trim()) allJiras.add(j.trim()); });
+  });
+
+  const topFocus   = Object.entries(allFocusAreas).sort((a,b) => b[1]-a[1]);
+  const topCollabs = Object.entries(allCollabs).sort((a,b) => b[1]-a[1]).slice(0, 12);
+  const topTags    = Object.entries(allTags).sort((a,b) => b[1]-a[1]).slice(0, 20);
+  const maxFA      = topFocus[0]?.[1] || 1;
+  const faPalette  = [T.accent, T.teal, T.gold, T.coral, T.green, "#a78bfa", "#fb923c", "#38bdf8"];
+  const moodPal    = { productive: T.green, resolved: T.teal, collaborative: T.accent, challenged: T.gold, frustrated: T.coral };
+
+  const byMonth = {};
+  entries.forEach(e => {
+    const m = e.date.slice(0, 7);
+    if (!byMonth[m]) byMonth[m] = { count: 0, focuses: new Set(), collabs: new Set(), moods: {} };
+    byMonth[m].count++;
+    if (e.focus_area) byMonth[m].focuses.add(e.focus_area);
+    (e.collaborators || []).forEach(c => { if (c.trim()) byMonth[m].collabs.add(c.trim()); });
+    if (e.mood) byMonth[m].moods[e.mood] = (byMonth[m].moods[e.mood] || 0) + 1;
+  });
+  const months = Object.entries(byMonth).sort((a,b) => a[0].localeCompare(b[0]));
+  const dateRange = `${fmtDate(entries[0].date)} — ${fmtDate(entries[entries.length-1].date)}`;
+
+  return (
+    <div className="echo-content fade-in">
+      <div className="card" style={{ marginBottom: 20, background: `linear-gradient(135deg, ${T.navy2}, ${T.navy3})`, border: `1px solid ${T.borderHover}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>Your Work in Numbers</div>
+            <div style={{ fontSize: 12, color: T.text3, marginTop: 5 }}>Auto-built from {entries.length} diary entries · {dateRange}</div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => window.print()}>⬇ Print / PDF</button>
+        </div>
+        <div style={{ display: "flex", gap: 0, marginTop: 22, borderTop: `1px solid ${T.border}`, paddingTop: 18, flexWrap: "wrap" }}>
+          {[
+            { l: "Entries", v: entries.length, c: T.accent },
+            { l: "Focus Areas", v: topFocus.length, c: T.teal },
+            { l: "Collaborators", v: Object.keys(allCollabs).length, c: T.gold },
+            { l: "JIRA Tickets", v: allJiras.size, c: T.coral },
+            { l: "Tags", v: Object.keys(allTags).length, c: T.green },
+          ].map((s, i, arr) => (
+            <div key={s.l} style={{ flex: 1, minWidth: 80, paddingRight: 20, borderRight: i < arr.length-1 ? `1px solid ${T.border}` : "none", marginRight: i < arr.length-1 ? 20 : 0 }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: s.c, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{s.v}</div>
+              <div style={{ fontSize: 10, color: T.text3, marginTop: 5, letterSpacing: 0.8, textTransform: "uppercase" }}>{s.l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {topFocus.length > 0 && (
+        <div className="card resume-section" style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 14 }}>🎯 Where I Spent My Time</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {topFocus.map(([fa, count], i) => (
+              <div key={fa} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 12, color: T.text2, width: 130, flexShrink: 0, textAlign: "right" }}>{fa}</div>
+                <div style={{ flex: 1, height: 8, background: T.navy3, borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 4, width: `${(count/maxFA)*100}%`, background: `linear-gradient(90deg, ${faPalette[i%faPalette.length]}90, ${faPalette[i%faPalette.length]})` }} />
+                </div>
+                <div style={{ fontSize: 11, color: faPalette[i%faPalette.length], fontFamily: "'DM Mono', monospace", width: 36, textAlign: "right", flexShrink: 0 }}>{count}d</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {months.length > 0 && (
+        <div className="card resume-section" style={{ marginBottom: 16, animationDelay: "0.07s" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 14 }}>📅 Timeline</div>
+          {months.map(([m, data], i) => {
+            const [yr, mo] = m.split("-");
+            const label = new Date(Number(yr), Number(mo)-1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+            const topMood = Object.entries(data.moods).sort((a,b) => b[1]-a[1])[0]?.[0];
+            return (
+              <div key={m} style={{ display: "flex", gap: 0, borderBottom: i < months.length-1 ? `1px solid ${T.border}` : "none", paddingBottom: i < months.length-1 ? 12 : 0, marginBottom: i < months.length-1 ? 12 : 0 }}>
+                <div style={{ width: 80, flexShrink: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text2, fontFamily: "'DM Mono', monospace" }}>{label}</div>
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{data.count} entries</div>
+                </div>
+                <div style={{ flex: 1, paddingLeft: 16, borderLeft: `2px solid ${T.border}` }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: data.collabs.size > 0 ? 5 : 0 }}>
+                    {[...data.focuses].map(fa => (
+                      <span key={fa} style={{ fontSize: 11, padding: "2px 8px", background: `${T.accent}15`, color: T.accent, borderRadius: 20, border: `1px solid ${T.accent}25` }}>{fa}</span>
+                    ))}
+                    {topMood && <span style={{ fontSize: 11, padding: "2px 8px", background: `${moodPal[topMood]}15`, color: moodPal[topMood], borderRadius: 20, border: `1px solid ${moodPal[topMood]}25` }}>{topMood}</span>}
+                  </div>
+                  {data.collabs.size > 0 && <div style={{ fontSize: 11, color: T.text3 }}>w/ {[...data.collabs].slice(0,4).join(", ")}{data.collabs.size > 4 ? ` +${data.collabs.size-4}` : ""}</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {topCollabs.length > 0 && (
+        <div className="card resume-section" style={{ marginBottom: 16, animationDelay: "0.14s" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 14 }}>🤝 Who I Worked With</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {topCollabs.map(([name, count]) => (
+              <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, background: T.navy3, borderRadius: 8, padding: "7px 12px", border: `1px solid ${T.border}` }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: `${T.accent}18`, border: `1px solid ${T.accent}35`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, flexShrink: 0 }}>
+                  {initials(name)}
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text1 }}>{name}</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{count} entr{count === 1 ? "y" : "ies"}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(topTags.length > 0 || allJiras.size > 0) && (
+        <div className="card resume-section" style={{ animationDelay: "0.21s" }}>
+          {topTags.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>🏷️ Skills & Domains</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: allJiras.size > 0 ? 20 : 0 }}>
+                {topTags.map(([tag, count], i) => {
+                  const col = faPalette[i % faPalette.length];
+                  return (
+                    <span key={tag} style={{ fontSize: i < 3 ? 14 : 12, padding: "4px 12px", background: `${col}12`, color: col, borderRadius: 20, border: `1px solid ${col}28`, fontWeight: count > 2 ? 600 : 400 }}>
+                      {tag}{count > 1 ? <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 4 }}>×{count}</span> : null}
+                    </span>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          {allJiras.size > 0 && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10, paddingTop: topTags.length > 0 ? 16 : 0, borderTop: topTags.length > 0 ? `1px solid ${T.border}` : "none" }}>🎫 JIRA Tickets ({allJiras.size})</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {[...allJiras].slice(0, 24).map(j => (
+                  <span key={j} style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", padding: "3px 8px", background: `${T.gold}10`, color: T.gold, borderRadius: 6, border: `1px solid ${T.gold}25` }}>{j}</span>
+                ))}
+                {allJiras.size > 24 && <span style={{ fontSize: 11, color: T.text3 }}>+{allJiras.size - 24} more</span>}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Work Map ─────────────────────────────────────────────────────────────────
+function WorkMap() {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [hovered, setHovered] = useState(null);
+
+  useEffect(() => {
+    if (!isConfigured()) { setLoading(false); return; }
+    db.from("diary_entries").select("*", { order: "date.desc" }).then(d => {
+      setEntries(d || []);
+      setLoading(false);
+    });
+  }, []);
+
+  if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Building work map…</div>;
+
+  const CX = 380, CY = 230, FOCUS_R = 150, PERSON_R = 272, SVG_W = 760, SVG_H = 460;
+  const faPalette = [T.accent, T.teal, T.gold, T.coral, T.green, "#a78bfa", "#fb923c", "#38bdf8"];
+
+  const focusCounts = {};
+  entries.forEach(e => { if (e.focus_area) focusCounts[e.focus_area] = (focusCounts[e.focus_area] || 0) + 1; });
+  const focusAreas = Object.entries(focusCounts).sort((a,b) => b[1]-a[1]).slice(0, 6);
+
+  const collabMap = {};
+  entries.forEach(e => {
+    (e.collaborators || []).forEach(c => {
+      const name = (c || "").trim();
+      if (!name) return;
+      if (!collabMap[name]) collabMap[name] = { name, focusMap: {}, count: 0 };
+      collabMap[name].count++;
+      if (e.focus_area) collabMap[name].focusMap[e.focus_area] = (collabMap[name].focusMap[e.focus_area] || 0) + 1;
+    });
+  });
+  const collabs = Object.values(collabMap).sort((a,b) => b.count-a.count).slice(0, 14).map(c => ({
+    ...c, primaryFocus: Object.entries(c.focusMap).sort((a,b) => b[1]-a[1])[0]?.[0] || focusAreas[0]?.[0],
+  }));
+
+  const focusNodes = focusAreas.map(([fa, count], i) => {
+    const angle = (i / focusAreas.length) * 2 * Math.PI - Math.PI / 2;
+    return { id: `fa:${fa}`, label: fa, count, x: CX + FOCUS_R * Math.cos(angle), y: CY + FOCUS_R * Math.sin(angle), color: faPalette[i % faPalette.length], angle, type: "focus" };
+  });
+
+  const groupSizes = {}, groupIdx = {};
+  collabs.forEach(c => {
+    if (!groupSizes[c.primaryFocus]) groupSizes[c.primaryFocus] = 0;
+    groupIdx[c.name] = groupSizes[c.primaryFocus];
+    groupSizes[c.primaryFocus]++;
+  });
+
+  const personNodes = collabs.map(c => {
+    const fn = focusNodes.find(f => f.label === c.primaryFocus) || focusNodes[0];
+    if (!fn) return null;
+    const gs = groupSizes[c.primaryFocus] || 1;
+    const gi = groupIdx[c.name];
+    const spread = Math.min(1.1, 0.28 * gs);
+    const ao = gs > 1 ? (gi - (gs-1)/2) * (spread / Math.max(gs-1, 1)) : 0;
+    const angle = fn.angle + ao;
+    return { id: `p:${c.name}`, label: c.name, count: c.count, x: CX + PERSON_R * Math.cos(angle), y: CY + PERSON_R * Math.sin(angle), primaryFocus: c.primaryFocus, fpColor: fn.color, type: "person" };
+  }).filter(Boolean);
+
+  const isNodeLit = (nid) => {
+    if (!hovered) return true;
+    if (nid === hovered || hovered === "me") return true;
+    if (hovered.startsWith("fa:")) {
+      if (nid === "me") return true;
+      const fa = hovered.slice(3);
+      const pn = personNodes.find(p => p.id === nid);
+      return !!(pn && pn.primaryFocus === fa);
+    }
+    if (hovered.startsWith("p:")) {
+      const pn = personNodes.find(p => p.id === hovered);
+      if (!pn) return false;
+      return nid === "me" || nid === `fa:${pn.primaryFocus}`;
+    }
+    return false;
+  };
+
+  const isEdgeLit = (srcId, tgtId) => {
+    if (!hovered) return true;
+    if (hovered === "me") return true;
+    if (hovered === srcId || hovered === tgtId) return true;
+    if (hovered.startsWith("p:")) {
+      const pn = personNodes.find(p => p.id === hovered);
+      if (pn && tgtId === hovered && srcId === `fa:${pn.primaryFocus}`) return true;
+    }
+    return false;
+  };
+
+  const totalJiras = [...new Set(entries.flatMap(e => e.jira_links || []))].length;
+
+  return (
+    <div className="echo-content fade-in">
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 20, fontSize: 12, color: T.text3, marginBottom: 16 }}>
+        <span>{focusNodes.length} focus areas</span>
+        <span>{personNodes.length} collaborators</span>
+        <span>{totalJiras} JIRAs</span>
+        <span>{entries.length} entries</span>
+      </div>
+
+      {focusNodes.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "70px 0" }}>
+          <div style={{ fontSize: 36, marginBottom: 14 }}>🕸️</div>
+          <div style={{ fontSize: 15, color: T.text2, marginBottom: 8 }}>No data yet</div>
+          <div style={{ fontSize: 13, color: T.text3 }}>Log diary entries with collaborators and focus areas to build your Work Map.</div>
+        </div>
+      ) : (
+        <>
+          <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 14 }}>
+            <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", maxHeight: 460, display: "block" }}>
+              <defs>
+                <radialGradient id="wm-me-glow" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor={T.accent} stopOpacity="0.25" />
+                  <stop offset="100%" stopColor={T.accent} stopOpacity="0" />
+                </radialGradient>
+                {focusNodes.map((fn, i) => (
+                  <radialGradient key={fn.id} id={`wm-fg-${i}`} cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor={fn.color} stopOpacity="0.18" />
+                    <stop offset="100%" stopColor={fn.color} stopOpacity="0" />
+                  </radialGradient>
+                ))}
+              </defs>
+
+              <circle cx={CX} cy={CY} r={FOCUS_R}  fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="5 9" />
+              <circle cx={CX} cy={CY} r={PERSON_R} fill="none" stroke="rgba(255,255,255,0.025)" strokeWidth="1" strokeDasharray="5 9" />
+
+              {focusNodes.map(fn => (
+                <line key={`ef-${fn.id}`} x1={CX} y1={CY} x2={fn.x} y2={fn.y}
+                  stroke={fn.color}
+                  strokeWidth={isEdgeLit("me", fn.id) ? 1.5 : 0.6}
+                  strokeOpacity={isEdgeLit("me", fn.id) ? 0.4 : 0.07}
+                  style={{ transition: "all 0.2s", pointerEvents: "none" }} />
+              ))}
+
+              {personNodes.map(pn => {
+                const fn = focusNodes.find(f => f.label === pn.primaryFocus);
+                if (!fn) return null;
+                return (
+                  <line key={`ep-${pn.id}`} x1={fn.x} y1={fn.y} x2={pn.x} y2={pn.y}
+                    stroke={fn.color}
+                    strokeWidth={isEdgeLit(fn.id, pn.id) ? 1.2 : 0.5}
+                    strokeOpacity={isEdgeLit(fn.id, pn.id) ? 0.32 : 0.07}
+                    style={{ transition: "all 0.2s", pointerEvents: "none" }} />
+                );
+              })}
+
+              {focusNodes.map((fn, i) => (
+                <g key={fn.id} style={{ cursor: "pointer" }}
+                  onMouseEnter={() => setHovered(fn.id)}
+                  onMouseLeave={() => setHovered(null)}>
+                  <circle cx={fn.x} cy={fn.y} r={32} fill={`url(#wm-fg-${i})`} />
+                  <circle cx={fn.x} cy={fn.y} r={24} fill={`${fn.color}12`} stroke={fn.color}
+                    strokeWidth={hovered === fn.id ? 2 : 1}
+                    strokeOpacity={isNodeLit(fn.id) ? 1 : 0.15}
+                    fillOpacity={isNodeLit(fn.id) ? 1 : 0.25}
+                    style={{ transition: "all 0.2s" }} />
+                  <text x={fn.x} y={fn.y - 2} textAnchor="middle" dominantBaseline="middle"
+                    fill={fn.color} fontSize="8" fontFamily="'DM Sans', sans-serif" fontWeight="700"
+                    opacity={isNodeLit(fn.id) ? 1 : 0.15} style={{ transition: "all 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                    {fn.label.length > 11 ? fn.label.slice(0, 11) + "…" : fn.label}
+                  </text>
+                  <text x={fn.x} y={fn.y + 10} textAnchor="middle"
+                    fill={fn.color} fontSize="7" fontFamily="'DM Mono', monospace"
+                    opacity={isNodeLit(fn.id) ? 0.6 : 0.1} style={{ transition: "all 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                    {fn.count}d
+                  </text>
+                </g>
+              ))}
+
+              {personNodes.map(pn => (
+                <g key={pn.id} style={{ cursor: "pointer" }}
+                  onMouseEnter={() => setHovered(pn.id)}
+                  onMouseLeave={() => setHovered(null)}>
+                  <circle cx={pn.x} cy={pn.y} r={16} fill={`${pn.fpColor}10`} stroke={pn.fpColor}
+                    strokeWidth={hovered === pn.id ? 1.8 : 1}
+                    strokeOpacity={isNodeLit(pn.id) ? 0.6 : 0.1}
+                    fillOpacity={isNodeLit(pn.id) ? 1 : 0.15}
+                    style={{ transition: "all 0.2s" }} />
+                  <text x={pn.x} y={pn.y} textAnchor="middle" dominantBaseline="middle"
+                    fill={pn.fpColor} fontSize="8" fontFamily="'DM Sans', sans-serif" fontWeight="700"
+                    opacity={isNodeLit(pn.id) ? 0.9 : 0.1} style={{ transition: "all 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                    {initials(pn.label)}
+                  </text>
+                  {(hovered === pn.id || hovered === `fa:${pn.primaryFocus}`) && (
+                    <text x={pn.x} y={pn.y + 25} textAnchor="middle"
+                      fill={T.text2} fontSize="8" fontFamily="'DM Sans', sans-serif"
+                      style={{ userSelect: "none", pointerEvents: "none" }}>
+                      {pn.label.length > 13 ? pn.label.slice(0, 13) + "…" : pn.label}
+                    </text>
+                  )}
+                </g>
+              ))}
+
+              <g style={{ cursor: "pointer" }} onMouseEnter={() => setHovered("me")} onMouseLeave={() => setHovered(null)}>
+                <circle cx={CX} cy={CY} r={40} fill="url(#wm-me-glow)" />
+                <circle cx={CX} cy={CY} r={28} fill={T.navy3} stroke={T.accent}
+                  strokeWidth={hovered === "me" ? 2.5 : 1.5} style={{ transition: "all 0.2s" }} />
+                <text x={CX} y={CY - 4} textAnchor="middle" dominantBaseline="middle"
+                  fill={T.accent} fontSize="11" fontFamily="'Syne', sans-serif" fontWeight="700"
+                  style={{ userSelect: "none", pointerEvents: "none" }}>Me</text>
+                <text x={CX} y={CY + 10} textAnchor="middle"
+                  fill={T.text3} fontSize="7.5" fontFamily="'DM Mono', monospace"
+                  style={{ userSelect: "none", pointerEvents: "none" }}>{entries.length}d</text>
+              </g>
+            </svg>
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 6 }}>
+            {focusNodes.map(fn => (
+              <div key={fn.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 9, height: 9, borderRadius: "50%", background: fn.color }} />
+                <span style={{ fontSize: 12, color: T.text3 }}>{fn.label} ({fn.count}d)</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: T.text3 }}>Hover any node to highlight connections. Inner ring = focus areas · Outer ring = collaborators.</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Credit Tracker ───────────────────────────────────────────────────────────
+function loadCredits() {
+  try { return JSON.parse(localStorage.getItem("echo_credits") || "[]"); } catch { return []; }
+}
+function saveCredits(arr) { localStorage.setItem("echo_credits", JSON.stringify(arr)); }
+
+function CreditTracker() {
+  const [credits, setCredits] = useState(() => loadCredits());
+  const [tab, setTab]         = useState("received");
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ type: "received", person: "", what: "", project: "", date: new Date().toISOString().split("T")[0] });
+
+  const teammates = loadTeammates();
+  const sf = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const add = () => {
+    if (!form.person.trim() || !form.what.trim()) return;
+    const updated = [{ id: Date.now(), ...form, person: form.person.trim(), what: form.what.trim() }, ...credits];
+    setCredits(updated); saveCredits(updated);
+    setForm({ type: tab, person: "", what: "", project: "", date: new Date().toISOString().split("T")[0] });
+    setShowForm(false);
+  };
+
+  const remove = (id) => { const u = credits.filter(c => c.id !== id); setCredits(u); saveCredits(u); };
+
+  const filtered = credits.filter(c => c.type === tab);
+  const givenCount    = credits.filter(c => c.type === "given").length;
+  const receivedCount = credits.filter(c => c.type === "received").length;
+  const balance = credits.length === 0 ? "—" : receivedCount > givenCount ? "↑ More received" : receivedCount < givenCount ? "↓ More given" : "= Balanced";
+  const balCol  = receivedCount > givenCount ? T.gold : receivedCount < givenCount ? T.teal : T.text2;
+
+  return (
+    <div className="echo-content fade-in">
+      <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+        {[
+          { l: "Credits Received", v: receivedCount, c: T.gold, icon: "⭐" },
+          { l: "Credits Given", v: givenCount, c: T.teal, icon: "🤝" },
+          { l: "Balance", v: balance, c: balCol, icon: "⚖️", mono: false },
+        ].map(s => (
+          <div key={s.l} className="card" style={{ flex: 1, textAlign: "center", padding: "16px 12px" }}>
+            <div style={{ fontSize: 20, marginBottom: 4 }}>{s.icon}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.c, fontFamily: s.mono !== false ? "'DM Mono', monospace" : "'DM Sans', sans-serif" }}>{s.v}</div>
+            <div style={{ fontSize: 10, color: T.text3, marginTop: 4, letterSpacing: 0.5, textTransform: "uppercase" }}>{s.l}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ display: "flex", background: T.navy2, borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+          {[{ k: "received", label: "⭐ Received", col: T.gold }, { k: "given", label: "🤝 Given", col: T.teal }].map(t => (
+            <button key={t.k} onClick={() => { setTab(t.k); sf("type", t.k); }}
+              style={{ padding: "8px 18px", fontSize: 13, fontFamily: "'DM Sans', sans-serif", cursor: "pointer", border: "none",
+                background: tab === t.k ? `${t.col}18` : "transparent",
+                color: tab === t.k ? t.col : T.text3, fontWeight: tab === t.k ? 600 : 400, transition: "all 0.15s" }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => { sf("type", tab); setShowForm(s => !s); }}>
+          {showForm ? "Cancel" : "+ Log Credit"}
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="card" style={{ marginBottom: 16, border: `1px solid ${tab === "received" ? T.gold + "35" : T.teal + "35"}` }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: T.text3, marginBottom: 12 }}>
+            {tab === "received" ? "⭐ Log a Credit You Received" : "🤝 Log a Credit You Gave"}
+          </div>
+          <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+            <div style={{ flex: 2 }}>
+              <label className="form-label">{tab === "received" ? "From" : "To"}</label>
+              <input type="text" className="form-input" placeholder="Name" value={form.person} onChange={e => sf("person", e.target.value)} />
+              {teammates.length > 0 && (
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
+                  {teammates.filter(t => form.person !== t.name).map((t, i) => (
+                    <button key={i} onClick={() => sf("person", t.name)}
+                      style={{ fontSize: 11, padding: "2px 9px", background: `${T.accent}10`, border: `1px solid ${T.border}`, borderRadius: 20, color: T.accent, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+                      {t.emoji || "👤"} {t.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ flex: 1 }}>
+              <label className="form-label">Date</label>
+              <input type="date" className="form-input" value={form.date} onChange={e => sf("date", e.target.value)} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">What was recognised?</label>
+            <input type="text" className="form-input" placeholder="e.g. Fixed the deployment issue under pressure" value={form.what} onChange={e => sf("what", e.target.value)} />
+          </div>
+          <div className="form-group" style={{ marginBottom: 14 }}>
+            <label className="form-label">Project / context (optional)</label>
+            <input type="text" className="form-input" placeholder="e.g. Auth migration, Q2 release" value={form.project} onChange={e => sf("project", e.target.value)} />
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-primary btn-sm" onClick={add}>Save</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowForm(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "50px 0" }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>{tab === "received" ? "⭐" : "🤝"}</div>
+          <div style={{ fontSize: 14, color: T.text2, marginBottom: 6 }}>No {tab} credits yet</div>
+          <div style={{ fontSize: 12, color: T.text3 }}>
+            {tab === "received" ? "When someone praises or credits your work, log it here. Invaluable at review time." : "Log credits you give to colleagues — track whether the balance is fair."}
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map(c => (
+            <div key={c.id} className="card" style={{ padding: "14px 18px", border: `1px solid ${c.type === "received" ? T.gold + "22" : T.teal + "22"}`, display: "flex", gap: 14, alignItems: "flex-start" }}>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", background: c.type === "received" ? `${T.gold}15` : `${T.teal}15`, border: `1.5px solid ${c.type === "received" ? T.gold : T.teal}35`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: c.type === "received" ? T.gold : T.teal, flexShrink: 0 }}>
+                {initials(c.person)}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text1 }}>{c.person}</span>
+                  <span className={`credit-${c.type}`} style={{ fontSize: 11, padding: "1px 8px", borderRadius: 20 }}>
+                    {c.type === "received" ? "⭐ credited you" : "🤝 you credited"}
+                  </span>
+                  {c.project && <span style={{ fontSize: 11, color: T.text3 }}>· {c.project}</span>}
+                  <span style={{ fontSize: 11, color: T.text3, marginLeft: "auto" }}>{fmtDate(c.date)}</span>
+                </div>
+                <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.5, fontStyle: "italic" }}>"{c.what}"</div>
+              </div>
+              <button onClick={() => remove(c.id)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: "0 4px", flexShrink: 0, lineHeight: 1 }} title="Remove">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────────────────────
 const NAV = [
-  { id: "dashboard", label: "Dashboard", icon: "🏠", section: "Overview" },
-  { id: "diary", label: "Corporate Diary", icon: "📓", dot: T.accent, section: "Modules" },
-  { id: "locker", label: "DigiLocker", icon: "🗂️", dot: T.teal, section: "Modules" },
-  { id: "team", label: "My Team", icon: "👥", section: "Settings" },
+  { id: "dashboard", label: "Dashboard",      icon: "🏠", section: "Overview" },
+  { id: "diary",     label: "Corporate Diary", icon: "📓", dot: T.accent, section: "Modules" },
+  { id: "locker",    label: "DigiLocker",      icon: "🗂️", dot: T.teal,   section: "Modules" },
+  { id: "team",      label: "My Team",         icon: "👥", section: "Insights" },
+  { id: "resume",    label: "Shadow Resume",   icon: "📋", dot: T.gold,   section: "Insights" },
+  { id: "workmap",   label: "Work Map",        icon: "🕸️", dot: T.teal,   section: "Insights" },
+  { id: "credits",   label: "Credit Tracker",  icon: "⭐", dot: T.gold,   section: "Insights" },
 ];
 
 const PAGE_META = {
-  dashboard: { title: "Dashboard", sub: "Your personal command centre" },
-  diary: { title: "Corporate Diary", sub: "Daily work log — tickets, feedback, notes" },
-  locker: { title: "DigiLocker", sub: "Secure document storage & retrieval" },
-  team: { title: "My Team", sub: "Saved teammates for quick collaborator selection" },
+  dashboard: { title: "Dashboard",       sub: "Your personal command centre" },
+  diary:     { title: "Corporate Diary", sub: "Daily work log — tickets, feedback, notes" },
+  locker:    { title: "DigiLocker",      sub: "Secure document storage & retrieval" },
+  team:      { title: "My Team",         sub: "Saved teammates for quick collaborator selection" },
+  resume:    { title: "Shadow Resume",   sub: "Auto-built from your diary — your work in numbers" },
+  workmap:   { title: "Work Map",        sub: "How your focus areas, collaborators and tickets connect" },
+  credits:   { title: "Credit Tracker",  sub: "Log credit given and received — track the balance" },
 };
 
 export default function Echo() {
@@ -3349,6 +3905,7 @@ export default function Echo() {
   const [reminderEnabled, setReminderEnabled] = useState(() => localStorage.getItem("echo_reminder_on") === "true");
   const [reminderTime, setReminderTime]       = useState(() => localStorage.getItem("echo_reminder_time") || "17:30");
   const [padOpen, setPadOpen]                 = useState(false);
+  const [showPatternInterrupt, setShowPatternInterrupt] = useState(false);
 
   useEffect(() => {
     db.auth.getUser().then(u => {
@@ -3356,6 +3913,22 @@ export default function Echo() {
       setAuthLoading(false);
     }).catch(() => setAuthLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!user || !isConfigured()) return;
+    const dismissed = localStorage.getItem("echo_pi_dismissed");
+    if (dismissed && Date.now() - Number(dismissed) < 86400000) return;
+    db.from("diary_entries").select("date,mood", { order: "date.desc" }).then(rows => {
+      if (!rows || rows.length < 3) return;
+      const badMoods = ["frustrated", "challenged"];
+      let streak = 0;
+      for (const e of rows.slice(0, 5)) {
+        if (badMoods.includes(e.mood)) streak++;
+        else break;
+      }
+      if (streak >= 3) setShowPatternInterrupt(true);
+    });
+  }, [user]);
 
   useEffect(() => {
     if (!reminderEnabled) return;
@@ -3488,8 +4061,19 @@ export default function Echo() {
             <div style={{ fontSize: 16 }}>DigiLocker is private.</div>
           </div>
         )}
-        {view === "team" && <MyTeam />}
+        {view === "team"    && <MyTeam />}
+        {view === "resume"  && <ShadowResume />}
+        {view === "workmap" && <WorkMap />}
+        {view === "credits" && <CreditTracker />}
       </main>
+
+      {/* ── Pattern Interrupt overlay ── */}
+      {showPatternInterrupt && (
+        <PatternInterrupt onDismiss={() => {
+          setShowPatternInterrupt(false);
+          localStorage.setItem("echo_pi_dismissed", String(Date.now()));
+        }} />
+      )}
 
       {/* ── Floating Scratch Pad ── */}
       {padOpen && <ScratchPad onClose={() => setPadOpen(false)} />}
