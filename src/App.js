@@ -158,7 +158,7 @@ const injectStyles = () => {
   const style = document.createElement("style");
   style.id = "echo-styles";
   style.textContent = `
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap');
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -202,11 +202,15 @@ const injectStyles = () => {
     }
 
     .echo-logo-text {
-      font-family: 'Playfair Display', serif;
-      font-size: 26px;
-      font-weight: 600;
-      color: ${T.text1};
-      letter-spacing: -0.5px;
+      font-family: 'Syne', sans-serif;
+      font-size: 20px;
+      font-weight: 800;
+      background: linear-gradient(135deg, ${T.accent} 0%, ${T.teal} 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: 4px;
+      text-transform: uppercase;
     }
 
     .echo-logo-sub {
@@ -871,11 +875,15 @@ function ConfigBanner() {
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 function Dashboard({ setView, diaryCount, docCount }) {
   const [recentEntries, setRecentEntries] = useState([]);
-  const [recentDocs, setRecentDocs] = useState([]);
+  const [heatEntries, setHeatEntries]     = useState([]);
+  const [recentDocs, setRecentDocs]       = useState([]);
 
   useEffect(() => {
     if (!isConfigured()) return;
-    db.from("diary_entries").select("*", { order: "date.desc" }).then(d => setRecentEntries((d || []).slice(0, 3)));
+    db.from("diary_entries").select("*", { order: "date.desc" }).then(d => {
+      setRecentEntries((d || []).slice(0, 3));
+      setHeatEntries(d || []);
+    });
     db.from("documents").select("*", { order: "created_at.desc" }).then(d => setRecentDocs((d || []).slice(0, 4)));
   }, []);
 
@@ -905,6 +913,58 @@ function Dashboard({ setView, diaryCount, docCount }) {
           </div>
         ))}
       </div>
+
+      {/* ── 14-Day Mood Heatmap ── */}
+      {(() => {
+        const moodColor = { productive: T.green, resolved: T.teal, collaborative: T.accent, challenged: T.gold, frustrated: T.coral };
+        const days = Array.from({ length: 14 }, (_, i) => {
+          const d = new Date(); d.setDate(d.getDate() - (13 - i));
+          const dateStr = d.toISOString().split("T")[0];
+          const entry   = heatEntries.find(e => e.date === dateStr);
+          return { dateStr, day: d.getDate(), wd: d.toLocaleDateString("en-GB", { weekday: "short" }), entry, isToday: i === 13 };
+        });
+        const streak = (() => { let s = 0; for (let i = days.length - 1; i >= 0; i--) { if (days[i].entry) s++; else break; } return s; })();
+        return (
+          <div className="card mb-16" style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>14-Day Activity</div>
+              {streak > 0 && <div style={{ fontSize: 12, color: T.gold }}>🔥 {streak}-day streak</div>}
+            </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+              {days.map(({ dateStr, day, wd, entry, isToday }) => {
+                const mood   = entry ? MOODS.find(m => m.key === entry.mood) : null;
+                const color  = mood ? moodColor[mood.key] || T.accent : null;
+                const hasCF  = (entry?.carry_forward?.filter(i => !i.done).length || 0) > 0;
+                return (
+                  <div key={dateStr} title={`${wd} ${day}${entry ? ` — ${mood?.label || "No mood"} · ${entry.focus_area || ""}` : " — no entry"}`}
+                    style={{ flex: 1, textAlign: "center", cursor: entry ? "pointer" : "default" }}>
+                    <div style={{ fontSize: 9, color: isToday ? T.accent : T.text3, marginBottom: 4, fontWeight: isToday ? 600 : 400 }}>{wd}</div>
+                    <div style={{
+                      height: 32, borderRadius: 5, transition: "opacity 0.15s",
+                      background: color ? `${color}30` : `rgba(255,255,255,0.03)`,
+                      border: `1px solid ${color ? `${color}50` : T.border}`,
+                      outline: isToday ? `2px solid ${T.accent}` : "none",
+                      display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13,
+                    }}>
+                      {mood ? mood.emoji : ""}
+                    </div>
+                    <div style={{ fontSize: 9, color: T.text3, marginTop: 3 }}>{day}</div>
+                    {hasCF && <div style={{ fontSize: 8, color: T.gold, marginTop: 1 }}>•</div>}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap" }}>
+              {MOODS.map(m => (
+                <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.text3 }}>
+                  <span>{m.emoji}</span><span>{m.label}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 11, color: T.text3, marginLeft: "auto" }}>• pending carry-forward</div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="grid-2">
         <div className="card">
@@ -1343,14 +1403,83 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave }) {
   );
 }
 
+function StandupModal({ entry, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const mood    = MOODS.find(m => m.key === entry.mood);
+  const pending = (entry.carry_forward || []).filter(i => !i.done);
+
+  const lines = [
+    `📋 STANDUP — ${fmtDate(entry.date)}`,
+    ``,
+    `Yesterday:`,
+    entry.content || "(no notes recorded)",
+    entry.focus_area ? `Focus area: ${entry.focus_area}` : "",
+    (entry.jira_links || []).length ? `JIRAs worked: ${entry.jira_links.join(", ")}` : "",
+    (entry.collaborators || []).length ? `Collaborated with: ${entry.collaborators.join(", ")}` : "",
+    ``,
+    `Blockers: ${entry.blockers || "None"}`,
+    ``,
+    `Today's plan:`,
+    ...(pending.length
+      ? pending.map(i => `  • [${(i.priority || "med").toUpperCase()}] ${i.text}`)
+      : ["  • (add your plan for today)"]),
+  ];
+
+  const text = lines
+    .filter((l, i, arr) => !(l === "" && arr[i - 1] === ""))
+    .join("\n");
+
+  const copy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 520 }}>
+        <div className="modal-title">
+          <div>
+            <div style={{ fontWeight: 600 }}>📋 Standup Generator</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Copy and paste into Slack or your standup tool</div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        {mood && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, fontSize: 13, color: T.text2 }}>
+            <span>{mood.emoji}</span><span style={{ color: T.text3 }}>{mood.label} day ·</span>
+            {entry.focus_area && <span style={{ color: T.accent }}>{entry.focus_area}</span>}
+          </div>
+        )}
+        <pre style={{
+          background: T.navy0, border: `1px solid ${T.border}`, borderRadius: 8,
+          padding: "14px 16px", fontSize: 13, color: T.text1, lineHeight: 1.8,
+          whiteSpace: "pre-wrap", fontFamily: "'DM Mono', monospace",
+          maxHeight: 320, overflowY: "auto", marginBottom: 16,
+        }}>
+          {text}
+        </pre>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+          <button className="btn btn-primary" onClick={copy} style={{ minWidth: 160 }}>
+            {copied ? "✓ Copied!" : "📋 Copy Standup"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Diary({ onCountChange }) {
-  const [entries, setEntries] = useState([]);
+  const [entries, setEntries]     = useState([]);
   const [prevEntry, setPrevEntry] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [modal, setModal] = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [search, setSearch]       = useState("");
+  const [modal, setModal]         = useState(null);
   const [viewEntry, setViewEntry] = useState(null);
-  const [filterMood, setFilterMood] = useState("");
+  const [standup, setStandup]     = useState(null);
+  const [filterMood, setFilterMood]   = useState("");
   const [filterFocus, setFilterFocus] = useState("");
 
   const load = useCallback(async () => {
@@ -1448,12 +1577,20 @@ function Diary({ onCountChange }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                     {e.focus_area && <span className="focus-badge">{e.focus_area}</span>}
                     {mood && <span title={mood.label} style={{ fontSize: 15 }}>{mood.emoji}</span>}
-                    <div style={{ marginLeft: "auto", display: "flex", gap: 5 }}>
+                    <div style={{ marginLeft: "auto", display: "flex", gap: 5, alignItems: "center" }}>
                       {(e.team_updates?.length || 0) > 0 && (
                         <span className="entry-stat-badge">👥 {e.team_updates.length}</span>
                       )}
                       {pendingCF > 0 && <span className="entry-stat-badge" style={{ color: T.gold, borderColor: "rgba(232,198,106,0.25)" }}>⬆ {pendingCF}</span>}
                       {pendingR  > 0 && <span className="entry-stat-badge" style={{ color: T.coral, borderColor: "rgba(240,117,98,0.25)" }}>🔔 {pendingR}</span>}
+                      <button
+                        title="Generate standup"
+                        className="entry-stat-badge"
+                        style={{ cursor: "pointer", background: "rgba(79,142,247,0.07)", borderColor: T.border, color: T.text3, fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 7px" }}
+                        onClick={ev => { ev.stopPropagation(); setStandup(e); }}
+                      >
+                        📋
+                      </button>
                     </div>
                   </div>
                   {e.content && (
@@ -1495,6 +1632,8 @@ function Diary({ onCountChange }) {
           onSave={save}
         />
       )}
+
+      {standup && <StandupModal entry={standup} onClose={() => setStandup(null)} />}
 
       {viewEntry && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setViewEntry(null)}>
@@ -1931,7 +2070,7 @@ function AuthPage({ onLogin }) {
       <div style={{ width: "100%", maxWidth: 380, background: T.navy1, border: `1px solid ${T.border}`, borderRadius: 16, padding: 36, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
 
         <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 34, color: T.text1, marginBottom: 4 }}>echo</div>
+          <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 28, fontWeight: 800, letterSpacing: 5, textTransform: "uppercase", background: `linear-gradient(135deg, ${T.accent} 0%, ${T.teal} 100%)`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", marginBottom: 4 }}>echo</div>
           <div style={{ fontSize: 11, color: T.text3, letterSpacing: 2, textTransform: "uppercase" }}>Personal Workspace</div>
         </div>
 
