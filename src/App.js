@@ -791,6 +791,305 @@ const injectStyles = () => {
       color: ${T.gold};
       margin-bottom: 20px;
     }
+
+    /* ── Auth page ── */
+    @keyframes authOrbDrift {
+      0%   { transform: translate(0, 0) scale(1); }
+      33%  { transform: translate(30px, -40px) scale(1.08); }
+      66%  { transform: translate(-20px, 20px) scale(0.95); }
+      100% { transform: translate(0, 0) scale(1); }
+    }
+    @keyframes authOrbDrift2 {
+      0%   { transform: translate(0, 0) scale(1); }
+      33%  { transform: translate(-40px, 30px) scale(1.05); }
+      66%  { transform: translate(25px, -25px) scale(0.97); }
+      100% { transform: translate(0, 0) scale(1); }
+    }
+    @keyframes authFadeUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes authLogoShimmer {
+      0%,100% { opacity: 1; }
+      50%      { opacity: 0.82; }
+    }
+    @keyframes authSpinDot {
+      0%   { transform: rotate(0deg) translateX(12px); }
+      100% { transform: rotate(360deg) translateX(12px); }
+    }
+
+    .auth-root {
+      min-height: 100vh;
+      display: flex;
+      font-family: 'DM Sans', sans-serif;
+      background: ${T.navy0};
+    }
+
+    /* Left brand panel */
+    .auth-brand {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: ${T.navy1};
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 60px 56px;
+      border-right: 1px solid ${T.border};
+    }
+    .auth-brand::before {
+      content: '';
+      position: absolute;
+      width: 520px; height: 520px;
+      border-radius: 50%;
+      background: radial-gradient(circle, ${T.accent}22 0%, transparent 70%);
+      top: -180px; left: -120px;
+      animation: authOrbDrift 14s ease-in-out infinite;
+      pointer-events: none;
+    }
+    .auth-brand::after {
+      content: '';
+      position: absolute;
+      width: 420px; height: 420px;
+      border-radius: 50%;
+      background: radial-gradient(circle, ${T.teal}18 0%, transparent 70%);
+      bottom: -140px; right: -80px;
+      animation: authOrbDrift2 18s ease-in-out infinite;
+      pointer-events: none;
+    }
+    .auth-brand-logo {
+      font-family: 'Syne', sans-serif;
+      font-size: 52px;
+      font-weight: 800;
+      letter-spacing: 10px;
+      text-transform: uppercase;
+      background: linear-gradient(135deg, ${T.accent} 0%, ${T.teal} 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1;
+      margin-bottom: 10px;
+      animation: authLogoShimmer 4s ease-in-out infinite;
+    }
+    .auth-brand-tagline {
+      font-size: 16px;
+      color: ${T.text2};
+      margin-bottom: 52px;
+      font-weight: 300;
+      letter-spacing: 0.2px;
+      line-height: 1.5;
+    }
+    .auth-feature {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      margin-bottom: 10px;
+      background: rgba(79,142,247,0.04);
+      border: 1px solid ${T.border};
+      animation: authFadeUp 0.5s ease both;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .auth-feature:hover {
+      border-color: ${T.borderHover};
+      background: rgba(79,142,247,0.08);
+    }
+    .auth-feature-icon {
+      width: 36px; height: 36px;
+      border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px;
+      flex-shrink: 0;
+    }
+    .auth-feature-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: ${T.text1};
+      margin-bottom: 1px;
+    }
+    .auth-feature-sub {
+      font-size: 11px;
+      color: ${T.text3};
+    }
+    .auth-brand-footer {
+      margin-top: 40px;
+      font-size: 11px;
+      color: ${T.text3};
+      letter-spacing: 0.3px;
+    }
+
+    /* Right form panel */
+    .auth-form-panel {
+      width: 420px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 60px 48px;
+      position: relative;
+    }
+    .auth-form-inner {
+      animation: authFadeUp 0.45s ease both;
+    }
+    .auth-form-heading {
+      font-size: 22px;
+      font-weight: 700;
+      color: ${T.text1};
+      margin-bottom: 6px;
+    }
+    .auth-form-sub {
+      font-size: 13px;
+      color: ${T.text3};
+      margin-bottom: 32px;
+    }
+    .auth-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid ${T.border};
+      margin-bottom: 28px;
+    }
+    .auth-tab {
+      padding: 8px 0;
+      margin-right: 24px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: ${T.text3};
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s;
+      font-family: 'DM Sans', sans-serif;
+      letter-spacing: 0.1px;
+    }
+    .auth-tab.active {
+      color: ${T.text1};
+      border-bottom-color: ${T.accent};
+    }
+    .auth-field {
+      margin-bottom: 20px;
+    }
+    .auth-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: ${T.text3};
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      margin-bottom: 7px;
+    }
+    .auth-input-wrap {
+      position: relative;
+    }
+    .auth-input {
+      width: 100%;
+      background: ${T.navy2};
+      border: 1px solid ${T.border};
+      border-radius: 10px;
+      color: ${T.text1};
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      padding: 12px 14px;
+      outline: none;
+      box-sizing: border-box;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .auth-input:focus {
+      border-color: ${T.accent};
+      box-shadow: 0 0 0 3px ${T.accentGlow};
+    }
+    .auth-input::placeholder { color: ${T.text3}; }
+    .auth-eye {
+      position: absolute;
+      right: 13px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: ${T.text3};
+      cursor: pointer;
+      font-size: 14px;
+      padding: 2px;
+      line-height: 1;
+    }
+    .auth-eye:hover { color: ${T.text2}; }
+    .auth-btn {
+      width: 100%;
+      padding: 13px 0;
+      background: linear-gradient(135deg, ${T.accentDim} 0%, ${T.accent} 100%);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'DM Sans', sans-serif;
+      letter-spacing: 0.2px;
+      transition: all 0.2s;
+      box-shadow: 0 4px 16px rgba(79,142,247,0.25);
+      margin-top: 4px;
+    }
+    .auth-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px rgba(79,142,247,0.38);
+    }
+    .auth-btn:active:not(:disabled) { transform: translateY(0); }
+    .auth-btn:disabled {
+      background: ${T.navy3};
+      color: ${T.text3};
+      box-shadow: none;
+      cursor: not-allowed;
+    }
+    .auth-msg {
+      border-radius: 9px;
+      padding: 11px 13px;
+      margin-bottom: 18px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .auth-msg.error {
+      background: rgba(240,117,98,0.09);
+      border: 1px solid rgba(240,117,98,0.28);
+      color: ${T.coral};
+    }
+    .auth-msg.info {
+      background: rgba(63,207,180,0.09);
+      border: 1px solid rgba(63,207,180,0.28);
+      color: ${T.teal};
+    }
+    .auth-divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 22px 0;
+      color: ${T.text3};
+      font-size: 11px;
+    }
+    .auth-divider::before, .auth-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: ${T.border};
+    }
+    .auth-switch {
+      text-align: center;
+      font-size: 12px;
+      color: ${T.text3};
+      margin-top: 20px;
+    }
+    .auth-switch span {
+      color: ${T.accent};
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .auth-switch span:hover { text-decoration: underline; }
+
+    @media (max-width: 720px) {
+      .auth-brand { display: none; }
+      .auth-form-panel { width: 100%; padding: 40px 28px; }
+    }
   `;
   document.head.appendChild(style);
 };
@@ -2868,11 +3167,14 @@ function DigiLocker({ onCountChange }) {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 function AuthPage({ onLogin }) {
-  const [tab, setTab] = useState("login");
-  const [email, setEmail] = useState("");
+  const [tab, setTab]       = useState("login");
+  const [email, setEmail]   = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState({ text: "", type: "" }); // type: error | info
+  const [message, setMessage] = useState({ text: "", type: "" });
+
+  const switchTab = (t) => { setTab(t); setMessage({ text: "", type: "" }); };
 
   const submit = async () => {
     if (!email.trim() || !password.trim()) {
@@ -2881,90 +3183,142 @@ function AuthPage({ onLogin }) {
     }
     setLoading(true);
     setMessage({ text: "", type: "" });
-
     const data = tab === "login"
       ? await db.auth.signIn(email.trim(), password)
       : await db.auth.signUp(email.trim(), password);
-
     setLoading(false);
-
     if (data.access_token) {
       localStorage.setItem("echo_token", data.access_token);
       onLogin(data.user);
     } else if (tab === "signup" && data.id && !data.access_token) {
       setMessage({ text: "Account created! Check your email to confirm, then sign in.", type: "info" });
-      setTab("login");
+      switchTab("login");
     } else {
-      const msg = data.error_description || data.msg || data.message || data.error || "Authentication failed. Check your credentials.";
-      setMessage({ text: msg, type: "error" });
+      setMessage({ text: data.error_description || data.msg || data.message || data.error || "Authentication failed.", type: "error" });
     }
   };
 
-  const inp = {
-    width: "100%", background: T.navy0, border: `1px solid ${T.border}`, borderRadius: 8,
-    color: T.text1, fontFamily: "'DM Sans', sans-serif", fontSize: 14,
-    padding: "10px 12px", outline: "none", boxSizing: "border-box",
-  };
+  const FEATURES = [
+    { icon: "📓", bg: `${T.accent}20`, title: "Corporate Diary", sub: "Log work, mood, JIRAs & blockers daily" },
+    { icon: "🗂️", bg: `${T.teal}18`,  title: "DigiLocker",      sub: "Secure document storage & retrieval" },
+    { icon: "📈", bg: `${T.gold}18`,   title: "Analytics",       sub: "Mood trends, focus area insights" },
+    { icon: "📝", bg: `${T.coral}18`,  title: "Scratch Pad",     sub: "Quick notes, always a click away" },
+  ];
 
   return (
-    <div style={{ minHeight: "100vh", background: T.navy0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', sans-serif", padding: 20 }}>
-      <div style={{ width: "100%", maxWidth: 380, background: T.navy1, border: `1px solid ${T.border}`, borderRadius: 16, padding: 36, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
+    <div className="auth-root">
 
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 28, fontWeight: 800, letterSpacing: 5, textTransform: "uppercase", background: `linear-gradient(135deg, ${T.accent} 0%, ${T.teal} 100%)`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", marginBottom: 4 }}>echo</div>
-          <div style={{ fontSize: 11, color: T.text3, letterSpacing: 2, textTransform: "uppercase" }}>Personal Workspace</div>
-        </div>
+      {/* ── Left: Brand panel ── */}
+      <div className="auth-brand">
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <div className="auth-brand-logo">echo</div>
+          <div className="auth-brand-tagline">
+            Your work, beautifully organised.<br />
+            <span style={{ color: T.text3, fontSize: 14 }}>A private workspace built for professionals.</span>
+          </div>
 
-        <div style={{ display: "flex", background: T.navy2, borderRadius: 8, padding: 3, marginBottom: 24 }}>
-          {["login", "signup"].map(t => (
-            <button key={t} onClick={() => { setTab(t); setMessage({ text: "", type: "" }); }} style={{
-              flex: 1, padding: "8px 0", borderRadius: 6, border: "none", cursor: "pointer",
-              fontSize: 13, fontWeight: 500, fontFamily: "'DM Sans', sans-serif",
-              background: tab === t ? T.navy0 : "transparent",
-              color: tab === t ? T.text1 : T.text3, transition: "all 0.15s",
-            }}>
-              {t === "login" ? "Sign In" : "Create Account"}
-            </button>
+          {FEATURES.map((f, i) => (
+            <div key={f.title} className="auth-feature" style={{ animationDelay: `${i * 0.08}s` }}>
+              <div className="auth-feature-icon" style={{ background: f.bg }}>{f.icon}</div>
+              <div>
+                <div className="auth-feature-title">{f.title}</div>
+                <div className="auth-feature-sub">{f.sub}</div>
+              </div>
+            </div>
           ))}
-        </div>
 
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 11, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Email</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && submit()} placeholder="your@email.com" style={inp} />
-        </div>
-
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ display: "block", fontSize: 11, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Password</label>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && submit()} placeholder="••••••••" style={inp} />
-        </div>
-
-        {message.text && (
-          <div style={{
-            background: message.type === "error" ? "rgba(240,117,98,0.08)" : "rgba(63,207,180,0.08)",
-            border: `1px solid ${message.type === "error" ? "rgba(240,117,98,0.3)" : "rgba(63,207,180,0.3)"}`,
-            borderRadius: 8, padding: "10px 12px", marginBottom: 16,
-            fontSize: 13, color: message.type === "error" ? T.coral : T.teal, lineHeight: 1.5,
-          }}>
-            {message.text}
+          <div className="auth-brand-footer">
+            Built with Supabase · React · No data leaves your account.
           </div>
-        )}
+        </div>
+      </div>
 
-        <button onClick={submit} disabled={loading} style={{
-          width: "100%", padding: "11px 0", background: loading ? T.navy3 : T.accent,
-          color: loading ? T.text3 : "#fff", border: "none", borderRadius: 8,
-          fontSize: 14, fontWeight: 500, cursor: loading ? "not-allowed" : "pointer",
-          fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s",
-        }}>
-          {loading ? "Please wait…" : tab === "login" ? "Sign In →" : "Create Account"}
-        </button>
+      {/* ── Right: Form panel ── */}
+      <div className="auth-form-panel">
+        <div className="auth-form-inner">
 
-        {tab === "signup" && (
-          <div style={{ fontSize: 12, color: T.text3, textAlign: "center", marginTop: 14, lineHeight: 1.5 }}>
-            By signing up you agree that this is a personal workspace. Supabase email confirmation may be required.
+          {/* Mobile-only logo */}
+          <div style={{ display: "none", textAlign: "center", marginBottom: 28 }} className="auth-mobile-logo">
+            <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 32, fontWeight: 800, letterSpacing: 6, textTransform: "uppercase", background: `linear-gradient(135deg, ${T.accent} 0%, ${T.teal} 100%)`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>echo</div>
           </div>
-        )}
+
+          <div className="auth-form-heading">
+            {tab === "login" ? "Welcome back" : "Create your account"}
+          </div>
+          <div className="auth-form-sub">
+            {tab === "login"
+              ? "Sign in to access your workspace"
+              : "Set up Echo in under a minute"}
+          </div>
+
+          {/* Tabs */}
+          <div className="auth-tabs">
+            <button className={`auth-tab ${tab === "login" ? "active" : ""}`} onClick={() => switchTab("login")}>Sign In</button>
+            <button className={`auth-tab ${tab === "signup" ? "active" : ""}`} onClick={() => switchTab("signup")}>Create Account</button>
+          </div>
+
+          {/* Email */}
+          <div className="auth-field">
+            <label className="auth-label">Email address</label>
+            <input
+              type="email" className="auth-input"
+              value={email} onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && submit()}
+              placeholder="you@company.com"
+              autoComplete="email"
+            />
+          </div>
+
+          {/* Password */}
+          <div className="auth-field">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+              <label className="auth-label" style={{ margin: 0 }}>Password</label>
+            </div>
+            <div className="auth-input-wrap">
+              <input
+                type={showPw ? "text" : "password"} className="auth-input"
+                value={password} onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submit()}
+                placeholder="••••••••"
+                style={{ paddingRight: 42 }}
+                autoComplete={tab === "login" ? "current-password" : "new-password"}
+              />
+              <button className="auth-eye" onClick={() => setShowPw(s => !s)} tabIndex={-1} title={showPw ? "Hide password" : "Show password"}>
+                {showPw ? "🙈" : "👁"}
+              </button>
+            </div>
+          </div>
+
+          {/* Message */}
+          {message.text && (
+            <div className={`auth-msg ${message.type}`}>{message.text}</div>
+          )}
+
+          {/* Submit */}
+          <button className="auth-btn" onClick={submit} disabled={loading}>
+            {loading
+              ? <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "authSpinDot 0.7s linear infinite" }} />
+                  Please wait…
+                </span>
+              : tab === "login" ? "Sign In →" : "Create Account →"
+            }
+          </button>
+
+          <div className="auth-switch">
+            {tab === "login"
+              ? <>Don't have an account? <span onClick={() => switchTab("signup")}>Create one</span></>
+              : <>Already have an account? <span onClick={() => switchTab("login")}>Sign in</span></>
+            }
+          </div>
+
+          {tab === "signup" && (
+            <div style={{ marginTop: 16, fontSize: 11, color: T.text3, lineHeight: 1.6, textAlign: "center" }}>
+              Email confirmation may be required by Supabase.<br />
+              Your data is private and stored in your own Supabase project.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
