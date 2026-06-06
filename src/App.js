@@ -1158,6 +1158,126 @@ function Dashboard({ setView, diaryCount, docCount }) {
           </div>
         </div>
       )}
+
+      {/* ── Mood Trend Chart (30 days) ── */}
+      {(() => {
+        const moodScore = { productive: 5, resolved: 4, collaborative: 3, challenged: 2, frustrated: 1 };
+        const moodColorMap = { productive: T.green, resolved: T.teal, collaborative: T.accent, challenged: T.gold, frustrated: T.coral };
+        const days30 = [];
+        for (let i = 29; i >= 0; i--) {
+          const d = new Date(); d.setDate(d.getDate() - i);
+          const ds = d.toISOString().split("T")[0];
+          const entry = heatEntries.find(e => e.date === ds);
+          days30.push({ ds, score: entry?.mood ? (moodScore[entry.mood] || null) : null, mood: entry?.mood || null });
+        }
+        const withScores = days30.filter(d => d.score !== null);
+        if (withScores.length < 3) return null;
+
+        const W = 560, H = 80, PAD = 8;
+        const xOf = (i) => PAD + (i / 29) * (W - PAD * 2);
+        const yOf = (s) => (H - PAD) - ((s - 1) / 4) * (H - PAD * 2);
+
+        const linePoints = days30.filter(d => d.score).map(d => `${xOf(days30.indexOf(d)).toFixed(1)},${yOf(d.score).toFixed(1)}`).join(" ");
+
+        const areaD = (() => {
+          const pts = [];
+          let firstX = null, lastX = null;
+          days30.forEach((d, i) => {
+            if (!d.score) return;
+            const x = xOf(i).toFixed(1), y = yOf(d.score).toFixed(1);
+            if (firstX === null) firstX = x;
+            lastX = x;
+            pts.push(pts.length === 0 ? `M ${x} ${y}` : `L ${x} ${y}`);
+          });
+          if (pts.length < 2) return "";
+          return pts.join(" ") + ` L ${lastX} ${H - PAD} L ${firstX} ${H - PAD} Z`;
+        })();
+
+        const avgScore = (withScores.reduce((s, d) => s + d.score, 0) / withScores.length).toFixed(1);
+        const avgMood = MOODS.slice().sort((a, b) => Math.abs(moodScore[a.key] - avgScore) - Math.abs(moodScore[b.key] - avgScore))[0];
+
+        return (
+          <div className="card" style={{ marginTop: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>📈 Mood Trend — Last 30 Days</div>
+              <div style={{ fontSize: 12, color: T.text3 }}>
+                avg: <span style={{ color: avgMood ? moodColorMap[avgMood.key] : T.text2 }}>{avgMood?.emoji} {avgMood?.label}</span>
+                <span style={{ marginLeft: 10 }}>{withScores.length} / 30 days logged</span>
+              </div>
+            </div>
+            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: 80, display: "block" }}>
+              <defs>
+                <linearGradient id="moodAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={T.accent} stopOpacity="0.18" />
+                  <stop offset="100%" stopColor={T.accent} stopOpacity="0.02" />
+                </linearGradient>
+              </defs>
+              {[1,2,3,4,5].map(s => (
+                <line key={s} x1={PAD} y1={yOf(s)} x2={W - PAD} y2={yOf(s)} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
+              ))}
+              {areaD && <path d={areaD} fill="url(#moodAreaGrad)" />}
+              {linePoints && <polyline points={linePoints} fill="none" stroke={T.accent} strokeWidth="1.5" strokeOpacity="0.6" />}
+              {days30.map((d, i) => d.score ? (
+                <circle key={d.ds} cx={xOf(i)} cy={yOf(d.score)} r="3.5"
+                  fill={moodColorMap[d.mood]} stroke={T.navy1} strokeWidth="1.5">
+                  <title>{d.ds}: {MOODS.find(m => m.key === d.mood)?.label}</title>
+                </circle>
+              ) : null)}
+            </svg>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.text3, marginTop: 4 }}>
+              <span>{days30[0].ds}</span>
+              <div style={{ display: "flex", gap: 12 }}>
+                {MOODS.map(m => (
+                  <span key={m.key} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: moodColorMap[m.key], display: "inline-block" }} />
+                    {m.label}
+                  </span>
+                ))}
+              </div>
+              <span>{days30[29].ds}</span>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Focus Area Analytics ── */}
+      {(() => {
+        const counts = {};
+        heatEntries.forEach(e => { if (e.focus_area) counts[e.focus_area] = (counts[e.focus_area] || 0) + 1; });
+        const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+        if (sorted.length < 2) return null;
+        const max = sorted[0][1];
+        const palette = [T.accent, T.teal, T.gold, T.coral, T.green, "#a78bfa", "#fb923c", "#38bdf8"];
+        const total = sorted.reduce((s, [, c]) => s + c, 0);
+        return (
+          <div className="card" style={{ marginTop: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>🎯 Focus Area Breakdown</div>
+              <div style={{ fontSize: 11, color: T.text3 }}>{total} entries · {sorted.length} areas</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              {sorted.map(([area, count], idx) => {
+                const pct = Math.round((count / total) * 100);
+                return (
+                  <div key={area} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ width: 108, fontSize: 12, color: T.text2, textAlign: "right", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={area}>{area}</div>
+                    <div style={{ flex: 1, background: "rgba(255,255,255,0.04)", borderRadius: 4, height: 20, overflow: "hidden", position: "relative" }}>
+                      <div style={{
+                        height: "100%", borderRadius: 4,
+                        width: `${(count / max) * 100}%`,
+                        background: `linear-gradient(90deg, ${palette[idx % palette.length]}70, ${palette[idx % palette.length]}bb)`,
+                      }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: palette[idx % palette.length], fontWeight: 600, fontFamily: "'DM Mono', monospace", width: 44, textAlign: "right", flexShrink: 0 }}>
+                      {count} <span style={{ color: T.text3, fontWeight: 400 }}>({pct}%)</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1167,6 +1287,112 @@ function SectionInput({ children }) {
   return (
     <div style={{ background: "rgba(79,142,247,0.04)", border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
       {children}
+    </div>
+  );
+}
+
+// ─── Scratch Pad ─────────────────────────────────────────────────────────────
+function ScratchPad({ onClose }) {
+  const [notes, setNotes] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem("echo_pad") || "null");
+      return s && s.length > 0 ? s : [{ id: 1, title: "Note 1", text: "" }];
+    } catch { return [{ id: 1, title: "Note 1", text: "" }]; }
+  });
+  const [activeIdx, setActiveIdx] = useState(0);
+
+  const persist = (updated) => {
+    setNotes(updated);
+    localStorage.setItem("echo_pad", JSON.stringify(updated));
+  };
+
+  const addNote = () => {
+    const n = { id: Date.now(), title: `Note ${notes.length + 1}`, text: "" };
+    const updated = [...notes, n];
+    persist(updated);
+    setActiveIdx(updated.length - 1);
+  };
+
+  const deleteNote = (idx, e) => {
+    e.stopPropagation();
+    if (notes.length === 1) {
+      persist([{ id: Date.now(), title: "Note 1", text: "" }]);
+      setActiveIdx(0);
+      return;
+    }
+    const updated = notes.filter((_, i) => i !== idx);
+    persist(updated);
+    setActiveIdx(Math.min(activeIdx, updated.length - 1));
+  };
+
+  const active = notes[Math.min(activeIdx, notes.length - 1)] || notes[0];
+
+  const updateActive = (key, val) => {
+    const updated = notes.map((n, i) => i === activeIdx ? { ...n, [key]: val } : n);
+    persist(updated);
+  };
+
+  return (
+    <div style={{
+      position: "fixed", bottom: 84, right: 24, width: 360, height: 440,
+      background: T.navy1, border: `1px solid ${T.borderHover}`,
+      borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+      display: "flex", flexDirection: "column", zIndex: 9998, overflow: "hidden",
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: T.navy2, flexShrink: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.text1 }}>📝 Scratch Pad</div>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>✕</button>
+      </div>
+
+      {/* Note tabs */}
+      <div style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}`, overflowX: "auto", background: T.navy2, flexShrink: 0 }}>
+        {notes.map((n, idx) => (
+          <div key={n.id} onClick={() => setActiveIdx(idx)} style={{
+            display: "flex", alignItems: "center", gap: 4, padding: "6px 10px",
+            cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
+            borderBottom: `2px solid ${activeIdx === idx ? T.accent : "transparent"}`,
+            color: activeIdx === idx ? T.text1 : T.text3, fontSize: 12,
+          }}>
+            <span style={{ maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis" }}>
+              {n.title || `Note ${idx + 1}`}
+            </span>
+            <span onClick={(e) => deleteNote(idx, e)} style={{ fontSize: 11, color: T.text3, marginLeft: 1, opacity: 0.7 }}>×</span>
+          </div>
+        ))}
+        <button onClick={addNote} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", padding: "6px 10px", fontSize: 18, flexShrink: 0, lineHeight: 1 }} title="New note">+</button>
+      </div>
+
+      {/* Note title */}
+      <input
+        type="text"
+        value={active?.title || ""}
+        onChange={e => updateActive("title", e.target.value)}
+        placeholder="Note title…"
+        style={{
+          background: "transparent", border: "none", borderBottom: `1px solid ${T.border}`,
+          color: T.text1, fontSize: 13, fontWeight: 600, padding: "8px 14px",
+          outline: "none", fontFamily: "'DM Sans', sans-serif", flexShrink: 0,
+        }}
+      />
+
+      {/* Note body */}
+      <textarea
+        value={active?.text || ""}
+        onChange={e => updateActive("text", e.target.value)}
+        placeholder="Jot something down…"
+        style={{
+          flex: 1, background: "transparent", border: "none",
+          color: T.text2, fontSize: 13, padding: "10px 14px",
+          outline: "none", resize: "none", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.75,
+        }}
+      />
+
+      {/* Footer */}
+      <div style={{ padding: "5px 14px", borderTop: `1px solid ${T.border}`, fontSize: 11, color: T.text3, display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
+        <span>{active?.text?.length || 0} chars</span>
+        <span>{notes.length} note{notes.length !== 1 ? "s" : ""} · auto-saved</span>
+      </div>
     </div>
   );
 }
@@ -2768,6 +2994,7 @@ export default function Echo() {
   const [authLoading, setAuthLoading] = useState(true);
   const [reminderEnabled, setReminderEnabled] = useState(() => localStorage.getItem("echo_reminder_on") === "true");
   const [reminderTime, setReminderTime]       = useState(() => localStorage.getItem("echo_reminder_time") || "17:30");
+  const [padOpen, setPadOpen]                 = useState(false);
 
   useEffect(() => {
     db.auth.getUser().then(u => {
@@ -2909,6 +3136,25 @@ export default function Echo() {
         )}
         {view === "team" && <MyTeam />}
       </main>
+
+      {/* ── Floating Scratch Pad ── */}
+      {padOpen && <ScratchPad onClose={() => setPadOpen(false)} />}
+      <button
+        onClick={() => setPadOpen(o => !o)}
+        title="Scratch Pad"
+        style={{
+          position: "fixed", bottom: 24, right: 24, zIndex: 9999,
+          width: 48, height: 48, borderRadius: "50%",
+          background: padOpen ? T.accent : `linear-gradient(135deg, ${T.accentDim}, ${T.accent})`,
+          border: `2px solid ${padOpen ? T.accent : T.accentDim}`,
+          boxShadow: `0 4px 20px ${T.accentGlow}`,
+          color: "#fff", fontSize: 20, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          transition: "all 0.2s ease",
+        }}
+      >
+        {padOpen ? "✕" : "📝"}
+      </button>
     </div>
   );
 }
