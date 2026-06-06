@@ -956,6 +956,7 @@ function Dashboard({ setView, diaryCount, docCount }) {
   const [recentEntries, setRecentEntries] = useState([]);
   const [heatEntries, setHeatEntries]     = useState([]);
   const [recentDocs, setRecentDocs]       = useState([]);
+  const [onThisDay, setOnThisDay]         = useState({ week: null, month: null });
 
   useEffect(() => {
     if (!isConfigured()) return;
@@ -964,6 +965,17 @@ function Dashboard({ setView, diaryCount, docCount }) {
       setHeatEntries(d || []);
     });
     db.from("documents").select("*", { order: "created_at.desc" }).then(d => setRecentDocs((d || []).slice(0, 4)));
+
+    const weekAgo  = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+    const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate() - 30);
+    const wStr = weekAgo.toISOString().split("T")[0];
+    const mStr = monthAgo.toISOString().split("T")[0];
+    db.from("diary_entries").select("*", { eq: ["date", wStr] }).then(d => {
+      if (d?.[0]) setOnThisDay(prev => ({ ...prev, week: d[0] }));
+    });
+    db.from("diary_entries").select("*", { eq: ["date", mStr] }).then(d => {
+      if (d?.[0]) setOnThisDay(prev => ({ ...prev, month: d[0] }));
+    });
   }, []);
 
   const hour = new Date().getHours();
@@ -1114,6 +1126,38 @@ function Dashboard({ setView, diaryCount, docCount }) {
             })}
         </div>
       </div>
+
+      {/* ── On This Day ── */}
+      {(onThisDay.week || onThisDay.month) && (
+        <div className="card" style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.text1, marginBottom: 14 }}>🕰 On This Day</div>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+            {[
+              { label: "1 week ago", entry: onThisDay.week },
+              { label: "1 month ago", entry: onThisDay.month },
+            ].filter(r => r.entry).map(({ label, entry }) => {
+              const mood = MOODS.find(m => m.key === entry.mood);
+              return (
+                <div key={label} style={{ flex: 1, minWidth: 220, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px" }}>
+                  <div style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 6 }}>{label} · {fmtDate(entry.date)}</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+                    {entry.focus_area && <span className="focus-badge" style={{ fontSize: 10 }}>{entry.focus_area}</span>}
+                    {mood && <span style={{ fontSize: 13 }}>{mood.emoji} <span style={{ fontSize: 12, color: T.text3 }}>{mood.label}</span></span>}
+                  </div>
+                  {entry.content && (
+                    <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }}>
+                      {entry.content.slice(0, 120)}{entry.content.length > 120 ? "…" : ""}
+                    </div>
+                  )}
+                  {entry.blockers && (
+                    <div style={{ fontSize: 11, color: T.coral, marginTop: 5 }}>⚠ {entry.blockers.slice(0, 70)}{entry.blockers.length > 70 ? "…" : ""}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1503,6 +1547,125 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave }) {
   );
 }
 
+function WeeklyReportModal({ entries, onClose }) {
+  const [copied, setCopied] = useState(false);
+
+  const now = new Date();
+  const dow = now.getDay() || 7;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (dow - 1));
+  monday.setHours(0, 0, 0, 0);
+  const mondayStr = monday.toISOString().split("T")[0];
+
+  const week = entries
+    .filter(e => e.date >= mondayStr)
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+
+  const allJiras    = [...new Set(week.flatMap(e => e.jira_links    || []))];
+  const allCollabs  = [...new Set(week.flatMap(e => e.collaborators || []))];
+  const allTeam     = [...new Set(week.flatMap(e => (e.team_updates || []).map(u => u.name)))];
+  const allFeedback = week.flatMap(e => (e.feedback_given || []).map(f => `${f.to} (${f.type})`));
+  const pendingCF   = [...new Set(week.flatMap(e => (e.carry_forward || []).filter(i => !i.done).map(i => i.text)))];
+  const resolvedCF  = week.reduce((n, e) => n + (e.carry_forward || []).filter(i => i.done).length, 0);
+  const blockers    = week.filter(e => e.blockers);
+
+  const focusCounts = {};
+  week.forEach(e => { if (e.focus_area) focusCounts[e.focus_area] = (focusCounts[e.focus_area] || 0) + 1; });
+  const topFocus = Object.entries(focusCounts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} (${v}d)`).join(", ");
+  const moodLine = week.filter(e => e.mood).map(e => MOODS.find(m => m.key === e.mood)?.emoji || "").join(" ");
+
+  const text = [
+    `📊 WEEKLY REPORT — w/c ${fmtDate(mondayStr)}`,
+    ``,
+    `━━━ SUMMARY ━━━`,
+    `Days logged   : ${week.length} of 5`,
+    `Mood this week: ${moodLine || "—"}`,
+    topFocus        ? `Focus areas   : ${topFocus}` : "",
+    allJiras.length ? `JIRAs worked  : ${allJiras.join(", ")}` : "",
+    allCollabs.length ? `Collaborated  : ${allCollabs.join(", ")}` : "",
+    ``,
+    `━━━ TEAM ━━━`,
+    allTeam.length     ? `Tracked  : ${allTeam.join(", ")}`     : "No team updates logged.",
+    allFeedback.length ? `Feedback : ${allFeedback.join("; ")}` : "",
+    ``,
+    `━━━ BLOCKERS ━━━`,
+    ...(blockers.length ? blockers.map(e => `${fmtDate(e.date)}: ${e.blockers}`) : ["None this week"]),
+    ``,
+    `━━━ CARRY FORWARD ━━━`,
+    `Resolved this week : ${resolvedCF}`,
+    `Still pending      : ${pendingCF.length}`,
+    ...(pendingCF.map(t => `  • ${t}`)),
+    ``,
+    `━━━ DAILY LOG ━━━`,
+    ...(week.length
+      ? week.map(e => {
+          const mood = MOODS.find(m => m.key === e.mood);
+          return `${fmtDate(e.date)}  ${mood?.emoji || "  "} ${e.focus_area || ""}${e.blockers ? "  ⚠ blocker" : ""}`;
+        })
+      : ["No entries this week."]),
+  ].filter((l, i, arr) => !(l === "" && arr[i - 1] === "")).join("\n");
+
+  const copy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 580 }}>
+        <div className="modal-title">
+          <div>
+            <div style={{ fontWeight: 600 }}>📊 Weekly Report</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+              w/c {fmtDate(mondayStr)} · {week.length} {week.length === 1 ? "entry" : "entries"} logged
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+
+        {week.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "30px 0", color: T.text3, fontSize: 13 }}>
+            No diary entries logged this week yet.
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+              {[
+                { label: "Days", value: `${week.length}/5`, color: T.accent },
+                { label: "JIRAs", value: allJiras.length, color: T.gold },
+                { label: "CF resolved", value: resolvedCF, color: T.teal },
+                { label: "CF pending", value: pendingCF.length, color: pendingCF.length > 0 ? T.coral : T.text3 },
+              ].map(s => (
+                <div key={s.label} style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 12px", flex: 1, textAlign: "center" }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: s.color, fontFamily: "'DM Mono', monospace" }}>{s.value}</div>
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 2, textTransform: "uppercase", letterSpacing: 0.5 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <pre style={{
+              background: T.navy0, border: `1px solid ${T.border}`, borderRadius: 8,
+              padding: "14px 16px", fontSize: 12, color: T.text1, lineHeight: 1.8,
+              whiteSpace: "pre-wrap", fontFamily: "'DM Mono', monospace",
+              maxHeight: 340, overflowY: "auto", marginBottom: 16,
+            }}>{text}</pre>
+          </>
+        )}
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+          {week.length > 0 && (
+            <button className="btn btn-primary" onClick={copy} style={{ minWidth: 150 }}>
+              {copied ? "✓ Copied!" : "📋 Copy Report"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StandupModal({ entry, onClose }) {
   const [copied, setCopied] = useState(false);
   const mood    = MOODS.find(m => m.key === entry.mood);
@@ -1579,8 +1742,23 @@ function Diary({ onCountChange }) {
   const [modal, setModal]         = useState(null);
   const [viewEntry, setViewEntry] = useState(null);
   const [standup, setStandup]     = useState(null);
-  const [filterMood, setFilterMood]   = useState("");
-  const [filterFocus, setFilterFocus] = useState("");
+  const [weeklyReport, setWeeklyReport]   = useState(false);
+  const [filterMood, setFilterMood]       = useState("");
+  const [filterFocus, setFilterFocus]     = useState("");
+  const [filterStarred, setFilterStarred] = useState(false);
+  const [starredIds, setStarredIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("echo_starred") || "[]")); }
+    catch { return new Set(); }
+  });
+
+  const toggleStar = (id) => {
+    setStarredIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      localStorage.setItem("echo_starred", JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1625,28 +1803,37 @@ function Diary({ onCountChange }) {
       e.feedback_given?.some(f => f.to?.toLowerCase().includes(q) || f.note?.toLowerCase().includes(q)) ||
       e.carry_forward?.some(i => i.text?.toLowerCase().includes(q)) ||
       e.reminders?.some(i => i.text?.toLowerCase().includes(q));
-    const matchMood  = !filterMood  || e.mood       === filterMood;
-    const matchFocus = !filterFocus || e.focus_area === filterFocus;
-    return matchSearch && matchMood && matchFocus;
+    const matchMood    = !filterMood    || e.mood       === filterMood;
+    const matchFocus   = !filterFocus   || e.focus_area === filterFocus;
+    const matchStarred = !filterStarred || starredIds.has(e.id);
+    return matchSearch && matchMood && matchFocus && matchStarred;
   });
 
   return (
     <div className="echo-content fade-in">
       <ConfigBanner />
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
-        <div className="search-bar" style={{ flex: 1, minWidth: 220 }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <div className="search-bar" style={{ flex: 1, minWidth: 200 }}>
           <span style={{ color: T.text3, fontSize: 16 }}>🔍</span>
           <input placeholder="Search notes, tickets, team members, tags…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <select className="form-select" style={{ width: 150 }} value={filterFocus} onChange={e => setFilterFocus(e.target.value)}>
+        <select className="form-select" style={{ width: 145 }} value={filterFocus} onChange={e => setFilterFocus(e.target.value)}>
           <option value="">All focus areas</option>
           {FOCUS_AREAS.map(f => <option key={f} value={f}>{f}</option>)}
         </select>
-        <select className="form-select" style={{ width: 140 }} value={filterMood} onChange={e => setFilterMood(e.target.value)}>
+        <select className="form-select" style={{ width: 135 }} value={filterMood} onChange={e => setFilterMood(e.target.value)}>
           <option value="">All moods</option>
           {MOODS.map(m => <option key={m.key} value={m.key}>{m.emoji} {m.label}</option>)}
         </select>
+        <button
+          className={`btn ${filterStarred ? "btn-primary" : "btn-ghost"}`}
+          onClick={() => setFilterStarred(f => !f)}
+          title="Show starred only"
+        >⭐ Starred{starredIds.size > 0 && ` (${starredIds.size})`}</button>
+        <button className="btn btn-ghost" onClick={() => setWeeklyReport(true)} title="Weekly summary report">
+          📊 Week
+        </button>
         <button className="btn btn-primary" onClick={() => setModal("new")}>+ New Entry</button>
       </div>
 
@@ -1688,9 +1875,12 @@ function Diary({ onCountChange }) {
                         className="entry-stat-badge"
                         style={{ cursor: "pointer", background: "rgba(79,142,247,0.07)", borderColor: T.border, color: T.text3, fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 7px" }}
                         onClick={ev => { ev.stopPropagation(); setStandup(e); }}
-                      >
-                        📋
-                      </button>
+                      >📋</button>
+                      <button
+                        title={starredIds.has(e.id) ? "Unstar" : "Star this entry"}
+                        style={{ cursor: "pointer", background: "transparent", border: "none", fontSize: 15, padding: "0 1px", lineHeight: 1, opacity: starredIds.has(e.id) ? 1 : 0.35 }}
+                        onClick={ev => { ev.stopPropagation(); toggleStar(e.id); }}
+                      >{starredIds.has(e.id) ? "⭐" : "⭐"}</button>
                     </div>
                   </div>
                   {e.content && (
@@ -1734,6 +1924,7 @@ function Diary({ onCountChange }) {
       )}
 
       {standup && <StandupModal entry={standup} onClose={() => setStandup(null)} />}
+      {weeklyReport && <WeeklyReportModal entries={entries} onClose={() => setWeeklyReport(false)} />}
 
       {viewEntry && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setViewEntry(null)}>
@@ -1850,6 +2041,9 @@ function Diary({ onCountChange }) {
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
               <button className="btn btn-danger btn-sm" onClick={() => del(viewEntry.id)}>Delete</button>
               <button className="btn btn-ghost btn-sm" onClick={() => exportEntryPDF(viewEntry)}>↓ Export PDF</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => toggleStar(viewEntry.id)}>
+                {starredIds.has(viewEntry.id) ? "⭐ Starred" : "☆ Star"}
+              </button>
               <button className="btn btn-ghost btn-sm" onClick={() => { setModal(viewEntry); setViewEntry(null); }}>Edit</button>
             </div>
           </div>
@@ -2245,11 +2439,13 @@ const PAGE_META = {
 
 export default function Echo() {
   useEffect(() => { injectStyles(); }, []);
-  const [view, setView]         = useState("dashboard");
-  const [diaryCount, setDiaryCount] = useState(0);
-  const [docCount, setDocCount]     = useState(0);
-  const [user, setUser]             = useState(null);
+  const [view, setView]               = useState("dashboard");
+  const [diaryCount, setDiaryCount]   = useState(0);
+  const [docCount, setDocCount]       = useState(0);
+  const [user, setUser]               = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [reminderEnabled, setReminderEnabled] = useState(() => localStorage.getItem("echo_reminder_on") === "true");
+  const [reminderTime, setReminderTime]       = useState(() => localStorage.getItem("echo_reminder_time") || "17:30");
 
   useEffect(() => {
     db.auth.getUser().then(u => {
@@ -2257,6 +2453,28 @@ export default function Echo() {
       setAuthLoading(false);
     }).catch(() => setAuthLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!reminderEnabled) return;
+    const check = async () => {
+      const now = new Date();
+      const [h, m] = reminderTime.split(":").map(Number);
+      if (now.getHours() !== h || now.getMinutes() !== m) return;
+      const todayStr = now.toISOString().split("T")[0];
+      if (localStorage.getItem("echo_last_notified") === todayStr) return;
+      const rows = await db.from("diary_entries").select("id", { eq: ["date", todayStr] });
+      if ((rows || []).length > 0) return;
+      if (Notification.permission === "granted") {
+        new Notification("Echo — time to log your day 📓", {
+          body: "You haven't recorded today's diary entry yet.",
+          icon: "/favicon.ico",
+        });
+        localStorage.setItem("echo_last_notified", todayStr);
+      }
+    };
+    const id = setInterval(check, 60000);
+    return () => clearInterval(id);
+  }, [reminderEnabled, reminderTime]);
 
   const logout = async () => {
     await db.auth.signOut();
@@ -2308,14 +2526,44 @@ export default function Echo() {
 
         <div className="echo-sidebar-footer">
           <div style={{ fontSize: 11, color: T.text3, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</div>
-          {isOwner && <div style={{ fontSize: 10, color: T.teal, marginBottom: 8 }}>Owner</div>}
+          {isOwner && <div style={{ fontSize: 10, color: T.teal, marginBottom: 6 }}>Owner</div>}
+
+          {/* End-of-day reminder */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 0", borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}`, marginBottom: 8 }}>
+            <span style={{ fontSize: 12 }} title="End-of-day diary reminder">🔔</span>
+            <input
+              type="time"
+              value={reminderTime}
+              onChange={e => { setReminderTime(e.target.value); localStorage.setItem("echo_reminder_time", e.target.value); }}
+              style={{ flex: 1, background: "transparent", border: "none", color: reminderEnabled ? T.text2 : T.text3, fontSize: 11, fontFamily: "'DM Mono', monospace", outline: "none" }}
+            />
+            <button
+              onClick={() => {
+                if (!reminderEnabled && Notification.permission !== "granted") {
+                  Notification.requestPermission().then(p => {
+                    if (p === "granted") { setReminderEnabled(true); localStorage.setItem("echo_reminder_on", "true"); }
+                  });
+                } else {
+                  const next = !reminderEnabled;
+                  setReminderEnabled(next);
+                  localStorage.setItem("echo_reminder_on", String(next));
+                }
+              }}
+              style={{
+                background: reminderEnabled ? T.teal : "transparent",
+                border: `1px solid ${reminderEnabled ? T.teal : T.border}`,
+                borderRadius: 4, color: reminderEnabled ? T.navy0 : T.text3,
+                fontSize: 10, fontWeight: 600, padding: "2px 7px", cursor: "pointer",
+                fontFamily: "'DM Sans', sans-serif",
+              }}
+            >{reminderEnabled ? "ON" : "OFF"}</button>
+          </div>
+
           <button onClick={logout} style={{
             background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6,
             color: T.text3, cursor: "pointer", fontSize: 11, padding: "5px 12px",
             fontFamily: "'DM Sans', sans-serif", width: "100%",
-          }}>
-            Sign out
-          </button>
+          }}>Sign out</button>
         </div>
       </aside>
 
