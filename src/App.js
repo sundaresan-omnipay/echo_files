@@ -872,6 +872,85 @@ function ConfigBanner() {
   );
 }
 
+// ─── PDF Export ──────────────────────────────────────────────────────────────
+function exportEntryPDF(entry) {
+  const mood = MOODS.find(m => m.key === entry.mood);
+  const esc  = s => String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+  const section = (title, body) => body ? `
+    <div class="section-title">${title}</div>
+    <div class="body">${body}</div>` : "";
+
+  const teamRows = (entry.team_updates || []).map(u =>
+    `<div class="side-row blue"><strong>👤 ${esc(u.name)}</strong>
+     <span class="badge">${TEAM_STATUSES.find(s => s.key === u.status)?.label || u.status}</span>
+     <div class="note">${esc(u.update)}</div></div>`).join("");
+
+  const fbRows = (entry.feedback_given || []).map(f =>
+    `<div class="side-row teal"><strong>→ ${esc(f.to)}</strong>
+     <span class="badge">${FEEDBACK_TYPES.find(t => t.key === f.type)?.label || f.type}</span>
+     <div class="note">${esc(f.note)}</div></div>`).join("");
+
+  const cfItems = (entry.carry_forward || []).map(i =>
+    `<li class="${i.done ? 'done' : ''}">${i.done ? "✅" : "⬜"} ${esc(i.text)} <span class="pri">[${i.priority || "med"}]</span></li>`).join("");
+
+  const remItems = (entry.reminders || []).map(i =>
+    `<li class="${i.checked ? 'done' : ''}">${i.checked ? "✅" : "🔔"} ${esc(i.text)}</li>`).join("");
+
+  const jiraChips = (entry.jira_links || []).map(l =>
+    `<span class="chip">${esc(l)}</span>`).join(" ");
+
+  const html = `<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8">
+<title>Echo Diary — ${fmtDate(entry.date)}</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  body { font-family:'DM Sans',sans-serif; max-width:720px; margin:40px auto; padding:0 32px; color:#1a1a2e; font-size:14px; }
+  h1 { font-size:24px; margin:0 0 6px; color:#0d1526; }
+  .meta { font-size:13px; color:#666; margin-bottom:28px; display:flex; gap:14px; flex-wrap:wrap; }
+  .section-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:1.5px; color:#999; margin:22px 0 8px; padding-bottom:5px; border-bottom:1px solid #eee; }
+  .body { font-size:14px; line-height:1.8; color:#333; white-space:pre-wrap; }
+  .blocker { background:#fff3f0; border-left:3px solid #f07562; padding:10px 14px; border-radius:4px; }
+  .chip { display:inline-block; background:#f0f4ff; border:1px solid #c8d8ff; border-radius:4px; padding:2px 9px; font-size:12px; margin:2px; font-family:'DM Mono',monospace; }
+  .side-row { padding:9px 12px; margin:6px 0; border-radius:5px; }
+  .side-row.blue { border-left:3px solid #4f8ef7; background:#f6f9ff; }
+  .side-row.teal { border-left:3px solid #3fcfb4; background:#f4fdfb; }
+  .badge { display:inline-block; font-size:11px; background:#eee; border-radius:4px; padding:1px 7px; margin-left:8px; }
+  .note { font-size:13px; color:#555; margin-top:4px; }
+  .checklist { list-style:none; padding:0; margin:0; }
+  .checklist li { padding:5px 0; border-bottom:1px solid #f5f5f5; font-size:13px; }
+  .done { text-decoration:line-through; color:#aaa; }
+  .pri { font-size:11px; color:#999; }
+  .tag { background:#e8f4ff; color:#4f8ef7; border-radius:4px; padding:1px 8px; font-size:11px; margin:2px; display:inline-block; }
+  .footer { margin-top:40px; font-size:11px; color:#ccc; border-top:1px solid #eee; padding-top:10px; }
+  @media print { body { margin:10px auto; } }
+</style>
+</head><body>
+<h1>${fmtDate(entry.date)}</h1>
+<div class="meta">
+  ${mood ? `<span>${mood.emoji} ${mood.label}</span>` : ""}
+  ${entry.focus_area ? `<span>📌 ${esc(entry.focus_area)}</span>` : ""}
+  ${(entry.collaborators||[]).length ? `<span>👥 ${entry.collaborators.map(esc).join(", ")}</span>` : ""}
+</div>
+${jiraChips ? `<div class="section-title">JIRAs</div><div>${jiraChips}</div>` : ""}
+${section("What I Did", entry.content ? esc(entry.content) : "")}
+${entry.blockers ? `<div class="section-title">Blockers</div><div class="blocker">${esc(entry.blockers)}</div>` : ""}
+${teamRows  ? `<div class="section-title">Team Progress</div>${teamRows}` : ""}
+${fbRows    ? `<div class="section-title">Feedback Given</div>${fbRows}` : ""}
+${cfItems   ? `<div class="section-title">Carry Forward</div><ul class="checklist">${cfItems}</ul>` : ""}
+${remItems  ? `<div class="section-title">Reminders</div><ul class="checklist">${remItems}</ul>` : ""}
+${(entry.tags||[]).length ? `<div class="section-title">Tags</div><div>${entry.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(" ")}</div>` : ""}
+<div class="footer">Exported from Echo Personal Workspace · ${fmtDate(entry.date)}</div>
+</body></html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) { alert("Allow pop-ups to export PDF."); return; }
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 600);
+}
+
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 function Dashboard({ setView, diaryCount, docCount }) {
   const [recentEntries, setRecentEntries] = useState([]);
@@ -914,20 +993,41 @@ function Dashboard({ setView, diaryCount, docCount }) {
         ))}
       </div>
 
-      {/* ── 14-Day Mood Heatmap ── */}
+      {/* ── Working-Day Mood Heatmap ── */}
       {(() => {
         const moodColor = { productive: T.green, resolved: T.teal, collaborative: T.accent, challenged: T.gold, frustrated: T.coral };
-        const days = Array.from({ length: 14 }, (_, i) => {
-          const d = new Date(); d.setDate(d.getDate() - (13 - i));
+
+        // Build last 14 relevant days: weekdays always, weekends only if entry exists
+        const days = [];
+        let offset = 0;
+        while (days.length < 14 && offset < 60) {
+          const d = new Date(); d.setDate(d.getDate() - offset);
+          const dow = d.getDay();
+          const isWeekend = dow === 0 || dow === 6;
           const dateStr = d.toISOString().split("T")[0];
-          const entry   = heatEntries.find(e => e.date === dateStr);
-          return { dateStr, day: d.getDate(), wd: d.toLocaleDateString("en-GB", { weekday: "short" }), entry, isToday: i === 13 };
-        });
-        const streak = (() => { let s = 0; for (let i = days.length - 1; i >= 0; i--) { if (days[i].entry) s++; else break; } return s; })();
+          const entry = heatEntries.find(e => e.date === dateStr);
+          if (!isWeekend || entry) {
+            days.unshift({ dateStr, day: d.getDate(), wd: d.toLocaleDateString("en-GB", { weekday: "short" }), entry, isToday: offset === 0, isWeekend });
+          }
+          offset++;
+        }
+
+        // Streak counts consecutive working days with entries (weekends skipped)
+        const streak = (() => {
+          let s = 0, o = 0;
+          while (o < 60) {
+            const d = new Date(); d.setDate(d.getDate() - o);
+            const dow = d.getDay();
+            if (dow === 0 || dow === 6) { o++; continue; }
+            if (!heatEntries.some(e => e.date === d.toISOString().split("T")[0])) break;
+            s++; o++;
+          }
+          return s;
+        })();
         return (
           <div className="card mb-16" style={{ marginBottom: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>14-Day Activity</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>Working Day Activity</div>
               {streak > 0 && <div style={{ fontSize: 12, color: T.gold }}>🔥 {streak}-day streak</div>}
             </div>
             <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
@@ -1747,8 +1847,9 @@ function Diary({ onCountChange }) {
             )}
 
             <hr className="divider" style={{ margin: "16px 0 12px" }} />
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
               <button className="btn btn-danger btn-sm" onClick={() => del(viewEntry.id)}>Delete</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => exportEntryPDF(viewEntry)}>↓ Export PDF</button>
               <button className="btn btn-ghost btn-sm" onClick={() => { setModal(viewEntry); setViewEntry(null); }}>Edit</button>
             </div>
           </div>
