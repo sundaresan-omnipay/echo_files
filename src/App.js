@@ -1171,6 +1171,253 @@ function SectionInput({ children }) {
   );
 }
 
+// ─── Teammates helpers ───────────────────────────────────────────────────────
+function loadTeammates() {
+  try { return JSON.parse(localStorage.getItem("echo_teammates") || "[]"); } catch { return []; }
+}
+function saveTeammates(arr) {
+  localStorage.setItem("echo_teammates", JSON.stringify(arr));
+}
+function initials(name) {
+  return name.trim().split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
+}
+
+function TeammatesModal({ onClose }) {
+  const [teammates, setTeammates] = useState(() => loadTeammates());
+  const [form, setForm] = useState({ name: "", role: "", emoji: "" });
+  const [editId, setEditId] = useState(null);
+
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const addOrUpdate = () => {
+    if (!form.name.trim()) return;
+    let updated;
+    if (editId !== null) {
+      updated = teammates.map((t, i) => i === editId ? { ...form, name: form.name.trim() } : t);
+      setEditId(null);
+    } else {
+      updated = [...teammates, { ...form, name: form.name.trim() }];
+    }
+    setTeammates(updated);
+    saveTeammates(updated);
+    setForm({ name: "", role: "", emoji: "" });
+  };
+
+  const startEdit = (idx) => {
+    setForm({ ...teammates[idx], emoji: teammates[idx].emoji || "" });
+    setEditId(idx);
+  };
+
+  const remove = (idx) => {
+    const updated = teammates.filter((_, i) => i !== idx);
+    setTeammates(updated);
+    saveTeammates(updated);
+  };
+
+  const cancel = () => { setForm({ name: "", role: "", emoji: "" }); setEditId(null); };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <div className="modal-title">👥 My Team</div>
+            <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Saved teammates for quick collaborator selection</div>
+          </div>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="modal-body">
+          {/* Add / edit form */}
+          <div style={{ background: "rgba(79,142,247,0.05)", border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 12, letterSpacing: 0.5 }}>
+              {editId !== null ? "Edit Teammate" : "Add Teammate"}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              <input
+                type="text" className="form-input" placeholder="Name *"
+                value={form.name} onChange={e => setF("name", e.target.value)}
+                onKeyDown={e => e.key === "Enter" && addOrUpdate()}
+                style={{ flex: 2 }}
+              />
+              <input
+                type="text" className="form-input" placeholder="Role (e.g. QA Lead)"
+                value={form.role} onChange={e => setF("role", e.target.value)}
+                style={{ flex: 2 }}
+              />
+              <input
+                type="text" className="form-input" placeholder="😊"
+                value={form.emoji} onChange={e => setF("emoji", e.target.value)}
+                style={{ flex: 0, width: 52, textAlign: "center" }}
+                maxLength={2}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-primary btn-sm" onClick={addOrUpdate}>
+                {editId !== null ? "Update" : "+ Add"}
+              </button>
+              {editId !== null && (
+                <button className="btn btn-ghost btn-sm" onClick={cancel}>Cancel</button>
+              )}
+            </div>
+          </div>
+
+          {/* Teammates list */}
+          {teammates.length === 0
+            ? <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "20px 0" }}>
+                No teammates saved yet. Add your first one above.
+              </div>
+            : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {teammates.map((t, idx) => (
+                  <div key={idx} style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "10px 14px", background: T.navy3,
+                    border: `1px solid ${T.border}`, borderRadius: 8,
+                  }}>
+                    <div style={{
+                      width: 36, height: 36, borderRadius: "50%",
+                      background: `linear-gradient(135deg, ${T.accent}30, ${T.teal}30)`,
+                      border: `1px solid ${T.border}`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: t.emoji ? 18 : 13, fontWeight: 700, color: T.accent,
+                      flexShrink: 0,
+                    }}>
+                      {t.emoji || initials(t.name)}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>{t.name}</div>
+                      {t.role && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{t.role}</div>}
+                    </div>
+                    <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "3px 10px" }} onClick={() => startEdit(idx)}>Edit</button>
+                    <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "3px 10px", color: T.coral, borderColor: `${T.coral}40` }} onClick={() => remove(idx)}>✕</button>
+                  </div>
+                ))}
+              </div>
+          }
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MyTeam page (full-page view accessible from nav) ────────────────────────
+function MyTeam() {
+  const [teammates, setTeammates] = useState(() => loadTeammates());
+  const [form, setForm] = useState({ name: "", role: "", emoji: "" });
+  const [editId, setEditId] = useState(null);
+
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const addOrUpdate = () => {
+    if (!form.name.trim()) return;
+    let updated;
+    if (editId !== null) {
+      updated = teammates.map((t, i) => i === editId ? { ...form, name: form.name.trim() } : t);
+      setEditId(null);
+    } else {
+      updated = [...teammates, { ...form, name: form.name.trim() }];
+    }
+    setTeammates(updated);
+    saveTeammates(updated);
+    setForm({ name: "", role: "", emoji: "" });
+  };
+
+  const startEdit = (idx) => {
+    setForm({ ...teammates[idx], emoji: teammates[idx].emoji || "" });
+    setEditId(idx);
+  };
+
+  const remove = (idx) => {
+    const updated = teammates.filter((_, i) => i !== idx);
+    setTeammates(updated);
+    saveTeammates(updated);
+    if (editId === idx) { setEditId(null); setForm({ name: "", role: "", emoji: "" }); }
+  };
+
+  const cancel = () => { setForm({ name: "", role: "", emoji: "" }); setEditId(null); };
+
+  return (
+    <div style={{ maxWidth: 600, margin: "0 auto" }}>
+      {/* Add / edit form */}
+      <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, marginBottom: 28 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.text2, marginBottom: 14, letterSpacing: 0.5 }}>
+          {editId !== null ? "✏️  Edit Teammate" : "➕  Add Teammate"}
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+          <input
+            type="text" className="form-input" placeholder="Full name *"
+            value={form.name} onChange={e => setF("name", e.target.value)}
+            onKeyDown={e => e.key === "Enter" && addOrUpdate()}
+            style={{ flex: 2 }}
+          />
+          <input
+            type="text" className="form-input" placeholder="Role / team (optional)"
+            value={form.role} onChange={e => setF("role", e.target.value)}
+            style={{ flex: 2 }}
+          />
+          <input
+            type="text" className="form-input" placeholder="😊"
+            value={form.emoji} onChange={e => setF("emoji", e.target.value)}
+            style={{ width: 56, textAlign: "center" }}
+            maxLength={2}
+          />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-primary btn-sm" onClick={addOrUpdate}>
+            {editId !== null ? "Update" : "+ Add"}
+          </button>
+          {editId !== null && <button className="btn btn-ghost btn-sm" onClick={cancel}>Cancel</button>}
+        </div>
+      </div>
+
+      {/* Teammates grid */}
+      {teammates.length === 0
+        ? (
+          <div style={{ textAlign: "center", padding: "60px 0", color: T.text3 }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>👥</div>
+            <div style={{ fontSize: 15, marginBottom: 6 }}>No teammates saved yet</div>
+            <div style={{ fontSize: 13 }}>Add your teammates above — they'll appear as quick-pick chips when logging collaborators in your diary.</div>
+          </div>
+        )
+        : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+            {teammates.map((t, idx) => (
+              <div key={idx} style={{
+                background: T.navy2, border: `1px solid ${T.border}`,
+                borderRadius: 12, padding: 16, display: "flex", alignItems: "center", gap: 14,
+                transition: "border-color 0.15s",
+              }}>
+                <div style={{
+                  width: 46, height: 46, borderRadius: "50%",
+                  background: `linear-gradient(135deg, ${T.accent}25, ${T.teal}25)`,
+                  border: `2px solid ${T.accent}40`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: t.emoji ? 22 : 15, fontWeight: 700, color: T.accent,
+                  flexShrink: 0,
+                }}>
+                  {t.emoji || initials(t.name)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
+                  {t.role && <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{t.role}</div>}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => startEdit(idx)}>Edit</button>
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.coral, borderColor: `${T.coral}40` }} onClick={() => remove(idx)}>✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      }
+    </div>
+  );
+}
+
 function DiaryEntryModal({ entry, previousEntry, onClose, onSave }) {
   const initCF = !entry && previousEntry?.carry_forward
     ? previousEntry.carry_forward.filter(i => !i.done).map(i => ({ ...i, done: false }))
@@ -1352,8 +1599,33 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave }) {
 
             <div className="form-group">
               <label className="form-label">Collaborators</label>
+              {/* Quick-pick from saved teammates */}
+              {(() => {
+                const saved = loadTeammates();
+                const unpicked = saved.filter(t => !form.collaborators.includes(t.name));
+                if (unpicked.length === 0) return null;
+                return (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                    {unpicked.map((t, i) => (
+                      <button key={i} onClick={() => set("collaborators", [...form.collaborators, t.name])}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 5,
+                          background: "rgba(79,142,247,0.08)", border: `1px solid ${T.border}`,
+                          borderRadius: 20, padding: "3px 10px", cursor: "pointer",
+                          fontSize: 12, color: T.accent, fontFamily: "'DM Sans', sans-serif",
+                          transition: "all 0.15s",
+                        }}
+                        title={t.role || t.name}
+                      >
+                        <span style={{ fontSize: 13 }}>{t.emoji || "👤"}</span>
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
               <div style={{ display: "flex", gap: 8 }}>
-                <input type="text" className="form-input" placeholder="Names of people you worked with" value={collabInput}
+                <input type="text" className="form-input" placeholder="Or type a name manually" value={collabInput}
                   onChange={e => setCollabInput(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addCollab())} />
                 <button className="btn btn-ghost btn-sm" onClick={addCollab}>Add</button>
@@ -1395,6 +1667,30 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave }) {
           <div>
             <div className="diary-section-heading">Team Progress</div>
             <SectionInput>
+              {/* Team member quick-pick */}
+              {(() => {
+                const saved = loadTeammates();
+                if (saved.length === 0) return null;
+                return (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                    {saved.map((t, i) => (
+                      <button key={i} onClick={() => setTeamForm(f => ({ ...f, name: t.name }))}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 5,
+                          background: teamForm.name === t.name ? `${T.accent}20` : "rgba(79,142,247,0.05)",
+                          border: `1px solid ${teamForm.name === t.name ? T.accent : T.border}`,
+                          borderRadius: 20, padding: "3px 10px", cursor: "pointer",
+                          fontSize: 12, color: teamForm.name === t.name ? T.accent : T.text2,
+                          fontFamily: "'DM Sans', sans-serif",
+                        }}
+                      >
+                        <span style={{ fontSize: 13 }}>{t.emoji || "👤"}</span>
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
               <div className="grid-2" style={{ marginBottom: 10 }}>
                 <div>
                   <label className="form-label">Member</label>
@@ -1435,6 +1731,30 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave }) {
 
             <div className="diary-section-heading" style={{ marginTop: 24 }}>Feedback Given</div>
             <SectionInput>
+              {/* Feedback recipient quick-pick */}
+              {(() => {
+                const saved = loadTeammates();
+                if (saved.length === 0) return null;
+                return (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                    {saved.map((t, i) => (
+                      <button key={i} onClick={() => setFeedbackForm(f => ({ ...f, to: t.name }))}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 5,
+                          background: feedbackForm.to === t.name ? `${T.teal}20` : "rgba(63,207,180,0.05)",
+                          border: `1px solid ${feedbackForm.to === t.name ? T.teal : T.border}`,
+                          borderRadius: 20, padding: "3px 10px", cursor: "pointer",
+                          fontSize: 12, color: feedbackForm.to === t.name ? T.teal : T.text2,
+                          fontFamily: "'DM Sans', sans-serif",
+                        }}
+                      >
+                        <span style={{ fontSize: 13 }}>{t.emoji || "👤"}</span>
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
               <div className="grid-2" style={{ marginBottom: 10 }}>
                 <div>
                   <label className="form-label">To</label>
@@ -2429,12 +2749,14 @@ const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "🏠", section: "Overview" },
   { id: "diary", label: "Corporate Diary", icon: "📓", dot: T.accent, section: "Modules" },
   { id: "locker", label: "DigiLocker", icon: "🗂️", dot: T.teal, section: "Modules" },
+  { id: "team", label: "My Team", icon: "👥", section: "Settings" },
 ];
 
 const PAGE_META = {
   dashboard: { title: "Dashboard", sub: "Your personal command centre" },
   diary: { title: "Corporate Diary", sub: "Daily work log — tickets, feedback, notes" },
   locker: { title: "DigiLocker", sub: "Secure document storage & retrieval" },
+  team: { title: "My Team", sub: "Saved teammates for quick collaborator selection" },
 };
 
 export default function Echo() {
@@ -2585,6 +2907,7 @@ export default function Echo() {
             <div style={{ fontSize: 16 }}>DigiLocker is private.</div>
           </div>
         )}
+        {view === "team" && <MyTeam />}
       </main>
     </div>
   );
