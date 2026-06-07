@@ -1129,6 +1129,44 @@ const injectStyles = () => {
     /* ── Credit Tracker ── */
     .credit-given    { background: rgba(63,207,180,0.1); color: ${T.teal}; border: 1px solid rgba(63,207,180,0.25); }
     .credit-received { background: rgba(232,198,106,0.1); color: ${T.gold}; border: 1px solid rgba(232,198,106,0.25); }
+
+    /* ── Mobile drawer ── */
+    .echo-hamburger {
+      display: none;
+      background: transparent; border: none;
+      color: ${T.text2}; cursor: pointer;
+      font-size: 22px; padding: 4px 8px;
+      line-height: 1; border-radius: 6px;
+      align-items: center; justify-content: center;
+      margin-right: 8px;
+    }
+    .echo-hamburger:hover { background: rgba(255,255,255,0.06); }
+    .mobile-overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 199;
+      background: rgba(5,8,16,0.72);
+      backdrop-filter: blur(3px);
+    }
+    @media (max-width: 768px) {
+      .echo-sidebar {
+        position: fixed;
+        top: 0; left: 0; bottom: 0;
+        transform: translateX(-100%);
+        transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
+        z-index: 200;
+        width: 268px;
+        box-shadow: none;
+      }
+      .echo-sidebar.mob-open {
+        transform: translateX(0);
+        box-shadow: 6px 0 48px rgba(0,0,0,0.65);
+      }
+      .mobile-overlay.mob-open { display: block; }
+      .echo-hamburger { display: flex; }
+      .echo-topbar { padding: 11px 16px; }
+      .echo-page-title { font-size: 16px; }
+      .echo-page-sub { display: none; }
+    }
   `;
   document.head.appendChild(style);
 };
@@ -3906,6 +3944,7 @@ export default function Echo() {
   const [reminderTime, setReminderTime]       = useState(() => localStorage.getItem("echo_reminder_time") || "17:30");
   const [padOpen, setPadOpen]                 = useState(false);
   const [showPatternInterrupt, setShowPatternInterrupt] = useState(false);
+  const [sidebarOpen, setSidebarOpen]         = useState(false);
 
   useEffect(() => {
     db.auth.getUser().then(u => {
@@ -3974,7 +4013,10 @@ export default function Echo() {
 
   return (
     <div className="echo-root">
-      <aside className="echo-sidebar">
+      {/* Mobile backdrop — tap to close sidebar */}
+      <div className={`mobile-overlay ${sidebarOpen ? "mob-open" : ""}`} onClick={() => setSidebarOpen(false)} />
+
+      <aside className={`echo-sidebar ${sidebarOpen ? "mob-open" : ""}`}>
         <div className="echo-logo">
           <div className="echo-logo-text">echo</div>
           <div className="echo-logo-sub">Personal workspace</div>
@@ -3985,7 +4027,7 @@ export default function Echo() {
             <div key={sec}>
               <div className="echo-nav-section">{sec}</div>
               {visibleNav.filter(n => n.section === sec).map(n => (
-                <div key={n.id} className={`echo-nav-item ${view === n.id ? "active" : ""}`} onClick={() => setView(n.id)}>
+                <div key={n.id} className={`echo-nav-item ${view === n.id ? "active" : ""}`} onClick={() => { setView(n.id); setSidebarOpen(false); }}>
                   <span style={{ fontSize: 15 }}>{n.icon}</span>
                   <span>{n.label}</span>
                   {n.id === "diary" && diaryCount > 0 && (
@@ -4045,9 +4087,12 @@ export default function Echo() {
 
       <main className="echo-main">
         <div className="echo-topbar">
-          <div>
-            <div className="echo-page-title">{PAGE_META[view]?.title}</div>
-            <div className="echo-page-sub">{PAGE_META[view]?.sub}</div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <button className="echo-hamburger" onClick={() => setSidebarOpen(o => !o)} aria-label="Menu">☰</button>
+            <div>
+              <div className="echo-page-title">{PAGE_META[view]?.title}</div>
+              <div className="echo-page-sub">{PAGE_META[view]?.sub}</div>
+            </div>
           </div>
           <div style={{ fontSize: 13, color: T.text3 }}>{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
         </div>
