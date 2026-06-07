@@ -3912,6 +3912,300 @@ function CreditTracker() {
   );
 }
 
+// ─── Resolve ──────────────────────────────────────────────────────────────────
+const RESOLVE_KEY = "echo_resolve";
+const loadResolve = () => { try { return JSON.parse(localStorage.getItem(RESOLVE_KEY) || "[]"); } catch { return []; } };
+const saveResolve = arr => localStorage.setItem(RESOLVE_KEY, JSON.stringify(arr));
+
+const RESOLVE_MILESTONES = [
+  { days: 3,   label: "3 Days",  emoji: "🌱" },
+  { days: 7,   label: "1 Week",  emoji: "⚡" },
+  { days: 21,  label: "21 Days", emoji: "🔥" },
+  { days: 30,  label: "1 Month", emoji: "🏆" },
+  { days: 100, label: "100 Days",emoji: "💎" },
+  { days: 365, label: "1 Year",  emoji: "🌟" },
+];
+
+function getStreak(h) {
+  const base = h.lastSlip || h.createdAt;
+  return Math.max(0, Math.floor((Date.now() - new Date(base + "T00:00:00").getTime()) / 86400000));
+}
+
+function getMilestone(streak) {
+  return [...RESOLVE_MILESTONES].reverse().find(m => streak >= m.days) || null;
+}
+
+function getNextMilestone(streak) {
+  return RESOLVE_MILESTONES.find(m => m.days > streak) || null;
+}
+
+function Resolve() {
+  const [habits, setHabits]       = useState(() => loadResolve());
+  const [showForm, setShowForm]   = useState(false);
+  const [form, setForm]           = useState({ name: "", emoji: "" });
+  const [justSlipped, setJustSlipped] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
+
+  const persist = arr => { setHabits(arr); saveResolve(arr); };
+
+  const addHabit = () => {
+    if (!form.name.trim()) return;
+    const today = new Date().toISOString().split("T")[0];
+    persist([...habits, {
+      id: Date.now(),
+      name: form.name.trim(),
+      emoji: form.emoji.trim() || "✊",
+      createdAt: today,
+      lastSlip: null,
+      slipHistory: [],
+    }]);
+    setForm({ name: "", emoji: "" });
+    setShowForm(false);
+  };
+
+  const confirmSlip = id => {
+    const today = new Date().toISOString().split("T")[0];
+    persist(habits.map(h => h.id !== id ? h : {
+      ...h, lastSlip: today, slipHistory: [...(h.slipHistory || []), today],
+    }));
+    setConfirmId(null);
+    setJustSlipped(id);
+    setTimeout(() => setJustSlipped(null), 3500);
+  };
+
+  const remove = id => persist(habits.filter(h => h.id !== id));
+
+  const sorted = [...habits].sort((a, b) => getStreak(b) - getStreak(a));
+
+  const totalDays = habits.reduce((s, h) => s + getStreak(h), 0);
+  const best      = habits.reduce((mx, h) => Math.max(mx, getStreak(h)), 0);
+
+  const RCard = ({ h }) => {
+    const streak    = getStreak(h);
+    const milestone = getMilestone(streak);
+    const next      = getNextMilestone(streak);
+    const slipped   = justSlipped === h.id;
+    const confirming = confirmId === h.id;
+
+    const numCol = streak >= 100 ? T.gold : streak >= 21 ? T.teal : streak >= 7 ? T.accent : T.text1;
+
+    return (
+      <div style={{
+        background: T.navy2,
+        border: `1px solid ${slipped ? "rgba(240,117,98,0.45)" : milestone ? "rgba(232,198,106,0.22)" : T.border}`,
+        borderRadius: 18, padding: "22px 20px 16px",
+        display: "flex", flexDirection: "column",
+        position: "relative", overflow: "hidden",
+        transition: "border-color 0.35s",
+      }}>
+        {milestone && (
+          <div style={{ position: "absolute", top: 0, right: 0, width: 70, height: 70,
+            borderRadius: "0 18px 0 70px", background: "rgba(232,198,106,0.05)", pointerEvents: "none" }} />
+        )}
+
+        {/* Top row: emoji + name + delete */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <span style={{ fontSize: 20 }}>{h.emoji}</span>
+          <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: T.text2,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</span>
+          <button onClick={() => remove(h.id)} title="Delete" style={{
+            background: "transparent", border: "none", color: T.text3, cursor: "pointer",
+            fontSize: 14, padding: "2px 4px", lineHeight: 1, flexShrink: 0,
+          }}>✕</button>
+        </div>
+
+        {slipped ? (
+          <div style={{ textAlign: "center", padding: "16px 0 10px" }}>
+            <div style={{ fontSize: 34, marginBottom: 6 }}>💔</div>
+            <div style={{ fontSize: 13, color: T.coral, fontWeight: 500 }}>Streak reset. Day 0.</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 3 }}>You've got this. Start again.</div>
+          </div>
+        ) : (
+          <>
+            {/* Big number */}
+            <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 56, fontWeight: 800,
+              color: numCol, lineHeight: 1, marginBottom: 2 }}>{streak}</div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 10 }}>
+              {streak === 1 ? "day without slipping" : "days without slipping"}
+            </div>
+
+            {/* Milestone badge */}
+            {milestone && (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 5,
+                background: "rgba(232,198,106,0.1)", border: "1px solid rgba(232,198,106,0.22)",
+                borderRadius: 20, padding: "3px 10px", fontSize: 11, color: T.gold,
+                width: "fit-content", marginBottom: 6 }}>
+                {milestone.emoji} {milestone.label}
+              </div>
+            )}
+
+            {/* Progress to next milestone */}
+            {next && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.text3, marginBottom: 4 }}>
+                  <span>→ {next.emoji} {next.label}</span>
+                  <span>{next.days - streak}d left</span>
+                </div>
+                <div style={{ height: 3, background: T.border, borderRadius: 2 }}>
+                  <div style={{ height: "100%", borderRadius: 2, background: T.accent,
+                    width: `${Math.min(100, (streak / next.days) * 100)}%`, transition: "width 0.4s" }} />
+                </div>
+              </div>
+            )}
+
+            {/* Slip count */}
+            {(h.slipHistory || []).length > 0 && (
+              <div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>
+                {h.slipHistory.length} slip{h.slipHistory.length !== 1 ? "s" : ""} recorded
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Slip button / confirm */}
+        {!slipped && (
+          confirming ? (
+            <div style={{ marginTop: 10, background: "rgba(240,117,98,0.08)",
+              border: "1px solid rgba(240,117,98,0.25)", borderRadius: 10, padding: "10px 12px" }}>
+              <div style={{ fontSize: 12, color: T.coral, marginBottom: 8, fontWeight: 500 }}>
+                Reset {streak > 0 ? `${streak}-day ` : ""}streak?
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => confirmSlip(h.id)} style={{
+                  flex: 1, background: T.coral, border: "none", borderRadius: 7,
+                  color: "#fff", fontSize: 12, cursor: "pointer", padding: "6px 0",
+                  fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
+                }}>Yes, I slipped</button>
+                <button onClick={() => setConfirmId(null)} style={{
+                  flex: 1, background: "transparent", border: `1px solid ${T.border}`,
+                  borderRadius: 7, color: T.text3, fontSize: 12, cursor: "pointer",
+                  padding: "6px 0", fontFamily: "'DM Sans', sans-serif",
+                }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmId(h.id)} style={{
+              marginTop: 10, width: "100%",
+              background: "rgba(240,117,98,0.07)", border: "1px solid rgba(240,117,98,0.18)",
+              borderRadius: 9, color: T.coral, fontSize: 12, cursor: "pointer",
+              padding: "8px 0", fontFamily: "'DM Sans', sans-serif",
+            }}>I slipped today</button>
+          )
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ padding: "32px 28px 64px" }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+        flexWrap: "wrap", gap: 12, marginBottom: 28 }}>
+        <div>
+          <div style={{ fontSize: 11, color: T.text3, letterSpacing: 1.5,
+            textTransform: "uppercase", marginBottom: 4 }}>Resolve</div>
+          <div style={{ fontSize: 26, fontFamily: "'Syne', sans-serif",
+            fontWeight: 700, color: T.text1, lineHeight: 1.2 }}>Days You Stayed Strong</div>
+          <div style={{ fontSize: 13, color: T.text2, marginTop: 5 }}>
+            Track habits you're breaking — every clean day counts.
+          </div>
+        </div>
+        <button onClick={() => setShowForm(true)} style={{
+          background: T.accent, border: "none", borderRadius: 10, color: "#fff",
+          fontSize: 13, fontWeight: 500, cursor: "pointer", padding: "10px 18px",
+          fontFamily: "'DM Sans', sans-serif", flexShrink: 0,
+        }}>+ New Habit</button>
+      </div>
+
+      {/* Summary bar */}
+      {habits.length > 0 && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" }}>
+          {[
+            { label: "Habits tracked", value: habits.length, col: T.text1 },
+            { label: "Combined clean days", value: totalDays, col: T.teal },
+            { label: "Best streak", value: `${best}d`, col: T.gold },
+          ].map(s => (
+            <div key={s.label} style={{ background: T.navy2, border: `1px solid ${T.border}`,
+              borderRadius: 12, padding: "14px 20px", flex: 1, minWidth: 120 }}>
+              <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 22,
+                fontWeight: 700, color: s.col }}>{s.value}</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {habits.length === 0 && (
+        <div style={{ textAlign: "center", padding: "70px 20px", color: T.text3 }}>
+          <div style={{ fontSize: 52, marginBottom: 16 }}>✊</div>
+          <div style={{ fontSize: 18, color: T.text2, marginBottom: 8 }}>Nothing to resist yet</div>
+          <div style={{ fontSize: 13 }}>Add a habit you want to break — the streak starts today.</div>
+        </div>
+      )}
+
+      {/* Grid */}
+      <div style={{ display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
+        {sorted.map(h => <RCard key={h.id} h={h} />)}
+      </div>
+
+      {/* Add habit modal */}
+      {showForm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(5,8,16,0.82)",
+          backdropFilter: "blur(8px)", zIndex: 1000,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ background: T.navy2, border: `1px solid ${T.border2}`,
+            borderRadius: 20, padding: "36px 36px 32px", width: "100%", maxWidth: 400 }}>
+            <div style={{ fontSize: 18, fontFamily: "'Syne', sans-serif",
+              fontWeight: 700, color: T.text1, marginBottom: 4 }}>Break a habit</div>
+            <div style={{ fontSize: 13, color: T.text3, marginBottom: 22 }}>
+              Name it. Own it. Start your streak from today.
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+              <input
+                value={form.emoji}
+                onChange={e => setForm(f => ({ ...f, emoji: e.target.value }))}
+                placeholder="✊"
+                maxLength={2}
+                style={{ width: 52, textAlign: "center", fontSize: 22, flexShrink: 0,
+                  background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10,
+                  color: T.text1, padding: "10px 0", outline: "none",
+                  fontFamily: "'DM Sans', sans-serif" }}
+              />
+              <input
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                onKeyDown={e => e.key === "Enter" && addHabit()}
+                placeholder="e.g. Eating chips, Doom scrolling…"
+                autoFocus
+                style={{ flex: 1, background: T.navy3, border: `1px solid ${T.border}`,
+                  borderRadius: 10, color: T.text1, padding: "10px 14px",
+                  fontSize: 14, outline: "none", fontFamily: "'DM Sans', sans-serif" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={addHabit} style={{
+                flex: 1, background: T.accent, border: "none", borderRadius: 10,
+                color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer",
+                padding: "11px 0", fontFamily: "'DM Sans', sans-serif",
+              }}>Start streak</button>
+              <button onClick={() => setShowForm(false)} style={{
+                flex: 1, background: "transparent", border: `1px solid ${T.border}`,
+                borderRadius: 10, color: T.text2, fontSize: 13, cursor: "pointer",
+                padding: "11px 0", fontFamily: "'DM Sans', sans-serif",
+              }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────────────────────
 const NAV = [
   { id: "dashboard", label: "Dashboard",      icon: "🏠", section: "Overview" },
@@ -3921,6 +4215,7 @@ const NAV = [
   { id: "resume",    label: "Shadow Resume",   icon: "📋", dot: T.gold,   section: "Insights" },
   { id: "workmap",   label: "Work Map",        icon: "🕸️", dot: T.teal,   section: "Insights" },
   { id: "credits",   label: "Credit Tracker",  icon: "⭐", dot: T.gold,   section: "Insights" },
+  { id: "resolve",   label: "Resolve",         icon: "🔥", dot: T.coral,  section: "Insights" },
 ];
 
 const PAGE_META = {
@@ -3931,6 +4226,7 @@ const PAGE_META = {
   resume:    { title: "Shadow Resume",   sub: "Auto-built from your diary — your work in numbers" },
   workmap:   { title: "Work Map",        sub: "How your focus areas, collaborators and tickets connect" },
   credits:   { title: "Credit Tracker",  sub: "Log credit given and received — track the balance" },
+  resolve:   { title: "Resolve",         sub: "Days you stayed strong — track habits you're breaking" },
 };
 
 export default function Echo() {
@@ -4110,6 +4406,7 @@ export default function Echo() {
         {view === "resume"  && <ShadowResume />}
         {view === "workmap" && <WorkMap />}
         {view === "credits" && <CreditTracker />}
+        {view === "resolve" && <Resolve />}
       </main>
 
       {/* ── Pattern Interrupt overlay ── */}
