@@ -16,6 +16,36 @@ const h = () => {
   return { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` };
 };
 
+// ─── Token auto-refresh (keeps the app alive past 1-hour JWT expiry) ─────────
+let _refreshing = null;
+const _refreshToken = async () => {
+  if (_refreshing) return _refreshing;
+  const rt = localStorage.getItem("echo_refresh_token");
+  if (!rt) return false;
+  _refreshing = (async () => {
+    try {
+      const r = await fetch(`${_AUTH()}/token?grant_type=refresh_token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+        body: JSON.stringify({ refresh_token: rt }),
+      });
+      if (!r.ok) {
+        localStorage.removeItem("echo_token");
+        localStorage.removeItem("echo_refresh_token");
+        return false;
+      }
+      const data = await r.json();
+      if (data.access_token) {
+        localStorage.setItem("echo_token", data.access_token);
+        if (data.refresh_token) localStorage.setItem("echo_refresh_token", data.refresh_token);
+        return true;
+      }
+    } catch {}
+    return false;
+  })().finally(() => { _refreshing = null; });
+  return _refreshing;
+};
+
 const db = {
   auth: {
     signIn: async (email, password) => {
@@ -43,14 +73,28 @@ const db = {
         }).catch(() => {});
       }
       localStorage.removeItem("echo_token");
+      localStorage.removeItem("echo_refresh_token");
     },
     getUser: async () => {
-      const token = localStorage.getItem("echo_token");
-      if (!token) return null;
+      let token = localStorage.getItem("echo_token");
+      if (!token) {
+        const ok = await _refreshToken();
+        if (!ok) return null;
+        token = localStorage.getItem("echo_token");
+      }
       const r = await fetch(`${_AUTH()}/user`, {
         headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
       });
-      if (!r.ok) { localStorage.removeItem("echo_token"); return null; }
+      if (!r.ok) {
+        const ok = await _refreshToken();
+        if (!ok) { localStorage.removeItem("echo_token"); return null; }
+        token = localStorage.getItem("echo_token");
+        const r2 = await fetch(`${_AUTH()}/user`, {
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+        });
+        if (!r2.ok) { localStorage.removeItem("echo_token"); return null; }
+        return r2.json();
+      }
       return r.json();
     },
   },
@@ -59,7 +103,11 @@ const db = {
       let url = `${_REST()}/${table}?select=${cols}`;
       if (opts.eq) url += `&${opts.eq[0]}=eq.${opts.eq[1]}`;
       if (opts.order) url += `&order=${opts.order}`;
-      const r = await fetch(url, { headers: h() });
+      let r = await fetch(url, { headers: h() });
+      if (r.status === 401) {
+        const ok = await _refreshToken();
+        if (ok) r = await fetch(url, { headers: h() });
+      }
       if (!r.ok) return [];
       return r.json();
     },
@@ -1749,55 +1797,89 @@ function SectionInput({ children }) {
 
 // ─── Scratch Pad ─────────────────────────────────────────────────────────────
 function ScratchPad({ onClose, user }) {
-  const [notes, setNotes] = useState([{ id: 1, title: "Note 1", text: "" }]);
+  const [notes, setNotes] = useState([{ id: 1, title: "Note 1", text: "", group: "" }]);
   const [loaded, setLoaded] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
+  const [activeGroup, setActiveGroup] = useState("All");
+  const [newGroupInput, setNewGroupInput] = useState("");
+  const [showGroupInput, setShowGroupInput] = useState(false);
 
   useEffect(() => {
     if (!user?.id || loaded) return;
     db.from("scratch_pad").select("content", { eq: ["user_id", user.id] }).then(rows => {
       const raw = rows?.[0]?.content;
-      if (raw) { try { const p = JSON.parse(raw); if (p?.length) setNotes(p); } catch {} }
+      if (raw) {
+        try {
+          const p = JSON.parse(raw);
+          if (p?.length) {
+            // Migrate old notes that lack a group field
+            setNotes(p.map(n => ({ group: "", ...n })));
+          }
+        } catch {}
+      }
       setLoaded(true);
     });
   }, [user, loaded]);
 
   const persist = (updated) => {
     setNotes(updated);
+    _notesCache = updated;
     if (user?.id) {
       db.from("scratch_pad").upsert({ user_id: user.id, content: JSON.stringify(updated), updated_at: new Date().toISOString() }, "user_id");
     }
   };
 
+  // Derived groups from all notes
+  const allGroups = ["All", ...new Set(notes.map(n => n.group || "").filter(Boolean))];
+
+  // Notes visible in the current group tab
+  const visibleNotes = activeGroup === "All" ? notes : notes.filter(n => (n.group || "") === activeGroup);
+
+  // Map visible index → real index in notes[]
+  const realIdx = visibleNotes[activeIdx] ? notes.indexOf(visibleNotes[activeIdx]) : 0;
+  const active  = notes[realIdx] || notes[0];
+
   const addNote = () => {
-    const n = { id: Date.now(), title: `Note ${notes.length + 1}`, text: "" };
+    const n = { id: Date.now(), title: `Note ${notes.length + 1}`, text: "", group: activeGroup === "All" ? "" : activeGroup };
     const updated = [...notes, n];
     persist(updated);
-    setActiveIdx(updated.length - 1);
+    setActiveIdx(visibleNotes.length); // will point to the new note in current group view
   };
 
-  const deleteNote = (idx, e) => {
+  const deleteNote = (visIdx, e) => {
     e.stopPropagation();
+    const rIdx = notes.indexOf(visibleNotes[visIdx]);
     if (notes.length === 1) {
-      persist([{ id: Date.now(), title: "Note 1", text: "" }]);
+      persist([{ id: Date.now(), title: "Note 1", text: "", group: "" }]);
       setActiveIdx(0);
       return;
     }
-    const updated = notes.filter((_, i) => i !== idx);
+    const updated = notes.filter((_, i) => i !== rIdx);
     persist(updated);
-    setActiveIdx(Math.min(activeIdx, updated.length - 1));
+    setActiveIdx(Math.max(0, Math.min(activeIdx, (activeGroup === "All" ? updated : updated.filter(n => (n.group || "") === activeGroup)).length - 1)));
   };
 
-  const active = notes[Math.min(activeIdx, notes.length - 1)] || notes[0];
-
   const updateActive = (key, val) => {
-    const updated = notes.map((n, i) => i === activeIdx ? { ...n, [key]: val } : n);
+    const updated = notes.map((n, i) => i === realIdx ? { ...n, [key]: val } : n);
     persist(updated);
+  };
+
+  const addGroup = () => {
+    const g = newGroupInput.trim();
+    if (!g || allGroups.includes(g)) { setShowGroupInput(false); setNewGroupInput(""); return; }
+    // Create an empty note in this group so the group persists
+    const n = { id: Date.now(), title: `${g} — Note 1`, text: "", group: g };
+    const updated = [...notes, n];
+    persist(updated);
+    setActiveGroup(g);
+    setActiveIdx(0);
+    setShowGroupInput(false);
+    setNewGroupInput("");
   };
 
   return (
     <div style={{
-      position: "fixed", bottom: 84, right: 24, width: 360, height: 440,
+      position: "fixed", bottom: 84, right: 24, width: 390, height: 480,
       background: T.navy1, border: `1px solid ${T.borderHover}`,
       borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
       display: "flex", flexDirection: "column", zIndex: 9998, overflow: "hidden",
@@ -1808,16 +1890,42 @@ function ScratchPad({ onClose, user }) {
         <button onClick={onClose} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>✕</button>
       </div>
 
+      {/* Group filter bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 10px", borderBottom: `1px solid ${T.border}`, background: T.navy2, flexShrink: 0, overflowX: "auto" }}>
+        {allGroups.map(g => (
+          <button key={g} onClick={() => { setActiveGroup(g); setActiveIdx(0); }} style={{
+            background: activeGroup === g ? T.accentGlow : "transparent",
+            border: `1px solid ${activeGroup === g ? T.accent : T.border}`,
+            borderRadius: 20, padding: "2px 10px", cursor: "pointer",
+            fontSize: 11, color: activeGroup === g ? T.accent : T.text3,
+            fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap", flexShrink: 0,
+          }}>{g}</button>
+        ))}
+        {showGroupInput ? (
+          <input
+            autoFocus
+            value={newGroupInput}
+            onChange={e => setNewGroupInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") addGroup(); if (e.key === "Escape") { setShowGroupInput(false); setNewGroupInput(""); } }}
+            onBlur={addGroup}
+            placeholder="Group name…"
+            style={{ background: T.navy3, border: `1px solid ${T.accent}`, borderRadius: 20, padding: "2px 10px", fontSize: 11, color: T.text1, outline: "none", fontFamily: "'DM Sans', sans-serif", width: 100 }}
+          />
+        ) : (
+          <button onClick={() => setShowGroupInput(true)} title="New group" style={{ background: "none", border: `1px dashed ${T.border}`, borderRadius: 20, padding: "2px 8px", cursor: "pointer", fontSize: 11, color: T.text3, fontFamily: "'DM Sans', sans-serif", flexShrink: 0 }}>＋ Group</button>
+        )}
+      </div>
+
       {/* Note tabs */}
       <div style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}`, overflowX: "auto", background: T.navy2, flexShrink: 0 }}>
-        {notes.map((n, idx) => (
+        {visibleNotes.map((n, idx) => (
           <div key={n.id} onClick={() => setActiveIdx(idx)} style={{
             display: "flex", alignItems: "center", gap: 4, padding: "6px 10px",
             cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
             borderBottom: `2px solid ${activeIdx === idx ? T.accent : "transparent"}`,
             color: activeIdx === idx ? T.text1 : T.text3, fontSize: 12,
           }}>
-            <span style={{ maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis" }}>
+            <span style={{ maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis" }}>
               {n.title || `Note ${idx + 1}`}
             </span>
             <span onClick={(e) => deleteNote(idx, e)} style={{ fontSize: 11, color: T.text3, marginLeft: 1, opacity: 0.7 }}>×</span>
@@ -1826,18 +1934,33 @@ function ScratchPad({ onClose, user }) {
         <button onClick={addNote} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", padding: "6px 10px", fontSize: 18, flexShrink: 0, lineHeight: 1 }} title="New note">+</button>
       </div>
 
-      {/* Note title */}
-      <input
-        type="text"
-        value={active?.title || ""}
-        onChange={e => updateActive("title", e.target.value)}
-        placeholder="Note title…"
-        style={{
-          background: "transparent", border: "none", borderBottom: `1px solid ${T.border}`,
-          color: T.text1, fontSize: 13, fontWeight: 600, padding: "8px 14px",
-          outline: "none", fontFamily: "'DM Sans', sans-serif", flexShrink: 0,
-        }}
-      />
+      {/* Note title + group */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        <input
+          type="text"
+          value={active?.title || ""}
+          onChange={e => updateActive("title", e.target.value)}
+          placeholder="Note title…"
+          style={{
+            flex: 1, background: "transparent", border: "none",
+            color: T.text1, fontSize: 13, fontWeight: 600, padding: "8px 14px",
+            outline: "none", fontFamily: "'DM Sans', sans-serif",
+          }}
+        />
+        <input
+          type="text"
+          value={active?.group || ""}
+          onChange={e => updateActive("group", e.target.value)}
+          onBlur={e => { const g = e.target.value.trim(); if (g && !allGroups.includes(g)) setActiveGroup("All"); }}
+          placeholder="Group…"
+          title="Assign to a group"
+          style={{
+            width: 90, background: "transparent", border: "none", borderLeft: `1px solid ${T.border}`,
+            color: T.accent, fontSize: 11, padding: "8px 10px",
+            outline: "none", fontFamily: "'DM Sans', sans-serif",
+          }}
+        />
+      </div>
 
       {/* Note body */}
       <textarea
@@ -1854,7 +1977,7 @@ function ScratchPad({ onClose, user }) {
       {/* Footer */}
       <div style={{ padding: "5px 14px", borderTop: `1px solid ${T.border}`, fontSize: 11, color: T.text3, display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
         <span>{active?.text?.length || 0} chars</span>
-        <span>{notes.length} note{notes.length !== 1 ? "s" : ""} · auto-saved</span>
+        <span>{visibleNotes.length}/{notes.length} notes · auto-saved</span>
       </div>
     </div>
   );
@@ -1868,6 +1991,17 @@ async function refreshTeammates() {
   return _tmCache;
 }
 function loadTeammates() { return _tmCache; }
+
+// ─── Scratch notes cache (so Diary can pick notes to link) ───────────────────
+let _notesCache = [];
+async function refreshScratchNotes(userId) {
+  if (!userId) return [];
+  const rows = await db.from("scratch_pad").select("content", { eq: ["user_id", userId] });
+  const raw = rows?.[0]?.content;
+  if (raw) { try { const p = JSON.parse(raw); _notesCache = Array.isArray(p) ? p : []; } catch {} }
+  return _notesCache;
+}
+function loadScratchNotes() { return _notesCache; }
 function initials(name) {
   return name.trim().split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
 }
@@ -1990,7 +2124,7 @@ function MyTeam({ user }) {
   );
 }
 
-function DiaryEntryModal({ entry, previousEntry, onClose, onSave }) {
+function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes = [] }) {
   const initCF = !entry && previousEntry?.carry_forward
     ? previousEntry.carry_forward.filter(i => !i.done).map(i => ({ ...i, done: false }))
     : [];
@@ -2011,11 +2145,13 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave }) {
     blockers:       entry.blockers       || "",
     mood:           entry.mood           || "",
     content:        entry.content        || "",
+    linked_note:    entry.linked_note    || null,
   } : {
     date: today(), focus_area: "", mood: "", content: "", blockers: "",
     jira_links: [], collaborators: [], tags: [], team_updates: [], feedback_given: [],
     carry_forward: initCF,
     reminders: initReminders,
+    linked_note: null,
   });
 
   const [tab, setTab] = useState("day");
@@ -2231,6 +2367,36 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave }) {
                 </div>
               )}
             </div>
+
+            {/* ── Linked Note ── */}
+            {scratchNotes.length > 0 && (
+              <div className="form-group">
+                <label className="form-label">📎 Link a Note</label>
+                {form.linked_note ? (
+                  <div style={{ background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: T.accent }}>📝 {form.linked_note.title || "Untitled"}</span>
+                      <button onClick={() => set("linked_note", null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11, fontFamily: "'DM Sans', sans-serif" }}>Unlink ✕</button>
+                    </div>
+                    <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                      {(form.linked_note.text || "").slice(0, 150)}{(form.linked_note.text || "").length > 150 ? "…" : ""}
+                    </div>
+                  </div>
+                ) : (
+                  <select className="form-select" value="" onChange={e => {
+                    const n = scratchNotes.find(n => String(n.id) === e.target.value);
+                    if (n) set("linked_note", { id: n.id, title: n.title, text: n.text, group: n.group });
+                  }}>
+                    <option value="">— Pick a scratch pad note to link —</option>
+                    {scratchNotes.map(n => (
+                      <option key={n.id} value={String(n.id)}>
+                        {n.title || "Untitled"}{n.group ? ` [${n.group}]` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -2639,6 +2805,7 @@ function Diary({ onCountChange, user }) {
   const [filterFocus, setFilterFocus]     = useState("");
   const [filterStarred, setFilterStarred] = useState(false);
   const [starredIds, setStarredIds] = useState(new Set());
+  const [scratchNotes, setScratchNotes]   = useState(() => loadScratchNotes());
 
   const toggleStar = (id) => {
     setStarredIds(prev => {
@@ -2672,6 +2839,7 @@ function Diary({ onCountChange, user }) {
     db.from("starred_entries").select("entry_id").then(rows => {
       setStarredIds(new Set((rows || []).map(r => r.entry_id)));
     });
+    refreshScratchNotes(user.id).then(setScratchNotes);
   }, [user]);
 
   const save = async (form) => {
@@ -2766,6 +2934,7 @@ function Diary({ onCountChange, user }) {
                     {e.focus_area && <span className="focus-badge">{e.focus_area}</span>}
                     {mood && <span title={mood.label} style={{ fontSize: 15 }}>{mood.emoji}</span>}
                     <div style={{ marginLeft: "auto", display: "flex", gap: 5, alignItems: "center" }}>
+                      {e.linked_note && <span className="entry-stat-badge" title={`Linked note: ${e.linked_note.title}`} style={{ color: T.teal, borderColor: "rgba(63,207,180,0.25)" }}>📎</span>}
                       {(e.team_updates?.length || 0) > 0 && (
                         <span className="entry-stat-badge">👥 {e.team_updates.length}</span>
                       )}
@@ -2821,6 +2990,7 @@ function Diary({ onCountChange, user }) {
           previousEntry={modal === "new" ? prevEntry : null}
           onClose={() => setModal(null)}
           onSave={save}
+          scratchNotes={scratchNotes}
         />
       )}
 
@@ -2935,6 +3105,20 @@ function Diary({ onCountChange, user }) {
                     <span style={{ flex: 1, fontSize: 13, color: item.checked ? T.text3 : T.text1, textDecoration: item.checked ? "line-through" : "none" }}>{item.text}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Linked Note */}
+            {viewEntry.linked_note && (
+              <div style={{ marginBottom: 18 }}>
+                <div className="diary-section-heading">📎 Linked Note</div>
+                <div style={{ background: T.navy3, border: `1px solid rgba(63,207,180,0.2)`, borderRadius: 8, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.teal, marginBottom: 6 }}>
+                    {viewEntry.linked_note.title || "Untitled"}
+                    {viewEntry.linked_note.group && <span style={{ fontSize: 11, color: T.text3, fontWeight: 400, marginLeft: 8 }}>[{viewEntry.linked_note.group}]</span>}
+                  </div>
+                  <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{viewEntry.linked_note.text || <span style={{ color: T.text3 }}>Empty note</span>}</div>
+                </div>
               </div>
             )}
 
@@ -3245,6 +3429,7 @@ function AuthPage({ onLogin }) {
     setLoading(false);
     if (data.access_token) {
       localStorage.setItem("echo_token", data.access_token);
+      if (data.refresh_token) localStorage.setItem("echo_refresh_token", data.refresh_token);
       onLogin(data.user);
     } else if (tab === "signup" && data.id && !data.access_token) {
       setMessage({ text: "Account created! Check your email to confirm, then sign in.", type: "info" });
@@ -4302,6 +4487,7 @@ export default function Echo() {
   useEffect(() => {
     if (!user) return;
     refreshTeammates();
+    refreshScratchNotes(user.id);
   }, [user]);
 
   useEffect(() => {
