@@ -82,6 +82,19 @@ const db = {
     delete: async (id) => {
       await fetch(`${_REST()}/${table}?id=eq.${id}`, { method: "DELETE", headers: h() });
     },
+    upsert: async (data, onConflict) => {
+      const qs = onConflict ? `?on_conflict=${onConflict}` : "";
+      const r = await fetch(`${_REST()}/${table}${qs}`, {
+        method: "POST",
+        headers: { ...h(), Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(data),
+      });
+      return r.json();
+    },
+    deleteWhere: async (filters) => {
+      const qs = Object.entries(filters).map(([k, v]) => `${k}=eq.${v}`).join("&");
+      await fetch(`${_REST()}/${table}?${qs}`, { method: "DELETE", headers: h() });
+    },
   }),
   storage: {
     upload: async (path, file) => {
@@ -127,6 +140,14 @@ const db = {
 //   created_at timestamptz DEFAULT now()
 // );
 // Also create a public storage bucket named "echo-documents"
+
+// ─── New tables (run in Supabase SQL editor) ────────────────────────────────
+// create table scratch_pad (id uuid primary key default gen_random_uuid(), user_id uuid unique not null, content text default '', updated_at timestamptz default now()); alter table scratch_pad enable row level security; create policy "own" on scratch_pad for all using (auth.uid()=user_id);
+// create table teammates (id uuid primary key default gen_random_uuid(), user_id uuid not null, name text not null, role text default '', emoji text default '', inserted_at timestamptz default now()); alter table teammates enable row level security; create policy "own" on teammates for all using (auth.uid()=user_id);
+// create table starred_entries (user_id uuid not null, entry_id uuid not null, primary key (user_id, entry_id)); alter table starred_entries enable row level security; create policy "own" on starred_entries for all using (auth.uid()=user_id);
+// create table user_credits (id uuid primary key default gen_random_uuid(), user_id uuid not null, type text not null, person text not null, what text not null, project text default '', date date not null default current_date, inserted_at timestamptz default now()); alter table user_credits enable row level security; create policy "own" on user_credits for all using (auth.uid()=user_id);
+// create table resolve_habits (id uuid primary key default gen_random_uuid(), user_id uuid not null, name text not null, emoji text default '✊', created_at date not null default current_date, last_slip date, slip_history jsonb default '[]', inserted_at timestamptz default now()); alter table resolve_habits enable row level security; create policy "own" on resolve_habits for all using (auth.uid()=user_id);
+// create table pattern_interrupts (id uuid primary key default gen_random_uuid(), user_id uuid not null, text text not null, created_at timestamptz default now()); alter table pattern_interrupts enable row level security; create policy "own" on pattern_interrupts for all using (auth.uid()=user_id);
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const T = {
@@ -1727,18 +1748,25 @@ function SectionInput({ children }) {
 }
 
 // ─── Scratch Pad ─────────────────────────────────────────────────────────────
-function ScratchPad({ onClose }) {
-  const [notes, setNotes] = useState(() => {
-    try {
-      const s = JSON.parse(localStorage.getItem("echo_pad") || "null");
-      return s && s.length > 0 ? s : [{ id: 1, title: "Note 1", text: "" }];
-    } catch { return [{ id: 1, title: "Note 1", text: "" }]; }
-  });
+function ScratchPad({ onClose, user }) {
+  const [notes, setNotes] = useState([{ id: 1, title: "Note 1", text: "" }]);
+  const [loaded, setLoaded] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
+
+  useEffect(() => {
+    if (!user?.id || loaded) return;
+    db.from("scratch_pad").select("content", { eq: ["user_id", user.id] }).then(rows => {
+      const raw = rows?.[0]?.content;
+      if (raw) { try { const p = JSON.parse(raw); if (p?.length) setNotes(p); } catch {} }
+      setLoaded(true);
+    });
+  }, [user, loaded]);
 
   const persist = (updated) => {
     setNotes(updated);
-    localStorage.setItem("echo_pad", JSON.stringify(updated));
+    if (user?.id) {
+      db.from("scratch_pad").upsert({ user_id: user.id, content: JSON.stringify(updated), updated_at: new Date().toISOString() }, "user_id");
+    }
   };
 
   const addNote = () => {
@@ -1833,48 +1861,53 @@ function ScratchPad({ onClose }) {
 }
 
 // ─── Teammates helpers ───────────────────────────────────────────────────────
-function loadTeammates() {
-  try { return JSON.parse(localStorage.getItem("echo_teammates") || "[]"); } catch { return []; }
+let _tmCache = [];
+async function refreshTeammates() {
+  const rows = await db.from("teammates").select("*");
+  _tmCache = rows || [];
+  return _tmCache;
 }
-function saveTeammates(arr) {
-  localStorage.setItem("echo_teammates", JSON.stringify(arr));
-}
+function loadTeammates() { return _tmCache; }
 function initials(name) {
   return name.trim().split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
 }
 
 // ─── MyTeam page (full-page view accessible from nav) ────────────────────────
-function MyTeam() {
-  const [teammates, setTeammates] = useState(() => loadTeammates());
+function MyTeam({ user }) {
+  const [teammates, setTeammates] = useState([]);
   const [form, setForm] = useState({ name: "", role: "", emoji: "" });
   const [editId, setEditId] = useState(null);
 
+  useEffect(() => {
+    if (!user?.id) return;
+    refreshTeammates().then(rows => setTeammates(rows));
+  }, [user]);
+
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const addOrUpdate = () => {
+  const addOrUpdate = async () => {
     if (!form.name.trim()) return;
-    let updated;
     if (editId !== null) {
-      updated = teammates.map((t, i) => i === editId ? { ...form, name: form.name.trim() } : t);
-      setEditId(null);
+      await db.from("teammates").update({ name: form.name.trim(), role: form.role, emoji: form.emoji }, editId);
     } else {
-      updated = [...teammates, { ...form, name: form.name.trim() }];
+      await db.from("teammates").insert({ user_id: user.id, name: form.name.trim(), role: form.role, emoji: form.emoji });
     }
-    setTeammates(updated);
-    saveTeammates(updated);
+    setEditId(null);
     setForm({ name: "", role: "", emoji: "" });
+    const updated = await refreshTeammates();
+    setTeammates(updated);
   };
 
   const startEdit = (idx) => {
-    setForm({ ...teammates[idx], emoji: teammates[idx].emoji || "" });
-    setEditId(idx);
+    setForm({ name: teammates[idx].name, role: teammates[idx].role || "", emoji: teammates[idx].emoji || "" });
+    setEditId(teammates[idx].id);
   };
 
-  const remove = (idx) => {
-    const updated = teammates.filter((_, i) => i !== idx);
+  const remove = async (idx) => {
+    await db.from("teammates").delete(teammates[idx].id);
+    if (editId === teammates[idx].id) { setEditId(null); setForm({ name: "", role: "", emoji: "" }); }
+    const updated = await refreshTeammates();
     setTeammates(updated);
-    saveTeammates(updated);
-    if (editId === idx) { setEditId(null); setForm({ name: "", role: "", emoji: "" }); }
   };
 
   const cancel = () => { setForm({ name: "", role: "", emoji: "" }); setEditId(null); };
@@ -2593,7 +2626,7 @@ function StandupModal({ entry, onClose }) {
   );
 }
 
-function Diary({ onCountChange }) {
+function Diary({ onCountChange, user }) {
   const [entries, setEntries]     = useState([]);
   const [prevEntry, setPrevEntry] = useState(null);
   const [loading, setLoading]     = useState(true);
@@ -2605,16 +2638,18 @@ function Diary({ onCountChange }) {
   const [filterMood, setFilterMood]       = useState("");
   const [filterFocus, setFilterFocus]     = useState("");
   const [filterStarred, setFilterStarred] = useState(false);
-  const [starredIds, setStarredIds] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("echo_starred") || "[]")); }
-    catch { return new Set(); }
-  });
+  const [starredIds, setStarredIds] = useState(new Set());
 
   const toggleStar = (id) => {
     setStarredIds(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      localStorage.setItem("echo_starred", JSON.stringify([...next]));
+      if (next.has(id)) {
+        next.delete(id);
+        if (user?.id) db.from("starred_entries").deleteWhere({ user_id: user.id, entry_id: id });
+      } else {
+        next.add(id);
+        if (user?.id) db.from("starred_entries").insert({ user_id: user.id, entry_id: id });
+      }
       return next;
     });
   };
@@ -2631,6 +2666,13 @@ function Diary({ onCountChange }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    db.from("starred_entries").select("entry_id").then(rows => {
+      setStarredIds(new Set((rows || []).map(r => r.entry_id)));
+    });
+  }, [user]);
 
   const save = async (form) => {
     if (form.id) {
@@ -3339,14 +3381,14 @@ function AuthPage({ onLogin }) {
 }
 
 // ─── Pattern Interrupt ───────────────────────────────────────────────────────
-function PatternInterrupt({ onDismiss }) {
+function PatternInterrupt({ onDismiss, user }) {
   const [text, setText] = useState("");
   const [saved, setSaved] = useState(false);
 
-  const save = () => {
-    const list = JSON.parse(localStorage.getItem("echo_interrupts") || "[]");
-    list.unshift({ date: new Date().toISOString().split("T")[0], text, ts: Date.now() });
-    localStorage.setItem("echo_interrupts", JSON.stringify(list.slice(0, 30)));
+  const save = async () => {
+    if (user?.id && text.trim()) {
+      await db.from("pattern_interrupts").insert({ user_id: user.id, text, created_at: new Date().toISOString() });
+    }
     setSaved(true);
     setTimeout(onDismiss, 900);
   };
@@ -3775,29 +3817,35 @@ function WorkMap() {
 }
 
 // ─── Credit Tracker ───────────────────────────────────────────────────────────
-function loadCredits() {
-  try { return JSON.parse(localStorage.getItem("echo_credits") || "[]"); } catch { return []; }
-}
-function saveCredits(arr) { localStorage.setItem("echo_credits", JSON.stringify(arr)); }
-
-function CreditTracker() {
-  const [credits, setCredits] = useState(() => loadCredits());
+function CreditTracker({ user }) {
+  const [credits, setCredits] = useState([]);
   const [tab, setTab]         = useState("received");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ type: "received", person: "", what: "", project: "", date: new Date().toISOString().split("T")[0] });
 
+  useEffect(() => {
+    if (!user?.id) return;
+    db.from("user_credits").select("*", { eq: ["user_id", user.id], order: "inserted_at.desc" }).then(rows => {
+      setCredits(rows || []);
+    });
+  }, [user]);
+
   const teammates = loadTeammates();
   const sf = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const add = () => {
+  const add = async () => {
     if (!form.person.trim() || !form.what.trim()) return;
-    const updated = [{ id: Date.now(), ...form, person: form.person.trim(), what: form.what.trim() }, ...credits];
-    setCredits(updated); saveCredits(updated);
+    await db.from("user_credits").insert({ user_id: user.id, type: form.type, person: form.person.trim(), what: form.what.trim(), project: form.project, date: form.date });
+    const rows = await db.from("user_credits").select("*", { eq: ["user_id", user.id], order: "inserted_at.desc" });
+    setCredits(rows || []);
     setForm({ type: tab, person: "", what: "", project: "", date: new Date().toISOString().split("T")[0] });
     setShowForm(false);
   };
 
-  const remove = (id) => { const u = credits.filter(c => c.id !== id); setCredits(u); saveCredits(u); };
+  const remove = async (id) => {
+    await db.from("user_credits").delete(id);
+    setCredits(c => c.filter(x => x.id !== id));
+  };
 
   const filtered = credits.filter(c => c.type === tab);
   const givenCount    = credits.filter(c => c.type === "given").length;
@@ -3913,9 +3961,6 @@ function CreditTracker() {
 }
 
 // ─── Resolve ──────────────────────────────────────────────────────────────────
-const RESOLVE_KEY = "echo_resolve";
-const loadResolve = () => { try { return JSON.parse(localStorage.getItem(RESOLVE_KEY) || "[]"); } catch { return []; } };
-const saveResolve = arr => localStorage.setItem(RESOLVE_KEY, JSON.stringify(arr));
 
 const RESOLVE_MILESTONES = [
   { days: 3,   label: "3 Days",  emoji: "🌱" },
@@ -3927,7 +3972,7 @@ const RESOLVE_MILESTONES = [
 ];
 
 function getStreak(h) {
-  const base = h.lastSlip || h.createdAt;
+  const base = h.last_slip || h.lastSlip || h.created_at || h.createdAt;
   return Math.max(0, Math.floor((Date.now() - new Date(base + "T00:00:00").getTime()) / 86400000));
 }
 
@@ -3939,41 +3984,46 @@ function getNextMilestone(streak) {
   return RESOLVE_MILESTONES.find(m => m.days > streak) || null;
 }
 
-function Resolve() {
-  const [habits, setHabits]       = useState(() => loadResolve());
+function Resolve({ user }) {
+  const [habits, setHabits]       = useState([]);
   const [showForm, setShowForm]   = useState(false);
   const [form, setForm]           = useState({ name: "", emoji: "" });
   const [justSlipped, setJustSlipped] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
 
-  const persist = arr => { setHabits(arr); saveResolve(arr); };
+  useEffect(() => {
+    if (!user?.id) return;
+    db.from("resolve_habits").select("*", { eq: ["user_id", user.id] }).then(rows => {
+      setHabits(rows || []);
+    });
+  }, [user]);
 
-  const addHabit = () => {
+  const addHabit = async () => {
     if (!form.name.trim()) return;
     const today = new Date().toISOString().split("T")[0];
-    persist([...habits, {
-      id: Date.now(),
-      name: form.name.trim(),
-      emoji: form.emoji.trim() || "✊",
-      createdAt: today,
-      lastSlip: null,
-      slipHistory: [],
-    }]);
+    await db.from("resolve_habits").insert({ user_id: user.id, name: form.name.trim(), emoji: form.emoji.trim() || "✊", created_at: today, last_slip: null, slip_history: [] });
+    const rows = await db.from("resolve_habits").select("*", { eq: ["user_id", user.id] });
+    setHabits(rows || []);
     setForm({ name: "", emoji: "" });
     setShowForm(false);
   };
 
-  const confirmSlip = id => {
+  const confirmSlip = async (id) => {
     const today = new Date().toISOString().split("T")[0];
-    persist(habits.map(h => h.id !== id ? h : {
-      ...h, lastSlip: today, slipHistory: [...(h.slipHistory || []), today],
-    }));
+    const h = habits.find(x => x.id === id);
+    if (!h) return;
+    const slip_history = [...(h.slip_history || []), today];
+    await db.from("resolve_habits").update({ last_slip: today, slip_history }, id);
+    setHabits(prev => prev.map(x => x.id === id ? { ...x, last_slip: today, slip_history } : x));
     setConfirmId(null);
     setJustSlipped(id);
     setTimeout(() => setJustSlipped(null), 3500);
   };
 
-  const remove = id => persist(habits.filter(h => h.id !== id));
+  const remove = async (id) => {
+    await db.from("resolve_habits").delete(id);
+    setHabits(prev => prev.filter(x => x.id !== id));
+  };
 
   const sorted = [...habits].sort((a, b) => getStreak(b) - getStreak(a));
 
@@ -4054,9 +4104,9 @@ function Resolve() {
             )}
 
             {/* Slip count */}
-            {(h.slipHistory || []).length > 0 && (
+            {(h.slip_history || []).length > 0 && (
               <div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>
-                {h.slipHistory.length} slip{h.slipHistory.length !== 1 ? "s" : ""} recorded
+                {h.slip_history.length} slip{h.slip_history.length !== 1 ? "s" : ""} recorded
               </div>
             )}
           </>
@@ -4250,6 +4300,11 @@ export default function Echo() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
+    refreshTeammates();
+  }, [user]);
+
+  useEffect(() => {
     if (!user || !isConfigured()) return;
     const dismissed = localStorage.getItem("echo_pi_dismissed");
     if (dismissed && Date.now() - Number(dismissed) < 86400000) return;
@@ -4394,7 +4449,7 @@ export default function Echo() {
         </div>
 
         {view === "dashboard" && <Dashboard setView={setView} diaryCount={diaryCount} docCount={docCount} />}
-        {view === "diary"     && <Diary onCountChange={setDiaryCount} />}
+        {view === "diary"     && <Diary onCountChange={setDiaryCount} user={user} />}
         {view === "locker"    && isOwner && <DigiLocker onCountChange={setDocCount} />}
         {view === "locker"    && !isOwner && (
           <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>
@@ -4402,11 +4457,11 @@ export default function Echo() {
             <div style={{ fontSize: 16 }}>DigiLocker is private.</div>
           </div>
         )}
-        {view === "team"    && <MyTeam />}
+        {view === "team"    && <MyTeam user={user} />}
         {view === "resume"  && <ShadowResume />}
         {view === "workmap" && <WorkMap />}
-        {view === "credits" && <CreditTracker />}
-        {view === "resolve" && <Resolve />}
+        {view === "credits" && <CreditTracker user={user} />}
+        {view === "resolve" && <Resolve user={user} />}
       </main>
 
       {/* ── Pattern Interrupt overlay ── */}
@@ -4414,11 +4469,11 @@ export default function Echo() {
         <PatternInterrupt onDismiss={() => {
           setShowPatternInterrupt(false);
           localStorage.setItem("echo_pi_dismissed", String(Date.now()));
-        }} />
+        }} user={user} />
       )}
 
       {/* ── Floating Scratch Pad ── */}
-      {padOpen && <ScratchPad onClose={() => setPadOpen(false)} />}
+      {padOpen && <ScratchPad onClose={() => setPadOpen(false)} user={user} />}
       <button
         onClick={() => setPadOpen(o => !o)}
         title="Scratch Pad"
