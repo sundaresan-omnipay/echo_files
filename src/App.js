@@ -196,6 +196,7 @@ const db = {
 // create table user_credits (id uuid primary key default gen_random_uuid(), user_id uuid not null, type text not null, person text not null, what text not null, project text default '', date date not null default current_date, inserted_at timestamptz default now()); alter table user_credits enable row level security; create policy "own" on user_credits for all using (auth.uid()=user_id);
 // create table resolve_habits (id uuid primary key default gen_random_uuid(), user_id uuid not null, name text not null, emoji text default '✊', created_at date not null default current_date, last_slip date, slip_history jsonb default '[]', inserted_at timestamptz default now()); alter table resolve_habits enable row level security; create policy "own" on resolve_habits for all using (auth.uid()=user_id);
 // create table pattern_interrupts (id uuid primary key default gen_random_uuid(), user_id uuid not null, text text not null, created_at timestamptz default now()); alter table pattern_interrupts enable row level security; create policy "own" on pattern_interrupts for all using (auth.uid()=user_id);
+// create table one_on_one_sessions (id uuid primary key default gen_random_uuid(), user_id uuid not null, teammate_id uuid references teammates(id) on delete cascade, teammate_name text not null, session_date date not null default current_date, topics text default '', notes text default '', action_items jsonb default '[]', feedback_given jsonb default '[]', sentiment text default 'positive', next_session_date date, inserted_at timestamptz default now()); alter table one_on_one_sessions enable row level security; create policy "own" on one_on_one_sessions for all using (auth.uid()=user_id);
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const T = {
@@ -2011,6 +2012,7 @@ function MyTeam({ user }) {
   const [teammates, setTeammates] = useState([]);
   const [form, setForm] = useState({ name: "", role: "", emoji: "" });
   const [editId, setEditId] = useState(null);
+  const [oneOnOne, setOneOnOne] = useState(null);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -2113,6 +2115,7 @@ function MyTeam({ user }) {
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => startEdit(idx)}>Edit</button>
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.accent, borderColor: `${T.accent}40` }} onClick={() => setOneOnOne(t)}>1:1</button>
                   <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.coral, borderColor: `${T.coral}40` }} onClick={() => remove(idx)}>✕</button>
                 </div>
               </div>
@@ -2120,6 +2123,410 @@ function MyTeam({ user }) {
           </div>
         )
       }
+      {oneOnOne && <OneOnOneModal teammate={oneOnOne} user={user} onClose={() => setOneOnOne(null)} />}
+    </div>
+  );
+}
+
+const SESSION_SENTIMENTS = [
+  { key: "excellent",       label: "Excellent",       color: "#34D9B3" },
+  { key: "positive",        label: "Good",            color: "#7B6EF6" },
+  { key: "neutral",         label: "Neutral",         color: "#F5C243" },
+  { key: "needs_attention", label: "Needs Attention", color: "#F07A6E" },
+];
+
+function OneOnOneModal({ teammate, user, onClose }) {
+  const [tab, setTab] = useState("new");
+  const [loading, setLoading] = useState(true);
+  const [context, setContext] = useState({ collabs: [], updates: [], feedback: [] });
+  const [sessions, setSessions] = useState([]);
+  const [form, setForm] = useState({
+    session_date: today(),
+    topics: "",
+    notes: "",
+    action_items: [],
+    feedback_given: [],
+    sentiment: "positive",
+    next_session_date: "",
+  });
+  const [actionInput, setActionInput] = useState("");
+  const [fbForm, setFbForm] = useState({ type: "constructive", note: "" });
+  const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+
+  useEffect(() => {
+    if (!user?.id || !teammate?.id) return;
+    Promise.all([
+      db.from("diary_entries").select("*", { order: "date.desc" }),
+      db.from("one_on_one_sessions").select("*", { eq: ["teammate_id", teammate.id], order: "session_date.desc" }),
+    ]).then(([entries, past]) => {
+      const name = teammate.name;
+      const rel = (entries || []).filter(e =>
+        (e.collaborators || []).includes(name) ||
+        (e.team_updates || []).some(u => u.name === name) ||
+        (e.feedback_given || []).some(f => f.to === name)
+      );
+      setContext({
+        collabs: rel.filter(e => (e.collaborators || []).includes(name)).slice(0, 6),
+        updates: rel.flatMap(e =>
+          (e.team_updates || []).filter(u => u.name === name).map(u => ({ ...u, date: e.date }))
+        ).slice(0, 8),
+        feedback: rel.flatMap(e =>
+          (e.feedback_given || []).filter(f => f.to === name).map(f => ({ ...f, date: e.date }))
+        ).slice(0, 6),
+      });
+      setSessions(past || []);
+      setLoading(false);
+    });
+  }, [user, teammate]);
+
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const addAction = () => {
+    if (!actionInput.trim()) return;
+    setF("action_items", [...form.action_items, { text: actionInput.trim(), done: false }]);
+    setActionInput("");
+  };
+
+  const toggleAction = (idx) => {
+    setF("action_items", form.action_items.map((a, i) => i === idx ? { ...a, done: !a.done } : a));
+  };
+
+  const addFeedback = () => {
+    if (!fbForm.note.trim()) return;
+    setF("feedback_given", [...form.feedback_given, { ...fbForm }]);
+    setFbForm({ type: "constructive", note: "" });
+  };
+
+  const save = async () => {
+    if (!form.notes.trim() && !form.topics.trim() && form.action_items.length === 0) return;
+    setSaving(true);
+    await db.from("one_on_one_sessions").insert({
+      user_id: user.id,
+      teammate_id: teammate.id,
+      teammate_name: teammate.name,
+      session_date: form.session_date,
+      topics: form.topics,
+      notes: form.notes,
+      action_items: form.action_items,
+      feedback_given: form.feedback_given,
+      sentiment: form.sentiment,
+      next_session_date: form.next_session_date || null,
+    });
+    const updated = await db.from("one_on_one_sessions").select("*", { eq: ["teammate_id", teammate.id], order: "session_date.desc" });
+    setSessions(updated || []);
+    setForm({ session_date: today(), topics: "", notes: "", action_items: [], feedback_given: [], sentiment: "positive", next_session_date: "" });
+    setSaving(false);
+    setTab("history");
+  };
+
+  const deleteSession = async (id) => {
+    await db.from("one_on_one_sessions").delete(id);
+    setSessions(s => s.filter(x => x.id !== id));
+    if (expanded === id) setExpanded(null);
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      zIndex: 1000, padding: 20,
+    }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{
+        background: T.navy1, border: `1px solid ${T.border2}`,
+        borderRadius: 16, width: "100%", maxWidth: 980, maxHeight: "90vh",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+      }}>
+        {/* Header */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 14,
+          padding: "16px 24px", borderBottom: `1px solid ${T.border}`, flexShrink: 0,
+        }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: "50%",
+            background: `linear-gradient(135deg, ${T.accent}30, ${T.teal}30)`,
+            border: `2px solid ${T.accent}50`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: teammate.emoji ? 19 : 13, fontWeight: 700, color: T.accent, flexShrink: 0,
+          }}>
+            {teammate.emoji || initials(teammate.name)}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text1 }}>1:1 — {teammate.name}</div>
+            {teammate.role && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{teammate.role}</div>}
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+
+          {/* Left: Echo Context */}
+          <div style={{
+            width: 280, flexShrink: 0,
+            borderRight: `1px solid ${T.border}`,
+            padding: "16px 14px", overflowY: "auto",
+            background: T.navy2,
+          }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1, marginBottom: 14, textTransform: "uppercase" }}>
+              Echo Context
+            </div>
+            {loading ? (
+              <div style={{ color: T.text3, fontSize: 12, textAlign: "center", paddingTop: 30 }}>Loading...</div>
+            ) : context.collabs.length === 0 && context.updates.length === 0 && context.feedback.length === 0 ? (
+              <div style={{ color: T.text3, fontSize: 12, textAlign: "center", paddingTop: 30, lineHeight: 1.8 }}>
+                No diary data found for {teammate.name}.<br/>
+                Log collaborations and team updates in your diary to see context here.
+              </div>
+            ) : (
+              <>
+                {context.collabs.length > 0 && (
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.accent, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      👥 Worked together
+                    </div>
+                    {context.collabs.map((e, i) => (
+                      <div key={i} style={{ background: T.navy3, borderRadius: 7, padding: "7px 9px", marginBottom: 5 }}>
+                        <div style={{ color: T.text3, fontSize: 10, marginBottom: 2 }}>{e.date}</div>
+                        <div style={{ color: T.text2, fontSize: 12, lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                          {e.content || e.focus_area || "Diary entry"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {context.updates.length > 0 && (
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.teal, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      📊 Team updates
+                    </div>
+                    {context.updates.map((u, i) => (
+                      <div key={i} style={{ background: T.navy3, borderRadius: 7, padding: "7px 9px", marginBottom: 5 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                          <span style={{ color: T.text3, fontSize: 10 }}>{u.date}</span>
+                          <span style={{ fontSize: 10, color: statusColor(u.status) }}>{u.status?.replace(/_/g, " ")}</span>
+                        </div>
+                        <div style={{ color: T.text2, fontSize: 12, lineHeight: 1.5 }}>{u.update}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {context.feedback.length > 0 && (
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.amber, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      💬 Feedback given
+                    </div>
+                    {context.feedback.map((f, i) => (
+                      <div key={i} style={{ background: T.navy3, borderRadius: 7, padding: "7px 9px", marginBottom: 5 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                          <span style={{ color: T.text3, fontSize: 10 }}>{f.date}</span>
+                          <span style={{ fontSize: 10, color: feedbackColor(f.type) }}>{FEEDBACK_TYPES.find(t => t.key === f.type)?.label || f.type}</span>
+                        </div>
+                        <div style={{ color: T.text2, fontSize: 12, lineHeight: 1.5 }}>{f.note}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Right: Session form / History */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {/* Tabs */}
+            <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, padding: "0 20px", flexShrink: 0 }}>
+              {[
+                { key: "new", label: "New Session" },
+                { key: "history", label: `History${sessions.length > 0 ? ` (${sessions.length})` : ""}` },
+              ].map(t => (
+                <button key={t.key} onClick={() => setTab(t.key)} style={{
+                  padding: "11px 16px", fontSize: 13, fontWeight: 600,
+                  background: "none", border: "none", cursor: "pointer",
+                  color: tab === t.key ? T.accent : T.text3,
+                  borderBottom: tab === t.key ? `2px solid ${T.accent}` : "2px solid transparent",
+                  marginBottom: -1,
+                }}>{t.label}</button>
+              ))}
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+              {tab === "new" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {/* Dates */}
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <div className="diary-section-heading" style={{ marginBottom: 5 }}>Session date</div>
+                      <input type="date" className="form-input" value={form.session_date}
+                        onChange={e => setF("session_date", e.target.value)} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div className="diary-section-heading" style={{ marginBottom: 5 }}>Next session</div>
+                      <input type="date" className="form-input" value={form.next_session_date}
+                        onChange={e => setF("next_session_date", e.target.value)} />
+                    </div>
+                  </div>
+
+                  {/* Topics */}
+                  <div>
+                    <div className="diary-section-heading" style={{ marginBottom: 5 }}>Topics discussed</div>
+                    <textarea className="form-textarea" rows={2}
+                      placeholder="Career growth, project blockers, priorities, personal development..."
+                      value={form.topics} onChange={e => setF("topics", e.target.value)}
+                      style={{ resize: "vertical" }}
+                    />
+                  </div>
+
+                  {/* Notes */}
+                  <div>
+                    <div className="diary-section-heading" style={{ marginBottom: 5 }}>Notes</div>
+                    <textarea className="form-textarea" rows={4}
+                      placeholder="Key points discussed, what they shared, your observations..."
+                      value={form.notes} onChange={e => setF("notes", e.target.value)}
+                      style={{ resize: "vertical" }}
+                    />
+                  </div>
+
+                  {/* Action items */}
+                  <div>
+                    <div className="diary-section-heading" style={{ marginBottom: 5 }}>Action items</div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                      <input type="text" className="form-input" placeholder="Add an action item..."
+                        value={actionInput} onChange={e => setActionInput(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && addAction()} style={{ flex: 1 }} />
+                      <button className="btn btn-ghost btn-sm" onClick={addAction}>Add</button>
+                    </div>
+                    {form.action_items.map((a, idx) => (
+                      <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 13 }}>
+                        <input type="checkbox" checked={a.done} onChange={() => toggleAction(idx)}
+                          style={{ accentColor: T.teal, width: 14, height: 14, flexShrink: 0 }} />
+                        <span style={{ flex: 1, color: a.done ? T.text3 : T.text1, textDecoration: a.done ? "line-through" : "none" }}>{a.text}</span>
+                        <button onClick={() => setF("action_items", form.action_items.filter((_, i) => i !== idx))}
+                          style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11 }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Feedback */}
+                  <div>
+                    <div className="diary-section-heading" style={{ marginBottom: 5 }}>Feedback given</div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                      <select className="form-select" value={fbForm.type}
+                        onChange={e => setFbForm(f => ({ ...f, type: e.target.value }))} style={{ width: 140 }}>
+                        {FEEDBACK_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+                      </select>
+                      <input type="text" className="form-input" placeholder="Feedback note..."
+                        value={fbForm.note} onChange={e => setFbForm(f => ({ ...f, note: e.target.value }))}
+                        onKeyDown={e => e.key === "Enter" && addFeedback()} style={{ flex: 1 }} />
+                      <button className="btn btn-ghost btn-sm" onClick={addFeedback}>Add</button>
+                    </div>
+                    {form.feedback_given.map((f, idx) => (
+                      <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 10px", background: T.navy3, borderRadius: 7, marginBottom: 5, fontSize: 12 }}>
+                        <span style={{ color: feedbackColor(f.type), fontWeight: 600, flexShrink: 0, fontSize: 11, marginTop: 1 }}>
+                          {FEEDBACK_TYPES.find(t => t.key === f.type)?.label}
+                        </span>
+                        <span style={{ flex: 1, color: T.text2 }}>{f.note}</span>
+                        <button onClick={() => setF("feedback_given", form.feedback_given.filter((_, i) => i !== idx))}
+                          style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 11 }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Sentiment */}
+                  <div>
+                    <div className="diary-section-heading" style={{ marginBottom: 8 }}>How did it go?</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {SESSION_SENTIMENTS.map(s => (
+                        <button key={s.key} onClick={() => setF("sentiment", s.key)} style={{
+                          padding: "5px 14px", borderRadius: 20, fontSize: 12, cursor: "pointer", fontWeight: 600,
+                          background: form.sentiment === s.key ? `${s.color}22` : T.navy3,
+                          border: `1px solid ${form.sentiment === s.key ? s.color : T.border}`,
+                          color: form.sentiment === s.key ? s.color : T.text3,
+                        }}>{s.label}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 4 }}>
+                    <button className="btn btn-primary" onClick={save} disabled={saving || (!form.notes.trim() && !form.topics.trim() && form.action_items.length === 0)}>
+                      {saving ? "Saving..." : "Save Session"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {tab === "history" && (
+                sessions.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "60px 0", color: T.text3 }}>
+                    <div style={{ fontSize: 32, marginBottom: 10 }}>💬</div>
+                    <div style={{ fontSize: 14 }}>No sessions yet</div>
+                    <div style={{ fontSize: 12, marginTop: 5 }}>Save your first session from the New Session tab</div>
+                  </div>
+                ) : (
+                  sessions.map((s) => {
+                    const sent = SESSION_SENTIMENTS.find(x => x.key === s.sentiment);
+                    const isOpen = expanded === s.id;
+                    return (
+                      <div key={s.id} style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 10, overflow: "hidden" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", cursor: "pointer" }}
+                          onClick={() => setExpanded(isOpen ? null : s.id)}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: T.text1 }}>{s.session_date}</div>
+                            {s.topics && <div style={{ fontSize: 11, color: T.text3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.topics}</div>}
+                          </div>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                            {(s.action_items || []).length > 0 && (
+                              <span style={{ fontSize: 11, color: T.accent }}>{s.action_items.length} action{s.action_items.length > 1 ? "s" : ""}</span>
+                            )}
+                            {sent && <span style={{ fontSize: 11, color: sent.color, fontWeight: 600 }}>{sent.label}</span>}
+                            <span style={{ color: T.text3, fontSize: 12 }}>{isOpen ? "▲" : "▼"}</span>
+                          </div>
+                        </div>
+                        {isOpen && (
+                          <div style={{ borderTop: `1px solid ${T.border}`, padding: "14px 16px" }}>
+                            {s.notes && (
+                              <div style={{ marginBottom: 12 }}>
+                                <div className="diary-section-heading" style={{ marginBottom: 5 }}>Notes</div>
+                                <div style={{ fontSize: 13, color: T.text2, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{s.notes}</div>
+                              </div>
+                            )}
+                            {(s.action_items || []).length > 0 && (
+                              <div style={{ marginBottom: 12 }}>
+                                <div className="diary-section-heading" style={{ marginBottom: 5 }}>Action items</div>
+                                {s.action_items.map((a, i) => (
+                                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, marginBottom: 4 }}>
+                                    <span style={{ flexShrink: 0 }}>{a.done ? "✅" : "☐"}</span>
+                                    <span style={{ color: a.done ? T.text3 : T.text1, textDecoration: a.done ? "line-through" : "none" }}>{a.text}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {(s.feedback_given || []).length > 0 && (
+                              <div style={{ marginBottom: 12 }}>
+                                <div className="diary-section-heading" style={{ marginBottom: 5 }}>Feedback given</div>
+                                {s.feedback_given.map((f, i) => (
+                                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, marginBottom: 5, color: T.text2 }}>
+                                    <span style={{ color: feedbackColor(f.type), fontWeight: 600, flexShrink: 0 }}>{FEEDBACK_TYPES.find(t => t.key === f.type)?.label}</span>
+                                    <span>{f.note}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {s.next_session_date && (
+                              <div style={{ fontSize: 12, color: T.teal, marginBottom: 10 }}>Next session: {s.next_session_date}</div>
+                            )}
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: T.coral, borderColor: `${T.coral}40` }}
+                              onClick={() => deleteSession(s.id)}>Delete session</button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
