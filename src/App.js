@@ -2062,11 +2062,14 @@ function MyTeam({ user }) {
             onKeyDown={e => e.key === "Enter" && addOrUpdate()}
             style={{ flex: 2 }}
           />
-          <input
-            type="text" className="form-input" placeholder="Role / team (optional)"
+          <select
+            className="form-input"
             value={form.role} onChange={e => setF("role", e.target.value)}
-            style={{ flex: 2 }}
-          />
+            style={{ flex: 2, color: form.role ? T.text1 : T.text3 }}
+          >
+            <option value="">Role (optional)</option>
+            {TEAM_ROLES.map(r => <option key={r.key} value={r.label}>{r.label}</option>)}
+          </select>
           <input
             type="text" className="form-input" placeholder="😊"
             value={form.emoji} onChange={e => setF("emoji", e.target.value)}
@@ -2111,7 +2114,18 @@ function MyTeam({ user }) {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
-                  {t.role && <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{t.role}</div>}
+                  {t.role && (() => {
+                    const rm = TEAM_ROLES.find(r => r.label === t.role);
+                    return (
+                      <div style={{
+                        display: "inline-block", fontSize: 10, fontWeight: 600, marginTop: 4,
+                        color: rm?.color || T.text2,
+                        background: `${rm?.color || T.accent}18`,
+                        border: `1px solid ${rm?.color || T.accent}35`,
+                        borderRadius: 4, padding: "1px 6px",
+                      }}>{t.role}</div>
+                    );
+                  })()}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => startEdit(idx)}>Edit</button>
@@ -2127,6 +2141,18 @@ function MyTeam({ user }) {
     </div>
   );
 }
+
+const TEAM_ROLES = [
+  { key: "manager",       label: "Manager",       color: "#F5C243", tip: "Upward — focus on alignment, blockers, and strategic goals" },
+  { key: "developer",     label: "Developer",     color: "#7B6EF6", tip: "Peer — focus on delivery, code quality, and collaboration" },
+  { key: "scrum_master",  label: "Scrum Master",  color: "#34D9B3", tip: "Process — focus on sprint health, impediments, and retrospectives" },
+  { key: "product_owner", label: "Product Owner", color: "#A89BF8", tip: "Product — focus on requirements clarity, priorities, and backlog" },
+  { key: "designer",      label: "Designer",      color: "#F07A6E", tip: "Creative — focus on UX outcomes, design reviews, and feedback loops" },
+  { key: "qa",            label: "QA / Tester",   color: "#34D9B3", tip: "Quality — focus on test coverage, bugs, and release readiness" },
+  { key: "tech_lead",     label: "Tech Lead",     color: "#7B6EF6", tip: "Technical — focus on architecture decisions, code reviews, and mentoring" },
+  { key: "data_analyst",  label: "Data Analyst",  color: "#F5C243", tip: "Data — focus on insights, metrics, and analytical deliverables" },
+  { key: "stakeholder",   label: "Stakeholder",   color: "#9A99AD", tip: "External — focus on status updates, risks, and expectations" },
+];
 
 const SESSION_SENTIMENTS = [
   { key: "excellent",       label: "Excellent",       color: "#34D9B3" },
@@ -2253,7 +2279,20 @@ function OneOnOneModal({ teammate, user, onClose }) {
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: T.text1 }}>1:1 — {teammate.name}</div>
-            {teammate.role && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{teammate.role}</div>}
+            {teammate.role && (() => {
+              const roleMeta = TEAM_ROLES.find(r => r.label === teammate.role);
+              return (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, color: roleMeta?.color || T.text2,
+                    background: `${roleMeta?.color || T.accent}18`,
+                    border: `1px solid ${roleMeta?.color || T.accent}40`,
+                    borderRadius: 4, padding: "1px 7px", letterSpacing: 0.3,
+                  }}>{teammate.role}</span>
+                  {roleMeta?.tip && <span style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>{roleMeta.tip}</span>}
+                </div>
+              );
+            })()}
           </div>
           <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
         </div>
