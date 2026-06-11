@@ -2617,6 +2617,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
   const [cfInput, setCfInput] = useState("");
   const [cfPriority, setCfPriority] = useState("medium");
   const [reminderInput, setReminderInput] = useState("");
+  const [pointInput, setPointInput] = useState("");
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -2752,9 +2753,54 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
 
             <div className="form-group">
               <label className="form-label">What I Did Today</label>
-              <textarea className="form-textarea" style={{ minHeight: 110 }}
-                placeholder="Key tasks, PRs reviewed, tests written, pipeline changes, decisions made..."
-                value={form.content || ""} onChange={e => set("content", e.target.value)} />
+              {(form.content || "").split("\n").filter(p => p.trim()).length > 0 && (
+                <div style={{ background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
+                  {(form.content || "").split("\n").filter(p => p.trim()).map((p, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "5px 0", borderBottom: i < (form.content || "").split("\n").filter(x => x.trim()).length - 1 ? `1px solid ${T.border}` : "none" }}>
+                      <span style={{ color: T.accent, flexShrink: 0, marginTop: 1, fontSize: 14 }}>•</span>
+                      <span style={{ flex: 1, fontSize: 13, color: T.text1, lineHeight: 1.5 }}>{p}</span>
+                      <button onClick={() => {
+                        const pts = (form.content || "").split("\n").filter(x => x.trim());
+                        pts.splice(i, 1);
+                        set("content", pts.join("\n"));
+                      }} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 13, padding: "0 2px", flexShrink: 0, lineHeight: 1 }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type="text" className="form-input" placeholder="Add task, PR, decision, test… (Enter to add)"
+                  value={pointInput}
+                  onChange={e => setPointInput(e.target.value)}
+                  onPaste={e => {
+                    const pasted = e.clipboardData.getData("text");
+                    const lines = pasted.split("\n").map(l => l.replace(/^[-•*]\s*/, "").trim()).filter(Boolean);
+                    if (lines.length > 1) {
+                      e.preventDefault();
+                      const existing = (form.content || "").split("\n").filter(x => x.trim());
+                      set("content", [...existing, ...lines].join("\n"));
+                      setPointInput("");
+                    }
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const t = pointInput.trim();
+                      if (!t) return;
+                      const existing = (form.content || "").split("\n").filter(x => x.trim());
+                      set("content", [...existing, t].join("\n"));
+                      setPointInput("");
+                    }
+                  }} />
+                <button className="btn btn-ghost btn-sm" onClick={() => {
+                  const t = pointInput.trim();
+                  if (!t) return;
+                  const existing = (form.content || "").split("\n").filter(x => x.trim());
+                  set("content", [...existing, t].join("\n"));
+                  setPointInput("");
+                }}>+ Add</button>
+              </div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 5 }}>Press Enter to add each point. Paste multiple lines to bulk-add.</div>
             </div>
 
             <div className="form-group">
@@ -3321,11 +3367,18 @@ function Diary({ onCountChange, user }) {
   }, [user]);
 
   const save = async (form) => {
-    if (form.id) {
-      const { id, ...rest } = form;
-      await db.from("diary_entries").update(rest, id);
-    } else {
-      await db.from("diary_entries").insert(form);
+    const doSave = async (data) => {
+      if (data.id) {
+        const { id, ...rest } = data;
+        return db.from("diary_entries").update(rest, id);
+      }
+      return db.from("diary_entries").insert(data);
+    };
+    let result = await doSave(form);
+    // Graceful fallback if focus_areas column migration hasn't been run yet
+    if (result?.code === "PGRST204" && result.message?.includes("focus_areas")) {
+      const { focus_areas, ...fallback } = form;
+      await doSave(fallback);
     }
     load();
   };
@@ -4097,13 +4150,13 @@ function ShadowResume() {
     });
   }, []);
 
-  if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Building resume…</div>;
+  if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Building profile…</div>;
 
   if (entries.length < 2) return (
     <div className="echo-content fade-in" style={{ textAlign: "center", padding: "80px 0" }}>
       <div style={{ fontSize: 40, marginBottom: 14 }}>📋</div>
       <div style={{ fontSize: 15, color: T.text2, marginBottom: 8 }}>Not enough data yet</div>
-      <div style={{ fontSize: 13, color: T.text3 }}>Log a few diary entries — Echo will auto-build your resume from them.</div>
+      <div style={{ fontSize: 13, color: T.text3 }}>Log a few diary entries — Echo will auto-build your work profile from them.</div>
     </div>
   );
 
@@ -4117,7 +4170,7 @@ function ShadowResume() {
 
   const topFocus   = Object.entries(allFocusAreas).sort((a,b) => b[1]-a[1]);
   const topCollabs = Object.entries(allCollabs).sort((a,b) => b[1]-a[1]).slice(0, 12);
-  const topTags    = Object.entries(allTags).sort((a,b) => b[1]-a[1]).slice(0, 20);
+  const topTags    = Object.entries(allTags).sort((a,b) => b[1]-a[1]).slice(0, 24);
   const maxFA      = topFocus[0]?.[1] || 1;
   const faPalette  = [T.accent, T.teal, T.gold, T.coral, T.green, "#a78bfa", "#fb923c", "#38bdf8"];
   const moodPal    = { productive: T.green, resolved: T.teal, collaborative: T.accent, challenged: T.gold, frustrated: T.coral };
@@ -4133,108 +4186,160 @@ function ShadowResume() {
   });
   const months = Object.entries(byMonth).sort((a,b) => a[0].localeCompare(b[0]));
   const dateRange = `${fmtDate(entries[0].date)} — ${fmtDate(entries[entries.length-1].date)}`;
+  const numMonths = months.length;
+
+  // Auto-generate a headline summary
+  const top3Focus = topFocus.slice(0, 3).map(([f]) => f);
+  const topCollab = topCollabs[0]?.[0];
+  const summary = [
+    `${entries.length} diary entries across ${numMonths} month${numMonths !== 1 ? "s" : ""}`,
+    top3Focus.length ? `primarily focused on ${top3Focus.join(", ")}` : null,
+    topCollab ? `most frequently collaborated with ${topCollab}` : null,
+    allJiras.size ? `${allJiras.size} JIRA tickets referenced` : null,
+  ].filter(Boolean).join(" · ");
 
   return (
     <div className="echo-content fade-in">
-      <div className="card" style={{ marginBottom: 20, background: `linear-gradient(135deg, ${T.navy2}, ${T.navy3})`, border: `1px solid ${T.borderHover}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>Your Work in Numbers</div>
-            <div style={{ fontSize: 12, color: T.text3, marginTop: 5 }}>Auto-built from {entries.length} diary entries · {dateRange}</div>
+      {/* ── Profile Header ── */}
+      <div className="card" style={{ marginBottom: 16, background: `linear-gradient(135deg, ${T.navy2} 0%, ${T.navy3} 100%)`, border: `1px solid ${T.borderHover}`, position: "relative", overflow: "hidden" }}>
+        {/* Decorative accent bar */}
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${T.accent}, ${T.teal}, ${T.gold})` }} />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingTop: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <div style={{ width: 38, height: 38, borderRadius: "50%", background: `linear-gradient(135deg, ${T.accent}, ${T.teal})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>👤</div>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif", lineHeight: 1.1 }}>Work Activity Profile</div>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{dateRange}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.6, padding: "8px 12px", background: `rgba(255,255,255,0.03)`, borderRadius: 8, border: `1px solid ${T.border}` }}>
+              {summary}
+            </div>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={() => window.print()}>⬇ Print / PDF</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => window.print()} style={{ marginLeft: 14, flexShrink: 0 }}>⬇ Export PDF</button>
         </div>
-        <div style={{ display: "flex", gap: 0, marginTop: 22, borderTop: `1px solid ${T.border}`, paddingTop: 18, flexWrap: "wrap" }}>
+
+        {/* Stats strip */}
+        <div style={{ display: "flex", gap: 0, marginTop: 18, borderTop: `1px solid ${T.border}`, paddingTop: 16, flexWrap: "wrap" }}>
           {[
             { l: "Entries", v: entries.length, c: T.accent },
             { l: "Focus Areas", v: topFocus.length, c: T.teal },
             { l: "Collaborators", v: Object.keys(allCollabs).length, c: T.gold },
             { l: "JIRA Tickets", v: allJiras.size, c: T.coral },
-            { l: "Tags", v: Object.keys(allTags).length, c: T.green },
+            { l: "Skills Tagged", v: Object.keys(allTags).length, c: T.green },
           ].map((s, i, arr) => (
-            <div key={s.l} style={{ flex: 1, minWidth: 80, paddingRight: 20, borderRight: i < arr.length-1 ? `1px solid ${T.border}` : "none", marginRight: i < arr.length-1 ? 20 : 0 }}>
-              <div style={{ fontSize: 28, fontWeight: 800, color: s.c, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{s.v}</div>
-              <div style={{ fontSize: 10, color: T.text3, marginTop: 5, letterSpacing: 0.8, textTransform: "uppercase" }}>{s.l}</div>
+            <div key={s.l} style={{ flex: 1, minWidth: 70, paddingRight: 16, borderRight: i < arr.length-1 ? `1px solid ${T.border}` : "none", marginRight: i < arr.length-1 ? 16 : 0 }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: s.c, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{s.v}</div>
+              <div style={{ fontSize: 9, color: T.text3, marginTop: 5, letterSpacing: 1, textTransform: "uppercase" }}>{s.l}</div>
             </div>
           ))}
         </div>
       </div>
 
+      {/* ── Focus Areas ── */}
       {topFocus.length > 0 && (
-        <div className="card resume-section" style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 14 }}>🎯 Where I Spent My Time</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {topFocus.map(([fa, count], i) => (
-              <div key={fa} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ fontSize: 12, color: T.text2, width: 130, flexShrink: 0, textAlign: "right" }}>{fa}</div>
-                <div style={{ flex: 1, height: 8, background: T.navy3, borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{ height: "100%", borderRadius: 4, width: `${(count/maxFA)*100}%`, background: `linear-gradient(90deg, ${faPalette[i%faPalette.length]}90, ${faPalette[i%faPalette.length]})` }} />
-                </div>
-                <div style={{ fontSize: 11, color: faPalette[i%faPalette.length], fontFamily: "'DM Mono', monospace", width: 36, textAlign: "right", flexShrink: 0 }}>{count}d</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {months.length > 0 && (
-        <div className="card resume-section" style={{ marginBottom: 16, animationDelay: "0.07s" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 14 }}>📅 Timeline</div>
-          {months.map(([m, data], i) => {
-            const [yr, mo] = m.split("-");
-            const label = new Date(Number(yr), Number(mo)-1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-            const topMood = Object.entries(data.moods).sort((a,b) => b[1]-a[1])[0]?.[0];
-            return (
-              <div key={m} style={{ display: "flex", gap: 0, borderBottom: i < months.length-1 ? `1px solid ${T.border}` : "none", paddingBottom: i < months.length-1 ? 12 : 0, marginBottom: i < months.length-1 ? 12 : 0 }}>
-                <div style={{ width: 80, flexShrink: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text2, fontFamily: "'DM Mono', monospace" }}>{label}</div>
-                  <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>{data.count} entries</div>
-                </div>
-                <div style={{ flex: 1, paddingLeft: 16, borderLeft: `2px solid ${T.border}` }}>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: data.collabs.size > 0 ? 5 : 0 }}>
-                    {[...data.focuses].map(fa => (
-                      <span key={fa} style={{ fontSize: 11, padding: "2px 8px", background: `${T.accent}15`, color: T.accent, borderRadius: 20, border: `1px solid ${T.accent}25` }}>{fa}</span>
-                    ))}
-                    {topMood && <span style={{ fontSize: 11, padding: "2px 8px", background: `${moodPal[topMood]}15`, color: moodPal[topMood], borderRadius: 20, border: `1px solid ${moodPal[topMood]}25` }}>{topMood}</span>}
+        <div className="card resume-section" style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 14 }}>🎯 Where I Spent My Time</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 20px" }}>
+            {topFocus.map(([fa, count], i) => {
+              const col = faPalette[i % faPalette.length];
+              const pct = Math.round((count / maxFA) * 100);
+              return (
+                <div key={fa}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, color: T.text1, fontWeight: i < 3 ? 600 : 400 }}>{fa}</span>
+                    <span style={{ fontSize: 10, color: col, fontFamily: "'DM Mono', monospace" }}>{count}d</span>
                   </div>
-                  {data.collabs.size > 0 && <div style={{ fontSize: 11, color: T.text3 }}>w/ {[...data.collabs].slice(0,4).join(", ")}{data.collabs.size > 4 ? ` +${data.collabs.size-4}` : ""}</div>}
+                  <div style={{ height: 5, background: T.navy3, borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: "100%", borderRadius: 3, width: `${pct}%`, background: `linear-gradient(90deg, ${col}80, ${col})`, transition: "width 0.6s ease" }} />
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {topCollabs.length > 0 && (
-        <div className="card resume-section" style={{ marginBottom: 16, animationDelay: "0.14s" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 14 }}>🤝 Who I Worked With</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            {topCollabs.map(([name, count]) => (
-              <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, background: T.navy3, borderRadius: 8, padding: "7px 12px", border: `1px solid ${T.border}` }}>
-                <div style={{ width: 28, height: 28, borderRadius: "50%", background: `${T.accent}18`, border: `1px solid ${T.accent}35`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, flexShrink: 0 }}>
-                  {initials(name)}
-                </div>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text1 }}>{name}</div>
-                  <div style={{ fontSize: 10, color: T.text3 }}>{count} entr{count === 1 ? "y" : "ies"}</div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
+      {/* ── Collaborators ── */}
+      {topCollabs.length > 0 && (
+        <div className="card resume-section" style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 14 }}>🤝 Collaboration Network</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8 }}>
+            {topCollabs.map(([name, count], i) => {
+              const col = faPalette[i % faPalette.length];
+              const barW = Math.max(20, Math.round((count / (topCollabs[0]?.[1] || 1)) * 100));
+              return (
+                <div key={name} style={{ background: T.navy3, borderRadius: 10, padding: "10px 12px", border: `1px solid ${T.border}`, position: "relative", overflow: "hidden" }}>
+                  <div style={{ position: "absolute", bottom: 0, left: 0, width: `${barW}%`, height: 2, background: col, opacity: 0.5 }} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: "50%", background: `${col}18`, border: `1px solid ${col}35`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: col, flexShrink: 0 }}>
+                      {initials(name)}
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                  </div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>{count} entr{count === 1 ? "y" : "ies"} together</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Timeline ── */}
+      {months.length > 0 && (
+        <div className="card resume-section" style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 16 }}>📅 Monthly Timeline</div>
+          <div style={{ position: "relative" }}>
+            {/* Vertical spine */}
+            <div style={{ position: "absolute", left: 52, top: 0, bottom: 0, width: 2, background: `linear-gradient(180deg, ${T.accent}40, ${T.teal}20)`, borderRadius: 2 }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {months.map(([m, data], i) => {
+                const [yr, mo] = m.split("-");
+                const label = new Date(Number(yr), Number(mo)-1).toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+                const topMood = Object.entries(data.moods).sort((a,b) => b[1]-a[1])[0]?.[0];
+                const isLast = i === months.length - 1;
+                return (
+                  <div key={m} style={{ display: "flex", gap: 0, paddingBottom: isLast ? 0 : 16, position: "relative" }}>
+                    {/* Month label */}
+                    <div style={{ width: 52, flexShrink: 0, textAlign: "right", paddingRight: 14, paddingTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.text2, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{label}</div>
+                      <div style={{ fontSize: 9, color: T.text3, marginTop: 3 }}>{data.count}d</div>
+                    </div>
+                    {/* Dot on spine */}
+                    <div style={{ position: "absolute", left: 48, top: 4, width: 8, height: 8, borderRadius: "50%", background: i === months.length - 1 ? T.teal : T.accent, border: `2px solid ${T.navy2}`, zIndex: 1 }} />
+                    {/* Content */}
+                    <div style={{ flex: 1, paddingLeft: 20 }}>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: (data.collabs.size > 0 || topMood) ? 5 : 0 }}>
+                        {[...data.focuses].slice(0, 4).map(fa => (
+                          <span key={fa} style={{ fontSize: 10, padding: "2px 8px", background: `${T.accent}14`, color: T.accent, borderRadius: 20, border: `1px solid ${T.accent}22` }}>{fa}</span>
+                        ))}
+                        {[...data.focuses].length > 4 && <span style={{ fontSize: 10, color: T.text3, padding: "2px 6px" }}>+{[...data.focuses].length - 4}</span>}
+                        {topMood && <span style={{ fontSize: 10, padding: "2px 8px", background: `${moodPal[topMood] || T.text3}14`, color: moodPal[topMood] || T.text3, borderRadius: 20, border: `1px solid ${(moodPal[topMood] || T.text3)}22` }}>{topMood}</span>}
+                      </div>
+                      {data.collabs.size > 0 && <div style={{ fontSize: 10, color: T.text3 }}>w/ {[...data.collabs].slice(0, 3).join(", ")}{data.collabs.size > 3 ? ` +${data.collabs.size - 3}` : ""}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Skills & Tickets ── */}
       {(topTags.length > 0 || allJiras.size > 0) && (
-        <div className="card resume-section" style={{ animationDelay: "0.21s" }}>
+        <div className="card resume-section">
           {topTags.length > 0 && (
             <>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>🏷️ Skills & Domains</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: allJiras.size > 0 ? 20 : 0 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 12 }}>🏷️ Skills & Domains</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: allJiras.size > 0 ? 20 : 0 }}>
                 {topTags.map(([tag, count], i) => {
                   const col = faPalette[i % faPalette.length];
+                  const sz = i < 3 ? 14 : i < 8 ? 12.5 : 11.5;
                   return (
-                    <span key={tag} style={{ fontSize: i < 3 ? 14 : 12, padding: "4px 12px", background: `${col}12`, color: col, borderRadius: 20, border: `1px solid ${col}28`, fontWeight: count > 2 ? 600 : 400 }}>
-                      {tag}{count > 1 ? <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 4 }}>×{count}</span> : null}
+                    <span key={tag} style={{ fontSize: sz, padding: "4px 11px", background: `${col}10`, color: col, borderRadius: 20, border: `1px solid ${col}25`, fontWeight: count > 2 ? 600 : 400 }}>
+                      {tag}{count > 1 ? <span style={{ fontSize: 9, opacity: 0.55, marginLeft: 4 }}>×{count}</span> : null}
                     </span>
                   );
                 })}
@@ -4243,12 +4348,12 @@ function ShadowResume() {
           )}
           {allJiras.size > 0 && (
             <>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10, paddingTop: topTags.length > 0 ? 16 : 0, borderTop: topTags.length > 0 ? `1px solid ${T.border}` : "none" }}>🎫 JIRA Tickets ({allJiras.size})</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {[...allJiras].slice(0, 24).map(j => (
-                  <span key={j} style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", padding: "3px 8px", background: `${T.gold}10`, color: T.gold, borderRadius: 6, border: `1px solid ${T.gold}25` }}>{j}</span>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 10, paddingTop: topTags.length > 0 ? 16 : 0, borderTop: topTags.length > 0 ? `1px solid ${T.border}` : "none" }}>🎫 JIRA Tickets Referenced ({allJiras.size})</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {[...allJiras].slice(0, 30).map(j => (
+                  <span key={j} style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", padding: "3px 8px", background: `${T.gold}0d`, color: T.gold, borderRadius: 6, border: `1px solid ${T.gold}22` }}>{j}</span>
                 ))}
-                {allJiras.size > 24 && <span style={{ fontSize: 11, color: T.text3 }}>+{allJiras.size - 24} more</span>}
+                {allJiras.size > 30 && <span style={{ fontSize: 11, color: T.text3, padding: "3px 6px" }}>+{allJiras.size - 30} more</span>}
               </div>
             </>
           )}
@@ -4263,6 +4368,7 @@ function WorkMap() {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hovered, setHovered] = useState(null);
+  const [selected, setSelected] = useState(null);
 
   useEffect(() => {
     if (!isConfigured()) { setLoading(false); return; }
@@ -4274,12 +4380,13 @@ function WorkMap() {
 
   if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Building work map…</div>;
 
-  const CX = 380, CY = 230, FOCUS_R = 150, PERSON_R = 272, SVG_W = 760, SVG_H = 460;
+  const CX = 390, CY = 240, FOCUS_R = 155, PERSON_R = 285, SVG_W = 780, SVG_H = 480;
   const faPalette = [T.accent, T.teal, T.gold, T.coral, T.green, "#a78bfa", "#fb923c", "#38bdf8"];
 
   const focusCounts = {};
   entries.forEach(e => { getFocusAreas(e).forEach(f => { focusCounts[f] = (focusCounts[f] || 0) + 1; }); });
-  const focusAreas = Object.entries(focusCounts).sort((a,b) => b[1]-a[1]).slice(0, 6);
+  const focusAreas = Object.entries(focusCounts).sort((a,b) => b[1]-a[1]).slice(0, 8);
+  const maxFC = focusAreas[0]?.[1] || 1;
 
   const collabMap = {};
   entries.forEach(e => {
@@ -4291,13 +4398,15 @@ function WorkMap() {
       getFocusAreas(e).forEach(f => { collabMap[name].focusMap[f] = (collabMap[name].focusMap[f] || 0) + 1; });
     });
   });
-  const collabs = Object.values(collabMap).sort((a,b) => b.count-a.count).slice(0, 14).map(c => ({
+  const collabs = Object.values(collabMap).sort((a,b) => b.count-a.count).slice(0, 16).map(c => ({
     ...c, primaryFocus: Object.entries(c.focusMap).sort((a,b) => b[1]-a[1])[0]?.[0] || focusAreas[0]?.[0],
   }));
+  const maxPC = collabs[0]?.count || 1;
 
   const focusNodes = focusAreas.map(([fa, count], i) => {
     const angle = (i / focusAreas.length) * 2 * Math.PI - Math.PI / 2;
-    return { id: `fa:${fa}`, label: fa, count, x: CX + FOCUS_R * Math.cos(angle), y: CY + FOCUS_R * Math.sin(angle), color: faPalette[i % faPalette.length], angle, type: "focus" };
+    const r = 18 + Math.round((count / maxFC) * 12);
+    return { id: `fa:${fa}`, label: fa, count, r, x: CX + FOCUS_R * Math.cos(angle), y: CY + FOCUS_R * Math.sin(angle), color: faPalette[i % faPalette.length], angle, type: "focus" };
   });
 
   const groupSizes = {}, groupIdx = {};
@@ -4312,23 +4421,26 @@ function WorkMap() {
     if (!fn) return null;
     const gs = groupSizes[c.primaryFocus] || 1;
     const gi = groupIdx[c.name];
-    const spread = Math.min(1.1, 0.28 * gs);
+    const spread = Math.min(1.0, 0.3 * gs);
     const ao = gs > 1 ? (gi - (gs-1)/2) * (spread / Math.max(gs-1, 1)) : 0;
     const angle = fn.angle + ao;
-    return { id: `p:${c.name}`, label: c.name, count: c.count, x: CX + PERSON_R * Math.cos(angle), y: CY + PERSON_R * Math.sin(angle), primaryFocus: c.primaryFocus, fpColor: fn.color, type: "person" };
+    const r = 11 + Math.round((c.count / maxPC) * 7);
+    return { id: `p:${c.name}`, label: c.name, count: c.count, r, x: CX + PERSON_R * Math.cos(angle), y: CY + PERSON_R * Math.sin(angle), primaryFocus: c.primaryFocus, fpColor: fn.color, type: "person" };
   }).filter(Boolean);
 
+  const active = selected || hovered;
+
   const isNodeLit = (nid) => {
-    if (!hovered) return true;
-    if (nid === hovered || hovered === "me") return true;
-    if (hovered.startsWith("fa:")) {
+    if (!active) return true;
+    if (nid === active || active === "me") return true;
+    if (active.startsWith("fa:")) {
       if (nid === "me") return true;
-      const fa = hovered.slice(3);
+      const fa = active.slice(3);
       const pn = personNodes.find(p => p.id === nid);
       return !!(pn && pn.primaryFocus === fa);
     }
-    if (hovered.startsWith("p:")) {
-      const pn = personNodes.find(p => p.id === hovered);
+    if (active.startsWith("p:")) {
+      const pn = personNodes.find(p => p.id === active);
       if (!pn) return false;
       return nid === "me" || nid === `fa:${pn.primaryFocus}`;
     }
@@ -4336,143 +4448,223 @@ function WorkMap() {
   };
 
   const isEdgeLit = (srcId, tgtId) => {
-    if (!hovered) return true;
-    if (hovered === "me") return true;
-    if (hovered === srcId || hovered === tgtId) return true;
-    if (hovered.startsWith("p:")) {
-      const pn = personNodes.find(p => p.id === hovered);
-      if (pn && tgtId === hovered && srcId === `fa:${pn.primaryFocus}`) return true;
+    if (!active) return true;
+    if (active === "me") return true;
+    if (active === srcId || active === tgtId) return true;
+    if (active.startsWith("p:")) {
+      const pn = personNodes.find(p => p.id === active);
+      if (pn && tgtId === active && srcId === `fa:${pn.primaryFocus}`) return true;
     }
     return false;
   };
 
   const totalJiras = [...new Set(entries.flatMap(e => e.jira_links || []))].length;
+  const topFocus = focusAreas[0]?.[0];
+  const topCollab = collabs[0]?.name;
+
+  const getTooltipContent = () => {
+    if (!active) return null;
+    if (active === "me") return { title: "You", sub: `${entries.length} diary entries · ${focusNodes.length} focus areas` };
+    if (active.startsWith("fa:")) {
+      const fn = focusNodes.find(n => n.id === active);
+      if (!fn) return null;
+      const connected = personNodes.filter(p => p.primaryFocus === fn.label);
+      return { title: fn.label, sub: `${fn.count} day${fn.count !== 1 ? "s" : ""} · ${connected.length} collaborator${connected.length !== 1 ? "s" : ""}`, color: fn.color };
+    }
+    if (active.startsWith("p:")) {
+      const pn = personNodes.find(n => n.id === active);
+      if (!pn) return null;
+      return { title: pn.label, sub: `${pn.count} entr${pn.count !== 1 ? "ies" : "y"} together · via ${pn.primaryFocus}`, color: pn.fpColor };
+    }
+    return null;
+  };
+  const tooltip = getTooltipContent();
 
   return (
     <div className="echo-content fade-in">
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 20, fontSize: 12, color: T.text3, marginBottom: 16 }}>
-        <span>{focusNodes.length} focus areas</span>
-        <span>{personNodes.length} collaborators</span>
-        <span>{totalJiras} JIRAs</span>
-        <span>{entries.length} entries</span>
+      {/* Stats strip */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+        {[
+          { label: "Focus Areas", value: focusNodes.length, color: T.accent, icon: "🎯" },
+          { label: "Collaborators", value: personNodes.length, color: T.teal, icon: "🤝" },
+          { label: "JIRA Tickets", value: totalJiras, color: T.gold, icon: "🎫" },
+          { label: "Diary Entries", value: entries.length, color: T.text2, icon: "📓" },
+        ].map(s => (
+          <div key={s.label} className="card" style={{ flex: 1, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 18 }}>{s.icon}</span>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: s.color, fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{s.value}</div>
+              <div style={{ fontSize: 10, color: T.text3, marginTop: 3, letterSpacing: 0.5, textTransform: "uppercase" }}>{s.label}</div>
+            </div>
+          </div>
+        ))}
       </div>
 
       {focusNodes.length === 0 ? (
         <div className="card" style={{ textAlign: "center", padding: "70px 0" }}>
-          <div style={{ fontSize: 36, marginBottom: 14 }}>🕸️</div>
-          <div style={{ fontSize: 15, color: T.text2, marginBottom: 8 }}>No data yet</div>
-          <div style={{ fontSize: 13, color: T.text3 }}>Log diary entries with collaborators and focus areas to build your Work Map.</div>
+          <div style={{ fontSize: 40, marginBottom: 14 }}>🕸️</div>
+          <div style={{ fontSize: 15, color: T.text2, marginBottom: 8 }}>No connections yet</div>
+          <div style={{ fontSize: 13, color: T.text3 }}>Log diary entries with focus areas and collaborators — your work map will build itself.</div>
         </div>
       ) : (
         <>
-          <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 14 }}>
-            <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", maxHeight: 460, display: "block" }}>
-              <defs>
-                <radialGradient id="wm-me-glow" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor={T.accent} stopOpacity="0.25" />
-                  <stop offset="100%" stopColor={T.accent} stopOpacity="0" />
-                </radialGradient>
-                {focusNodes.map((fn, i) => (
-                  <radialGradient key={fn.id} id={`wm-fg-${i}`} cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor={fn.color} stopOpacity="0.18" />
-                    <stop offset="100%" stopColor={fn.color} stopOpacity="0" />
+          {/* Insight bar */}
+          {(topFocus || topCollab) && (
+            <div style={{ background: `${T.accent}0d`, border: `1px solid ${T.accent}20`, borderRadius: 10, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+              {topFocus && <span style={{ fontSize: 12, color: T.text2 }}>Most active in <span style={{ color: T.accent, fontWeight: 600 }}>{topFocus}</span></span>}
+              {topCollab && <span style={{ fontSize: 12, color: T.text2 }}>Top collaborator <span style={{ color: T.teal, fontWeight: 600 }}>{topCollab}</span></span>}
+              <span style={{ fontSize: 11, color: T.text3, marginLeft: "auto" }}>Click any node to pin · hover to explore</span>
+            </div>
+          )}
+
+          <div style={{ position: "relative" }}>
+            <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 14 }}
+              onClick={e => { if (e.target.tagName === "svg" || e.target === e.currentTarget) setSelected(null); }}>
+              <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", maxHeight: 480, display: "block" }}>
+                <defs>
+                  <radialGradient id="wm-me-glow" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor={T.accent} stopOpacity="0.3" />
+                    <stop offset="100%" stopColor={T.accent} stopOpacity="0" />
                   </radialGradient>
-                ))}
-              </defs>
+                  {focusNodes.map((fn, i) => (
+                    <radialGradient key={fn.id} id={`wm-fg-${i}`} cx="50%" cy="50%" r="50%">
+                      <stop offset="0%" stopColor={fn.color} stopOpacity="0.22" />
+                      <stop offset="100%" stopColor={fn.color} stopOpacity="0" />
+                    </radialGradient>
+                  ))}
+                  <filter id="wm-glow">
+                    <feGaussianBlur stdDeviation="2.5" result="blur" />
+                    <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                  </filter>
+                </defs>
 
-              <circle cx={CX} cy={CY} r={FOCUS_R}  fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="5 9" />
-              <circle cx={CX} cy={CY} r={PERSON_R} fill="none" stroke="rgba(255,255,255,0.025)" strokeWidth="1" strokeDasharray="5 9" />
+                {/* Orbit rings */}
+                <circle cx={CX} cy={CY} r={FOCUS_R}  fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="1" strokeDasharray="4 8" />
+                <circle cx={CX} cy={CY} r={PERSON_R} fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="4 8" />
 
-              {focusNodes.map(fn => (
-                <line key={`ef-${fn.id}`} x1={CX} y1={CY} x2={fn.x} y2={fn.y}
-                  stroke={fn.color}
-                  strokeWidth={isEdgeLit("me", fn.id) ? 1.5 : 0.6}
-                  strokeOpacity={isEdgeLit("me", fn.id) ? 0.4 : 0.07}
-                  style={{ transition: "all 0.2s", pointerEvents: "none" }} />
-              ))}
-
-              {personNodes.map(pn => {
-                const fn = focusNodes.find(f => f.label === pn.primaryFocus);
-                if (!fn) return null;
-                return (
-                  <line key={`ep-${pn.id}`} x1={fn.x} y1={fn.y} x2={pn.x} y2={pn.y}
+                {/* Edges: center → focus */}
+                {focusNodes.map(fn => (
+                  <line key={`ef-${fn.id}`} x1={CX} y1={CY} x2={fn.x} y2={fn.y}
                     stroke={fn.color}
-                    strokeWidth={isEdgeLit(fn.id, pn.id) ? 1.2 : 0.5}
-                    strokeOpacity={isEdgeLit(fn.id, pn.id) ? 0.32 : 0.07}
-                    style={{ transition: "all 0.2s", pointerEvents: "none" }} />
-                );
-              })}
+                    strokeWidth={isEdgeLit("me", fn.id) ? 1.8 : 0.5}
+                    strokeOpacity={isEdgeLit("me", fn.id) ? 0.45 : 0.06}
+                    style={{ transition: "all 0.25s", pointerEvents: "none" }} />
+                ))}
 
-              {focusNodes.map((fn, i) => (
-                <g key={fn.id} style={{ cursor: "pointer" }}
-                  onMouseEnter={() => setHovered(fn.id)}
-                  onMouseLeave={() => setHovered(null)}>
-                  <circle cx={fn.x} cy={fn.y} r={32} fill={`url(#wm-fg-${i})`} />
-                  <circle cx={fn.x} cy={fn.y} r={24} fill={`${fn.color}12`} stroke={fn.color}
-                    strokeWidth={hovered === fn.id ? 2 : 1}
-                    strokeOpacity={isNodeLit(fn.id) ? 1 : 0.15}
-                    fillOpacity={isNodeLit(fn.id) ? 1 : 0.25}
-                    style={{ transition: "all 0.2s" }} />
-                  <text x={fn.x} y={fn.y - 2} textAnchor="middle" dominantBaseline="middle"
-                    fill={fn.color} fontSize="8" fontFamily="'DM Sans', sans-serif" fontWeight="700"
-                    opacity={isNodeLit(fn.id) ? 1 : 0.15} style={{ transition: "all 0.2s", userSelect: "none", pointerEvents: "none" }}>
-                    {fn.label.length > 11 ? fn.label.slice(0, 11) + "…" : fn.label}
-                  </text>
-                  <text x={fn.x} y={fn.y + 10} textAnchor="middle"
-                    fill={fn.color} fontSize="7" fontFamily="'DM Mono', monospace"
-                    opacity={isNodeLit(fn.id) ? 0.6 : 0.1} style={{ transition: "all 0.2s", userSelect: "none", pointerEvents: "none" }}>
-                    {fn.count}d
-                  </text>
-                </g>
-              ))}
+                {/* Edges: focus → person */}
+                {personNodes.map(pn => {
+                  const fn = focusNodes.find(f => f.label === pn.primaryFocus);
+                  if (!fn) return null;
+                  return (
+                    <line key={`ep-${pn.id}`} x1={fn.x} y1={fn.y} x2={pn.x} y2={pn.y}
+                      stroke={fn.color}
+                      strokeWidth={isEdgeLit(fn.id, pn.id) ? 1.4 : 0.5}
+                      strokeOpacity={isEdgeLit(fn.id, pn.id) ? 0.35 : 0.06}
+                      style={{ transition: "all 0.25s", pointerEvents: "none" }} />
+                  );
+                })}
 
-              {personNodes.map(pn => (
-                <g key={pn.id} style={{ cursor: "pointer" }}
-                  onMouseEnter={() => setHovered(pn.id)}
-                  onMouseLeave={() => setHovered(null)}>
-                  <circle cx={pn.x} cy={pn.y} r={16} fill={`${pn.fpColor}10`} stroke={pn.fpColor}
-                    strokeWidth={hovered === pn.id ? 1.8 : 1}
-                    strokeOpacity={isNodeLit(pn.id) ? 0.6 : 0.1}
-                    fillOpacity={isNodeLit(pn.id) ? 1 : 0.15}
-                    style={{ transition: "all 0.2s" }} />
-                  <text x={pn.x} y={pn.y} textAnchor="middle" dominantBaseline="middle"
-                    fill={pn.fpColor} fontSize="8" fontFamily="'DM Sans', sans-serif" fontWeight="700"
-                    opacity={isNodeLit(pn.id) ? 0.9 : 0.1} style={{ transition: "all 0.2s", userSelect: "none", pointerEvents: "none" }}>
-                    {initials(pn.label)}
-                  </text>
-                  {(hovered === pn.id || hovered === `fa:${pn.primaryFocus}`) && (
-                    <text x={pn.x} y={pn.y + 25} textAnchor="middle"
-                      fill={T.text2} fontSize="8" fontFamily="'DM Sans', sans-serif"
-                      style={{ userSelect: "none", pointerEvents: "none" }}>
-                      {pn.label.length > 13 ? pn.label.slice(0, 13) + "…" : pn.label}
+                {/* Focus area nodes */}
+                {focusNodes.map((fn, i) => (
+                  <g key={fn.id} style={{ cursor: "pointer" }}
+                    onMouseEnter={() => { if (!selected) setHovered(fn.id); }}
+                    onMouseLeave={() => { if (!selected) setHovered(null); }}
+                    onClick={e => { e.stopPropagation(); setSelected(selected === fn.id ? null : fn.id); setHovered(null); }}>
+                    <circle cx={fn.x} cy={fn.y} r={fn.r + 14} fill={`url(#wm-fg-${i})`} />
+                    <circle cx={fn.x} cy={fn.y} r={fn.r} fill={`${fn.color}14`} stroke={fn.color}
+                      strokeWidth={active === fn.id ? 2.2 : 1.2}
+                      strokeOpacity={isNodeLit(fn.id) ? 1 : 0.12}
+                      fillOpacity={isNodeLit(fn.id) ? 1 : 0.2}
+                      filter={active === fn.id ? "url(#wm-glow)" : "none"}
+                      style={{ transition: "all 0.25s" }} />
+                    <text x={fn.x} y={fn.y - 1} textAnchor="middle" dominantBaseline="middle"
+                      fill={fn.color} fontSize={fn.r > 26 ? "8.5" : "7.5"} fontFamily="'DM Sans', sans-serif" fontWeight="700"
+                      opacity={isNodeLit(fn.id) ? 1 : 0.12} style={{ transition: "opacity 0.25s", userSelect: "none", pointerEvents: "none" }}>
+                      {fn.label.length > 10 ? fn.label.slice(0, 10) + "…" : fn.label}
                     </text>
-                  )}
+                    <text x={fn.x} y={fn.y + (fn.r > 26 ? 11 : 10)} textAnchor="middle"
+                      fill={fn.color} fontSize="6.5" fontFamily="'DM Mono', monospace"
+                      opacity={isNodeLit(fn.id) ? 0.65 : 0.1} style={{ transition: "opacity 0.25s", userSelect: "none", pointerEvents: "none" }}>
+                      {fn.count}d
+                    </text>
+                  </g>
+                ))}
+
+                {/* Person nodes */}
+                {personNodes.map(pn => (
+                  <g key={pn.id} style={{ cursor: "pointer" }}
+                    onMouseEnter={() => { if (!selected) setHovered(pn.id); }}
+                    onMouseLeave={() => { if (!selected) setHovered(null); }}
+                    onClick={e => { e.stopPropagation(); setSelected(selected === pn.id ? null : pn.id); setHovered(null); }}>
+                    <circle cx={pn.x} cy={pn.y} r={pn.r} fill={`${pn.fpColor}12`} stroke={pn.fpColor}
+                      strokeWidth={active === pn.id ? 2 : 1}
+                      strokeOpacity={isNodeLit(pn.id) ? 0.7 : 0.08}
+                      fillOpacity={isNodeLit(pn.id) ? 1 : 0.12}
+                      filter={active === pn.id ? "url(#wm-glow)" : "none"}
+                      style={{ transition: "all 0.25s" }} />
+                    <text x={pn.x} y={pn.y} textAnchor="middle" dominantBaseline="middle"
+                      fill={pn.fpColor} fontSize={pn.r > 15 ? "8" : "7"} fontFamily="'DM Sans', sans-serif" fontWeight="700"
+                      opacity={isNodeLit(pn.id) ? 0.95 : 0.08} style={{ transition: "opacity 0.25s", userSelect: "none", pointerEvents: "none" }}>
+                      {initials(pn.label)}
+                    </text>
+                    {/* Always-visible name label for lit nodes */}
+                    {isNodeLit(pn.id) && active && (
+                      <text x={pn.x} y={pn.y + pn.r + 9} textAnchor="middle"
+                        fill={T.text2} fontSize="7.5" fontFamily="'DM Sans', sans-serif"
+                        style={{ userSelect: "none", pointerEvents: "none" }}>
+                        {pn.label.length > 12 ? pn.label.slice(0, 12) + "…" : pn.label}
+                      </text>
+                    )}
+                  </g>
+                ))}
+
+                {/* Center: Me */}
+                <g style={{ cursor: "pointer" }}
+                  onMouseEnter={() => { if (!selected) setHovered("me"); }}
+                  onMouseLeave={() => { if (!selected) setHovered(null); }}
+                  onClick={e => { e.stopPropagation(); setSelected(selected === "me" ? null : "me"); setHovered(null); }}>
+                  <circle cx={CX} cy={CY} r={46} fill="url(#wm-me-glow)" />
+                  <circle cx={CX} cy={CY} r={30} fill={T.navy3} stroke={T.accent}
+                    strokeWidth={active === "me" ? 2.8 : 1.8}
+                    filter={active === "me" ? "url(#wm-glow)" : "none"}
+                    style={{ transition: "all 0.25s" }} />
+                  <text x={CX} y={CY - 5} textAnchor="middle" dominantBaseline="middle"
+                    fill={T.accent} fontSize="12" fontFamily="'Syne', sans-serif" fontWeight="800"
+                    style={{ userSelect: "none", pointerEvents: "none" }}>You</text>
+                  <text x={CX} y={CY + 9} textAnchor="middle"
+                    fill={T.text3} fontSize="7.5" fontFamily="'DM Mono', monospace"
+                    style={{ userSelect: "none", pointerEvents: "none" }}>{entries.length}d</text>
                 </g>
-              ))}
+              </svg>
+            </div>
 
-              <g style={{ cursor: "pointer" }} onMouseEnter={() => setHovered("me")} onMouseLeave={() => setHovered(null)}>
-                <circle cx={CX} cy={CY} r={40} fill="url(#wm-me-glow)" />
-                <circle cx={CX} cy={CY} r={28} fill={T.navy3} stroke={T.accent}
-                  strokeWidth={hovered === "me" ? 2.5 : 1.5} style={{ transition: "all 0.2s" }} />
-                <text x={CX} y={CY - 4} textAnchor="middle" dominantBaseline="middle"
-                  fill={T.accent} fontSize="11" fontFamily="'Syne', sans-serif" fontWeight="700"
-                  style={{ userSelect: "none", pointerEvents: "none" }}>Me</text>
-                <text x={CX} y={CY + 10} textAnchor="middle"
-                  fill={T.text3} fontSize="7.5" fontFamily="'DM Mono', monospace"
-                  style={{ userSelect: "none", pointerEvents: "none" }}>{entries.length}d</text>
-              </g>
-            </svg>
-          </div>
-
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 6 }}>
-            {focusNodes.map(fn => (
-              <div key={fn.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 9, height: 9, borderRadius: "50%", background: fn.color }} />
-                <span style={{ fontSize: 12, color: T.text3 }}>{fn.label} ({fn.count}d)</span>
+            {/* Hover/click tooltip panel */}
+            {tooltip && (
+              <div style={{ position: "absolute", top: 12, right: 12, background: T.navy2, border: `1px solid ${tooltip.color || T.accent}40`, borderRadius: 10, padding: "10px 14px", minWidth: 160, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", pointerEvents: "none" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: tooltip.color || T.accent, marginBottom: 3 }}>{tooltip.title}</div>
+                <div style={{ fontSize: 11, color: T.text3 }}>{tooltip.sub}</div>
+                {selected && <div style={{ fontSize: 10, color: T.text3, marginTop: 6, opacity: 0.7 }}>Click node again to unpin</div>}
               </div>
-            ))}
+            )}
           </div>
-          <div style={{ fontSize: 11, color: T.text3 }}>Hover any node to highlight connections. Inner ring = focus areas · Outer ring = collaborators.</div>
+
+          {/* Legend grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8, marginBottom: 10 }}>
+            {focusNodes.map(fn => {
+              const connected = personNodes.filter(p => p.primaryFocus === fn.label);
+              return (
+                <div key={fn.id} style={{ display: "flex", alignItems: "center", gap: 8, background: T.navy3, borderRadius: 8, padding: "8px 12px", border: `1px solid ${active === fn.id ? fn.color + "50" : T.border}`, cursor: "pointer", transition: "border-color 0.2s" }}
+                  onClick={() => setSelected(selected === fn.id ? null : fn.id)}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: fn.color, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fn.label}</div>
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>{fn.count}d · {connected.length} people</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 11, color: T.text3 }}>Node size = frequency · Click to pin · Inner ring = focus areas · Outer ring = collaborators</div>
         </>
       )}
     </div>
