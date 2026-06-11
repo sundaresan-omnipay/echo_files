@@ -197,6 +197,7 @@ const db = {
 // create table resolve_habits (id uuid primary key default gen_random_uuid(), user_id uuid not null, name text not null, emoji text default '✊', created_at date not null default current_date, last_slip date, slip_history jsonb default '[]', inserted_at timestamptz default now()); alter table resolve_habits enable row level security; create policy "own" on resolve_habits for all using (auth.uid()=user_id);
 // create table pattern_interrupts (id uuid primary key default gen_random_uuid(), user_id uuid not null, text text not null, created_at timestamptz default now()); alter table pattern_interrupts enable row level security; create policy "own" on pattern_interrupts for all using (auth.uid()=user_id);
 // create table one_on_one_sessions (id uuid primary key default gen_random_uuid(), user_id uuid not null, teammate_id uuid references teammates(id) on delete cascade, teammate_name text not null, session_date date not null default current_date, topics text default '', notes text default '', action_items jsonb default '[]', feedback_given jsonb default '[]', sentiment text default 'positive', next_session_date date, inserted_at timestamptz default now()); alter table one_on_one_sessions enable row level security; create policy "own" on one_on_one_sessions for all using (auth.uid()=user_id);
+// ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS focus_areas jsonb DEFAULT '[]';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const T = {
@@ -1277,8 +1278,12 @@ const MOODS = [
 
 const FOCUS_AREAS = [
   "Test Execution", "Automation", "Code Review", "Mentoring",
-  "Sprint Planning", "Debugging", "CI/CD", "Meetings", "Documentation", "Release"
+  "Sprint Planning", "Debugging", "CI/CD", "Meetings", "Documentation", "Release",
+  "Deployment", "Incident Response", "Performance", "Security", "Refactoring",
+  "Architecture", "Feature Development", "Bug Fixing", "Planning", "Stakeholder Sync",
 ];
+
+const getFocusAreas = (e) => e.focus_areas?.length ? e.focus_areas : (e.focus_area ? [e.focus_area] : []);
 
 const TEAM_STATUSES = [
   { key: "excellent", label: "Excellent", color: T.green },
@@ -1375,7 +1380,7 @@ function exportEntryPDF(entry) {
 <h1>${fmtDate(entry.date)}</h1>
 <div class="meta">
   ${mood ? `<span>${mood.emoji} ${mood.label}</span>` : ""}
-  ${entry.focus_area ? `<span>📌 ${esc(entry.focus_area)}</span>` : ""}
+  ${getFocusAreas(entry).length ? getFocusAreas(entry).map(f => `<span>📌 ${esc(f)}</span>`).join(" ") : ""}
   ${(entry.collaborators||[]).length ? `<span>👥 ${entry.collaborators.map(esc).join(", ")}</span>` : ""}
 </div>
 ${jiraChips ? `<div class="section-title">JIRAs</div><div>${jiraChips}</div>` : ""}
@@ -1494,7 +1499,7 @@ function Dashboard({ setView, diaryCount, docCount }) {
                 const color  = mood ? moodColor[mood.key] || T.accent : null;
                 const hasCF  = (entry?.carry_forward?.filter(i => !i.done).length || 0) > 0;
                 return (
-                  <div key={dateStr} title={`${wd} ${day}${entry ? ` — ${mood?.label || "No mood"} · ${entry.focus_area || ""}` : " — no entry"}`}
+                  <div key={dateStr} title={`${wd} ${day}${entry ? ` — ${mood?.label || "No mood"} · ${getFocusAreas(entry).join(", ")}` : " — no entry"}`}
                     style={{ flex: 1, textAlign: "center", cursor: entry ? "pointer" : "default" }}>
                     <div style={{ fontSize: 9, color: isToday ? T.accent : T.text3, marginBottom: 4, fontWeight: isToday ? 600 : 400 }}>{wd}</div>
                     <div style={{
@@ -1540,7 +1545,7 @@ function Dashboard({ setView, diaryCount, docCount }) {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3, flexWrap: "wrap" }}>
-                    {e.focus_area && <span className="focus-badge" style={{ fontSize: 10, padding: "2px 7px" }}>{e.focus_area}</span>}
+                    {getFocusAreas(e).map(f => <span key={f} className="focus-badge" style={{ fontSize: 10, padding: "2px 7px" }}>{f}</span>)}
                     {e.mood && <span style={{ fontSize: 13 }}>{MOODS.find(m => m.key === e.mood)?.emoji}</span>}
                   </div>
                   <div style={{ fontSize: 12, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -1587,7 +1592,7 @@ function Dashboard({ setView, diaryCount, docCount }) {
                 <div key={label} style={{ flex: 1, minWidth: 220, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px" }}>
                   <div style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 6 }}>{label} · {fmtDate(entry.date)}</div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
-                    {entry.focus_area && <span className="focus-badge" style={{ fontSize: 10 }}>{entry.focus_area}</span>}
+                    {getFocusAreas(entry).map(f => <span key={f} className="focus-badge" style={{ fontSize: 10 }}>{f}</span>)}
                     {mood && <span style={{ fontSize: 13 }}>{mood.emoji} <span style={{ fontSize: 12, color: T.text3 }}>{mood.label}</span></span>}
                   </div>
                   {entry.content && (
@@ -1689,7 +1694,7 @@ function Dashboard({ setView, diaryCount, docCount }) {
       {/* ── Focus Area Analytics ── */}
       {(() => {
         const counts = {};
-        heatEntries.forEach(e => { if (e.focus_area) counts[e.focus_area] = (counts[e.focus_area] || 0) + 1; });
+        heatEntries.forEach(e => { getFocusAreas(e).forEach(f => { counts[f] = (counts[f] || 0) + 1; }); });
         const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
         if (sorted.length < 2) return null;
         const max = sorted[0][1];
@@ -1735,7 +1740,7 @@ function Dashboard({ setView, diaryCount, docCount }) {
 
         // Focus area rut: one area dominates > 80%
         const focusCounts = {};
-        recent.forEach(e => { if (e.focus_area) focusCounts[e.focus_area] = (focusCounts[e.focus_area] || 0) + 1; });
+        recent.forEach(e => { getFocusAreas(e).forEach(f => { focusCounts[f] = (focusCounts[f] || 0) + 1; }); });
         const topFocus = Object.entries(focusCounts).sort((a,b) => b[1]-a[1])[0];
         if (topFocus && (topFocus[1] / recent.length) >= 0.80) {
           alerts.push({ icon: "🔄", label: "Focus Loop", col: T.gold, msg: `"${topFocus[0]}" has been ${Math.round((topFocus[1]/recent.length)*100)}% of your work for 3 weeks.`, sub: "Is this intentional depth — or are you stuck in one lane?" });
@@ -2151,7 +2156,9 @@ const TEAM_ROLES = [
   { key: "qa",            label: "QA / Tester",   color: "#34D9B3", tip: "Quality — focus on test coverage, bugs, and release readiness" },
   { key: "tech_lead",     label: "Tech Lead",     color: "#7B6EF6", tip: "Technical — focus on architecture decisions, code reviews, and mentoring" },
   { key: "data_analyst",  label: "Data Analyst",  color: "#F5C243", tip: "Data — focus on insights, metrics, and analytical deliverables" },
-  { key: "stakeholder",   label: "Stakeholder",   color: "#9A99AD", tip: "External — focus on status updates, risks, and expectations" },
+  { key: "devops",            label: "DevOps",             color: "#F07A6E", tip: "Infrastructure — focus on pipelines, reliability, and release process" },
+  { key: "delivery_manager",  label: "Delivery Manager",   color: "#A89BF8", tip: "Delivery — focus on timelines, dependencies, and stakeholder reporting" },
+  { key: "stakeholder",       label: "Stakeholder",        color: "#9A99AD", tip: "External — focus on status updates, risks, and expectations" },
 ];
 
 const SESSION_SENTIMENTS = [
@@ -2587,13 +2594,14 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
     feedback_given: entry.feedback_given || [],
     carry_forward:  entry.carry_forward  || [],
     reminders:      entry.reminders      || [],
+    focus_areas:    entry.focus_areas?.length ? entry.focus_areas : (entry.focus_area ? [entry.focus_area] : []),
     focus_area:     entry.focus_area     || "",
     blockers:       entry.blockers       || "",
     mood:           entry.mood           || "",
     content:        entry.content        || "",
     linked_note:    entry.linked_note    || null,
   } : {
-    date: today(), focus_area: "", mood: "", content: "", blockers: "",
+    date: today(), focus_area: "", focus_areas: [], mood: "", content: "", blockers: "",
     jira_links: [], collaborators: [], tags: [], team_updates: [], feedback_given: [],
     carry_forward: initCF,
     reminders: initReminders,
@@ -2659,7 +2667,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
   const save = async () => {
     if (!form.date) return;
     setSaving(true);
-    await onSave({ ...form, title: fmtDate(form.date) });
+    await onSave({ ...form, title: fmtDate(form.date), focus_area: (form.focus_areas || [])[0] || form.focus_area || "" });
     setSaving(false);
     onClose();
   };
@@ -2698,11 +2706,35 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
                 <input type="date" className="form-input" value={form.date} onChange={e => set("date", e.target.value)} />
               </div>
               <div className="form-group">
-                <label className="form-label">Focus Area</label>
-                <select className="form-select" value={form.focus_area} onChange={e => set("focus_area", e.target.value)}>
-                  <option value="">— Select —</option>
-                  {FOCUS_AREAS.map(f => <option key={f} value={f}>{f}</option>)}
-                </select>
+                <label className="form-label">Focus Areas</label>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {FOCUS_AREAS.map(f => {
+                    const selected = (form.focus_areas || []).includes(f);
+                    return (
+                      <button key={f} onClick={() => set("focus_areas", selected
+                        ? (form.focus_areas || []).filter(x => x !== f)
+                        : [...(form.focus_areas || []), f]
+                      )} style={{
+                        fontSize: 11, padding: "3px 9px", borderRadius: 20, cursor: "pointer",
+                        border: `1px solid ${selected ? T.accent : T.border}`,
+                        background: selected ? `${T.accent}22` : "transparent",
+                        color: selected ? T.accent : T.text3,
+                        fontFamily: "'DM Sans', sans-serif",
+                        transition: "all 0.15s",
+                      }}>{f}</button>
+                    );
+                  })}
+                </div>
+                {(form.focus_areas || []).length > 0 && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                    {(form.focus_areas || []).map(f => (
+                      <span key={f} className="focus-badge" style={{ cursor: "pointer", fontSize: 11 }}
+                        onClick={() => set("focus_areas", (form.focus_areas || []).filter(x => x !== f))}>
+                        {f} ✕
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -3074,7 +3106,7 @@ function WeeklyReportModal({ entries, onClose }) {
   const blockers    = week.filter(e => e.blockers);
 
   const focusCounts = {};
-  week.forEach(e => { if (e.focus_area) focusCounts[e.focus_area] = (focusCounts[e.focus_area] || 0) + 1; });
+  week.forEach(e => { getFocusAreas(e).forEach(f => { focusCounts[f] = (focusCounts[f] || 0) + 1; }); });
   const topFocus = Object.entries(focusCounts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} (${v}d)`).join(", ");
   const moodLine = week.filter(e => e.mood).map(e => MOODS.find(m => m.key === e.mood)?.emoji || "").join(" ");
 
@@ -3180,7 +3212,7 @@ function StandupModal({ entry, onClose }) {
     ``,
     `Yesterday:`,
     entry.content || "(no notes recorded)",
-    entry.focus_area ? `Focus area: ${entry.focus_area}` : "",
+    getFocusAreas(entry).length ? `Focus areas: ${getFocusAreas(entry).join(", ")}` : "",
     (entry.jira_links || []).length ? `JIRAs worked: ${entry.jira_links.join(", ")}` : "",
     (entry.collaborators || []).length ? `Collaborated with: ${entry.collaborators.join(", ")}` : "",
     ``,
@@ -3216,7 +3248,7 @@ function StandupModal({ entry, onClose }) {
         {mood && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, fontSize: 13, color: T.text2 }}>
             <span>{mood.emoji}</span><span style={{ color: T.text3 }}>{mood.label} day ·</span>
-            {entry.focus_area && <span style={{ color: T.accent }}>{entry.focus_area}</span>}
+            {getFocusAreas(entry).map((f, i) => <span key={i} style={{ color: T.accent }}>{f}</span>)}
           </div>
         )}
         <pre style={{
@@ -3309,7 +3341,7 @@ function Diary({ onCountChange, user }) {
     const q = search.toLowerCase();
     const matchSearch = !q ||
       e.content?.toLowerCase().includes(q) ||
-      e.focus_area?.toLowerCase().includes(q) ||
+      getFocusAreas(e).some(f => f.toLowerCase().includes(q)) ||
       e.blockers?.toLowerCase().includes(q) ||
       e.tags?.some(t => t.toLowerCase().includes(q)) ||
       e.jira_links?.some(l => l.toLowerCase().includes(q)) ||
@@ -3319,7 +3351,7 @@ function Diary({ onCountChange, user }) {
       e.carry_forward?.some(i => i.text?.toLowerCase().includes(q)) ||
       e.reminders?.some(i => i.text?.toLowerCase().includes(q));
     const matchMood    = !filterMood    || e.mood       === filterMood;
-    const matchFocus   = !filterFocus   || e.focus_area === filterFocus;
+    const matchFocus   = !filterFocus   || getFocusAreas(e).includes(filterFocus);
     const matchStarred = !filterStarred || starredIds.has(e.id);
     return matchSearch && matchMood && matchFocus && matchStarred;
   });
@@ -3377,7 +3409,7 @@ function Diary({ onCountChange, user }) {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                    {e.focus_area && <span className="focus-badge">{e.focus_area}</span>}
+                    {getFocusAreas(e).map(f => <span key={f} className="focus-badge">{f}</span>)}
                     {mood && <span title={mood.label} style={{ fontSize: 15 }}>{mood.emoji}</span>}
                     <div style={{ marginLeft: "auto", display: "flex", gap: 5, alignItems: "center" }}>
                       {e.linked_note && <span className="entry-stat-badge" title={`Linked note: ${e.linked_note.title}`} style={{ color: T.teal, borderColor: "rgba(63,207,180,0.25)" }}>📎</span>}
@@ -3452,7 +3484,7 @@ function Diary({ onCountChange, user }) {
               <div>
                 <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 6 }}>{fmtDate(viewEntry.date)}</div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  {viewEntry.focus_area && <span className="focus-badge">{viewEntry.focus_area}</span>}
+                  {getFocusAreas(viewEntry).map(f => <span key={f} className="focus-badge">{f}</span>)}
                   {viewEntry.mood && (
                     <span style={{ fontSize: 13, color: T.text3 }}>
                       {MOODS.find(m => m.key === viewEntry.mood)?.emoji} {MOODS.find(m => m.key === viewEntry.mood)?.label}
@@ -4077,7 +4109,7 @@ function ShadowResume() {
 
   const allFocusAreas = {}, allCollabs = {}, allTags = {}, allJiras = new Set();
   entries.forEach(e => {
-    if (e.focus_area) allFocusAreas[e.focus_area] = (allFocusAreas[e.focus_area] || 0) + 1;
+    getFocusAreas(e).forEach(f => { allFocusAreas[f] = (allFocusAreas[f] || 0) + 1; });
     (e.tags || []).forEach(t => { if (t.trim()) allTags[t.trim()] = (allTags[t.trim()] || 0) + 1; });
     (e.collaborators || []).forEach(c => { if (c.trim()) allCollabs[c.trim()] = (allCollabs[c.trim()] || 0) + 1; });
     (e.jira_links || []).forEach(j => { if (j.trim()) allJiras.add(j.trim()); });
@@ -4095,7 +4127,7 @@ function ShadowResume() {
     const m = e.date.slice(0, 7);
     if (!byMonth[m]) byMonth[m] = { count: 0, focuses: new Set(), collabs: new Set(), moods: {} };
     byMonth[m].count++;
-    if (e.focus_area) byMonth[m].focuses.add(e.focus_area);
+    getFocusAreas(e).forEach(f => byMonth[m].focuses.add(f));
     (e.collaborators || []).forEach(c => { if (c.trim()) byMonth[m].collabs.add(c.trim()); });
     if (e.mood) byMonth[m].moods[e.mood] = (byMonth[m].moods[e.mood] || 0) + 1;
   });
@@ -4246,7 +4278,7 @@ function WorkMap() {
   const faPalette = [T.accent, T.teal, T.gold, T.coral, T.green, "#a78bfa", "#fb923c", "#38bdf8"];
 
   const focusCounts = {};
-  entries.forEach(e => { if (e.focus_area) focusCounts[e.focus_area] = (focusCounts[e.focus_area] || 0) + 1; });
+  entries.forEach(e => { getFocusAreas(e).forEach(f => { focusCounts[f] = (focusCounts[f] || 0) + 1; }); });
   const focusAreas = Object.entries(focusCounts).sort((a,b) => b[1]-a[1]).slice(0, 6);
 
   const collabMap = {};
@@ -4256,7 +4288,7 @@ function WorkMap() {
       if (!name) return;
       if (!collabMap[name]) collabMap[name] = { name, focusMap: {}, count: 0 };
       collabMap[name].count++;
-      if (e.focus_area) collabMap[name].focusMap[e.focus_area] = (collabMap[name].focusMap[e.focus_area] || 0) + 1;
+      getFocusAreas(e).forEach(f => { collabMap[name].focusMap[f] = (collabMap[name].focusMap[f] || 0) + 1; });
     });
   });
   const collabs = Object.values(collabMap).sort((a,b) => b.count-a.count).slice(0, 14).map(c => ({
