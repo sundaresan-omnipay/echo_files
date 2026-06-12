@@ -177,6 +177,19 @@ const probeFocusAreas = () => {
   return _faCheck;
 };
 
+// ─── Teammate relationship column probe ──────────────────────────────────────
+let _tmRelCheck = null;
+let _tmRelSupported = null;
+const probeTeammateRelationship = () => {
+  if (_tmRelSupported !== null) return Promise.resolve(_tmRelSupported);
+  if (_tmRelCheck) return _tmRelCheck;
+  _tmRelCheck = fetch(`${_REST()}/teammates?select=relationship&limit=0`, { headers: h() })
+    .then(r => { _tmRelSupported = r.ok; return r.ok; })
+    .catch(() => { _tmRelSupported = false; return false; })
+    .finally(() => { _tmRelCheck = null; });
+  return _tmRelCheck;
+};
+
 // ─── SQL Setup hint (run once in Supabase SQL editor) ───────────────────────
 // CREATE TABLE diary_entries (
 //   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -211,6 +224,7 @@ const probeFocusAreas = () => {
 // create table pattern_interrupts (id uuid primary key default gen_random_uuid(), user_id uuid not null, text text not null, created_at timestamptz default now()); alter table pattern_interrupts enable row level security; create policy "own" on pattern_interrupts for all using (auth.uid()=user_id);
 // create table one_on_one_sessions (id uuid primary key default gen_random_uuid(), user_id uuid not null, teammate_id uuid references teammates(id) on delete cascade, teammate_name text not null, session_date date not null default current_date, topics text default '', notes text default '', action_items jsonb default '[]', feedback_given jsonb default '[]', sentiment text default 'positive', next_session_date date, inserted_at timestamptz default now()); alter table one_on_one_sessions enable row level security; create policy "own" on one_on_one_sessions for all using (auth.uid()=user_id);
 // ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS focus_areas jsonb DEFAULT '[]';
+// ALTER TABLE teammates ADD COLUMN IF NOT EXISTS relationship text DEFAULT 'direct';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const T = {
@@ -1458,7 +1472,7 @@ function Dashboard({ setView, diaryCount, docCount }) {
         {[
           { label: "Diary Entries", value: diaryCount, color: T.accent, icon: "📓" },
           { label: "Documents", value: docCount, color: T.teal, icon: "🗂️" },
-          { label: "This Month", value: recentEntries.filter(e => e.date?.startsWith(new Date().toISOString().slice(0,7))).length, color: T.gold, icon: "📅" },
+          { label: "This Month", value: heatEntries.filter(e => e.date?.startsWith(new Date().toISOString().slice(0,7))).length, color: T.gold, icon: "📅" },
           { label: "Today's Date", value: new Date().getDate(), color: T.coral, icon: "📌" },
         ].map((s) => (
           <div key={s.label} className="stat-card">
@@ -2043,7 +2057,7 @@ function initials(name) {
 // ─── MyTeam page (full-page view accessible from nav) ────────────────────────
 function MyTeam({ user }) {
   const [teammates, setTeammates] = useState([]);
-  const [form, setForm] = useState({ name: "", role: "", emoji: "" });
+  const [form, setForm] = useState({ name: "", role: "", emoji: "", relationship: "direct" });
   const [editId, setEditId] = useState(null);
   const [oneOnOne, setOneOnOne] = useState(null);
   const [lastSeen, setLastSeen] = useState({});
@@ -2067,30 +2081,33 @@ function MyTeam({ user }) {
 
   const addOrUpdate = async () => {
     if (!form.name.trim()) return;
+    const hasTmRel = await probeTeammateRelationship();
+    const payload = { name: form.name.trim(), role: form.role, emoji: form.emoji };
+    if (hasTmRel) payload.relationship = form.relationship || "direct";
     if (editId !== null) {
-      await db.from("teammates").update({ name: form.name.trim(), role: form.role, emoji: form.emoji }, editId);
+      await db.from("teammates").update(payload, editId);
     } else {
-      await db.from("teammates").insert({ user_id: user.id, name: form.name.trim(), role: form.role, emoji: form.emoji });
+      await db.from("teammates").insert({ user_id: user.id, ...payload });
     }
     setEditId(null);
-    setForm({ name: "", role: "", emoji: "" });
+    setForm({ name: "", role: "", emoji: "", relationship: "direct" });
     const updated = await refreshTeammates();
     setTeammates(updated);
   };
 
-  const startEdit = (idx) => {
-    setForm({ name: teammates[idx].name, role: teammates[idx].role || "", emoji: teammates[idx].emoji || "" });
-    setEditId(teammates[idx].id);
+  const startEdit = (t) => {
+    setForm({ name: t.name, role: t.role || "", emoji: t.emoji || "", relationship: t.relationship || "direct" });
+    setEditId(t.id);
   };
 
-  const remove = async (idx) => {
-    await db.from("teammates").delete(teammates[idx].id);
-    if (editId === teammates[idx].id) { setEditId(null); setForm({ name: "", role: "", emoji: "" }); }
+  const remove = async (t) => {
+    await db.from("teammates").delete(t.id);
+    if (editId === t.id) { setEditId(null); setForm({ name: "", role: "", emoji: "", relationship: "direct" }); }
     const updated = await refreshTeammates();
     setTeammates(updated);
   };
 
-  const cancel = () => { setForm({ name: "", role: "", emoji: "" }); setEditId(null); };
+  const cancel = () => { setForm({ name: "", role: "", emoji: "", relationship: "direct" }); setEditId(null); };
 
   return (
     <div style={{ maxWidth: 600, margin: "0 auto" }}>
@@ -2099,19 +2116,28 @@ function MyTeam({ user }) {
         <div style={{ fontSize: 13, fontWeight: 600, color: T.text2, marginBottom: 14, letterSpacing: 0.5 }}>
           {editId !== null ? "✏️  Edit Teammate" : "➕  Add Teammate"}
         </div>
-        <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
           <input
             type="text" className="form-input" placeholder="Full name *"
             value={form.name} onChange={e => setF("name", e.target.value)}
             onKeyDown={e => e.key === "Enter" && addOrUpdate()}
-            style={{ flex: 2 }}
+            style={{ flex: 3 }}
           />
+          <select
+            className="form-input"
+            value={form.relationship} onChange={e => setF("relationship", e.target.value)}
+            style={{ flex: 1.5, color: T.text1 }}
+          >
+            {RELATIONSHIP_TYPES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
           <select
             className="form-input"
             value={form.role} onChange={e => setF("role", e.target.value)}
             style={{ flex: 2, color: form.role ? T.text1 : T.text3 }}
           >
-            <option value="">Role (optional)</option>
+            <option value="">Role / title (optional)</option>
             {TEAM_ROLES.map(r => <option key={r.key} value={r.label}>{r.label}</option>)}
           </select>
           <input
@@ -2134,68 +2160,81 @@ function MyTeam({ user }) {
         ? (
           <div style={{ textAlign: "center", padding: "60px 0", color: T.text3 }}>
             <div style={{ fontSize: 36, marginBottom: 12 }}>👥</div>
-            <div style={{ fontSize: 15, marginBottom: 6 }}>No teammates saved yet</div>
-            <div style={{ fontSize: 13 }}>Add your teammates above — they'll appear as quick-pick chips when logging collaborators in your diary.</div>
+            <div style={{ fontSize: 15, marginBottom: 6 }}>No people saved yet</div>
+            <div style={{ fontSize: 13 }}>Add your team, peers, and managers — they'll appear as quick-pick chips when logging collaborators in your diary.</div>
           </div>
         )
         : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
-            {teammates.map((t, idx) => (
-              <div key={idx} style={{
-                background: T.navy2, border: `1px solid ${T.border}`,
-                borderRadius: 12, padding: 16, display: "flex", alignItems: "center", gap: 14,
-                transition: "border-color 0.15s",
-              }}>
-                <div style={{
-                  width: 46, height: 46, borderRadius: "50%",
-                  background: `linear-gradient(135deg, ${T.accent}25, ${T.teal}25)`,
-                  border: `2px solid ${T.accent}40`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: t.emoji ? 22 : 15, fontWeight: 700, color: T.accent,
-                  flexShrink: 0,
-                }}>
-                  {t.emoji || initials(t.name)}
+          <div>
+            {RELATIONSHIP_TYPES.filter(rt => teammates.some(t => (t.relationship || "direct") === rt.key)).map(rt => (
+              <div key={rt.key} style={{ marginBottom: 24 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: rt.color }} />
+                  <div style={{ fontSize: 11, fontWeight: 700, color: rt.color, letterSpacing: 0.8, textTransform: "uppercase" }}>{rt.label}</div>
+                  <div style={{ fontSize: 11, color: T.text3 }}>· {teammates.filter(t => (t.relationship || "direct") === rt.key).length}</div>
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{t.name}</div>
-                    {(() => {
-                      const d = lastSeen[t.name];
-                      if (!d) return <div title="No diary collaborations recorded" style={{ width: 7, height: 7, borderRadius: "50%", background: T.text3, flexShrink: 0 }} />;
-                      const days = Math.floor((Date.now() - new Date(d + "T00:00:00").getTime()) / 86400000);
-                      const col = days <= 7 ? T.teal : days <= 30 ? T.gold : T.coral;
-                      const lbl = days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`;
-                      return <div title={`Last collaborated: ${lbl}`} style={{ width: 7, height: 7, borderRadius: "50%", background: col, flexShrink: 0 }} />;
-                    })()}
-                  </div>
-                  {t.role && (() => {
-                    const rm = TEAM_ROLES.find(r => r.label === t.role);
-                    const d = lastSeen[t.name];
-                    const days = d ? Math.floor((Date.now() - new Date(d + "T00:00:00").getTime()) / 86400000) : null;
-                    return (
-                      <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 4 }}>
-                        <div style={{
-                          display: "inline-block", fontSize: 10, fontWeight: 600,
-                          color: rm?.color || T.text2,
-                          background: `${rm?.color || T.accent}18`,
-                          border: `1px solid ${rm?.color || T.accent}35`,
-                          borderRadius: 4, padding: "1px 6px",
-                        }}>{t.role}</div>
-                        {days !== null && <span style={{ fontSize: 10, color: T.text3 }}>{days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`}</span>}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+                  {teammates.filter(t => (t.relationship || "direct") === rt.key).map((t) => (
+                    <div key={t.id} style={{
+                      background: T.navy2,
+                      border: `1px solid ${T.border}`,
+                      borderLeft: `3px solid ${rt.color}60`,
+                      borderRadius: 12, padding: 16, display: "flex", alignItems: "center", gap: 14,
+                      transition: "border-color 0.15s",
+                    }}>
+                      <div style={{
+                        width: 46, height: 46, borderRadius: "50%",
+                        background: `linear-gradient(135deg, ${rt.color}20, ${rt.color}08)`,
+                        border: `2px solid ${rt.color}40`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: t.emoji ? 22 : 15, fontWeight: 700, color: rt.color,
+                        flexShrink: 0,
+                      }}>
+                        {t.emoji || initials(t.name)}
                       </div>
-                    );
-                  })()}
-                  {!t.role && (() => {
-                    const d = lastSeen[t.name];
-                    if (!d) return null;
-                    const days = Math.floor((Date.now() - new Date(d + "T00:00:00").getTime()) / 86400000);
-                    return <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>{days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`}</div>;
-                  })()}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => startEdit(idx)}>Edit</button>
-                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.accent, borderColor: `${T.accent}40` }} onClick={() => setOneOnOne(t)}>1:1</button>
-                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.coral, borderColor: `${T.coral}40` }} onClick={() => remove(idx)}>✕</button>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{t.name}</div>
+                          {(() => {
+                            const d = lastSeen[t.name];
+                            if (!d) return <div title="No diary collaborations recorded" style={{ width: 7, height: 7, borderRadius: "50%", background: T.text3, flexShrink: 0 }} />;
+                            const days = Math.floor((Date.now() - new Date(d + "T00:00:00").getTime()) / 86400000);
+                            const col = days <= 7 ? T.teal : days <= 30 ? T.gold : T.coral;
+                            const lbl = days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`;
+                            return <div title={`Last collaborated: ${lbl}`} style={{ width: 7, height: 7, borderRadius: "50%", background: col, flexShrink: 0 }} />;
+                          })()}
+                        </div>
+                        {t.role && (() => {
+                          const rm = TEAM_ROLES.find(r => r.label === t.role);
+                          const d = lastSeen[t.name];
+                          const days = d ? Math.floor((Date.now() - new Date(d + "T00:00:00").getTime()) / 86400000) : null;
+                          return (
+                            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 4 }}>
+                              <div style={{
+                                display: "inline-block", fontSize: 10, fontWeight: 600,
+                                color: rm?.color || T.text2,
+                                background: `${rm?.color || T.accent}18`,
+                                border: `1px solid ${rm?.color || T.accent}35`,
+                                borderRadius: 4, padding: "1px 6px",
+                              }}>{t.role}</div>
+                              {days !== null && <span style={{ fontSize: 10, color: T.text3 }}>{days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`}</span>}
+                            </div>
+                          );
+                        })()}
+                        {!t.role && (() => {
+                          const d = lastSeen[t.name];
+                          if (!d) return null;
+                          const days = Math.floor((Date.now() - new Date(d + "T00:00:00").getTime()) / 86400000);
+                          return <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>{days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`}</div>;
+                        })()}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => startEdit(t)}>Edit</button>
+                        <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.accent, borderColor: `${T.accent}40` }} onClick={() => setOneOnOne(t)}>1:1</button>
+                        <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.coral, borderColor: `${T.coral}40` }} onClick={() => remove(t)}>✕</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -2206,6 +2245,13 @@ function MyTeam({ user }) {
     </div>
   );
 }
+
+const RELATIONSHIP_TYPES = [
+  { key: "direct",   label: "My Team",    color: T.teal  },
+  { key: "peer",     label: "Peer",       color: T.accent },
+  { key: "manager",  label: "Manager",    color: T.gold  },
+  { key: "external", label: "External",   color: "#9A99AD" },
+];
 
 const TEAM_ROLES = [
   { key: "manager",       label: "Manager",       color: "#F5C243", tip: "Upward — focus on alignment, blockers, and strategic goals" },
@@ -4474,8 +4520,11 @@ function WorkMap() {
 
   if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Building work map…</div>;
 
-  const CX = 390, CY = 240, FOCUS_R = 155, PERSON_R = 285, SVG_W = 780, SVG_H = 480;
-  const faPalette = [T.accent, T.teal, T.gold, T.coral, T.green, "#a78bfa", "#fb923c", "#38bdf8"];
+  const SVG_W = 860, SVG_H = 500;
+  const YOU_X = 70, YOU_Y = SVG_H / 2, YOU_R = 42;
+  const FA_X = 310, FA_HW = 76, FA_HH = 26;
+  const COL_X = 660;
+  const faPalette = [T.accent, T.teal, T.gold, T.coral, "#a78bfa", "#38bdf8", "#fb923c", T.green];
 
   const focusCounts = {};
   entries.forEach(e => { getFocusAreas(e).forEach(f => { focusCounts[f] = (focusCounts[f] || 0) + 1; }); });
@@ -4492,34 +4541,24 @@ function WorkMap() {
       getFocusAreas(e).forEach(f => { collabMap[name].focusMap[f] = (collabMap[name].focusMap[f] || 0) + 1; });
     });
   });
-  const collabs = Object.values(collabMap).sort((a,b) => b.count-a.count).slice(0, 16).map(c => ({
+  const collabs = Object.values(collabMap).sort((a,b) => b.count-a.count).slice(0, 12).map(c => ({
     ...c, primaryFocus: Object.entries(c.focusMap).sort((a,b) => b[1]-a[1])[0]?.[0] || focusAreas[0]?.[0],
   }));
   const maxPC = collabs[0]?.count || 1;
 
+  const faLen = focusAreas.length;
   const focusNodes = focusAreas.map(([fa, count], i) => {
-    const angle = (i / focusAreas.length) * 2 * Math.PI - Math.PI / 2;
-    const r = 18 + Math.round((count / maxFC) * 12);
-    return { id: `fa:${fa}`, label: fa, count, r, x: CX + FOCUS_R * Math.cos(angle), y: CY + FOCUS_R * Math.sin(angle), color: faPalette[i % faPalette.length], angle, type: "focus" };
+    const y = faLen <= 1 ? SVG_H / 2 : 90 + i * (SVG_H - 180) / (faLen - 1);
+    return { id: `fa:${fa}`, label: fa, count, x: FA_X, y, color: faPalette[i % faPalette.length], type: "focus" };
   });
 
-  const groupSizes = {}, groupIdx = {};
-  collabs.forEach(c => {
-    if (!groupSizes[c.primaryFocus]) groupSizes[c.primaryFocus] = 0;
-    groupIdx[c.name] = groupSizes[c.primaryFocus];
-    groupSizes[c.primaryFocus]++;
-  });
-
-  const personNodes = collabs.map(c => {
+  const pcLen = Math.min(collabs.length, 12);
+  const personNodes = collabs.slice(0, 12).map((c, i) => {
+    const y = pcLen <= 1 ? SVG_H / 2 : 70 + i * (SVG_H - 140) / (pcLen - 1);
     const fn = focusNodes.find(f => f.label === c.primaryFocus) || focusNodes[0];
     if (!fn) return null;
-    const gs = groupSizes[c.primaryFocus] || 1;
-    const gi = groupIdx[c.name];
-    const spread = Math.min(1.0, 0.3 * gs);
-    const ao = gs > 1 ? (gi - (gs-1)/2) * (spread / Math.max(gs-1, 1)) : 0;
-    const angle = fn.angle + ao;
-    const r = 11 + Math.round((c.count / maxPC) * 7);
-    return { id: `p:${c.name}`, label: c.name, count: c.count, r, x: CX + PERSON_R * Math.cos(angle), y: CY + PERSON_R * Math.sin(angle), primaryFocus: c.primaryFocus, fpColor: fn.color, type: "person" };
+    const r = 18 + Math.round((c.count / maxPC) * 8);
+    return { id: `p:${c.name}`, label: c.name, count: c.count, r, x: COL_X, y, primaryFocus: c.primaryFocus, fpColor: fn.color, type: "person" };
   }).filter(Boolean);
 
   const active = selected || hovered;
@@ -4614,151 +4653,158 @@ function WorkMap() {
           <div style={{ position: "relative" }}>
             <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 14 }}
               onClick={e => { if (e.target.tagName === "svg" || e.target === e.currentTarget) setSelected(null); }}>
-              <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", maxHeight: 480, display: "block" }}>
+              <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", display: "block" }}>
                 <defs>
-                  <radialGradient id="wm-me-glow" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor={T.accent} stopOpacity="0.3" />
-                    <stop offset="100%" stopColor={T.accent} stopOpacity="0" />
+                  <radialGradient id="wm-you-grad" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor={T.accent} stopOpacity="0.35" />
+                    <stop offset="100%" stopColor={T.teal} stopOpacity="0.04" />
                   </radialGradient>
-                  {focusNodes.map((fn, i) => (
-                    <radialGradient key={fn.id} id={`wm-fg-${i}`} cx="50%" cy="50%" r="50%">
-                      <stop offset="0%" stopColor={fn.color} stopOpacity="0.22" />
-                      <stop offset="100%" stopColor={fn.color} stopOpacity="0" />
-                    </radialGradient>
-                  ))}
-                  <filter id="wm-glow">
+                  <filter id="wm-glow" x="-60%" y="-60%" width="220%" height="220%">
+                    <feGaussianBlur stdDeviation="4" result="blur" />
+                    <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                  </filter>
+                  <filter id="wm-glow-sm" x="-50%" y="-50%" width="200%" height="200%">
                     <feGaussianBlur stdDeviation="2.5" result="blur" />
                     <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                   </filter>
                 </defs>
 
-                {/* Orbit rings */}
-                <circle cx={CX} cy={CY} r={FOCUS_R}  fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="1" strokeDasharray="4 8" />
-                <circle cx={CX} cy={CY} r={PERSON_R} fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="4 8" />
+                {/* Column headers */}
+                <text x={YOU_X} y={22} textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="7.5" fontFamily="'DM Sans',sans-serif" fontWeight="700" letterSpacing="2">YOU</text>
+                <text x={FA_X} y={22} textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="7.5" fontFamily="'DM Sans',sans-serif" fontWeight="700" letterSpacing="2">FOCUS AREAS</text>
+                {personNodes.length > 0 && <text x={COL_X} y={22} textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="7.5" fontFamily="'DM Sans',sans-serif" fontWeight="700" letterSpacing="2">COLLABORATORS</text>}
 
-                {/* Edges: center → focus */}
-                {focusNodes.map(fn => (
-                  <line key={`ef-${fn.id}`} x1={CX} y1={CY} x2={fn.x} y2={fn.y}
-                    stroke={fn.color}
-                    strokeWidth={isEdgeLit("me", fn.id) ? 1.8 : 0.5}
-                    strokeOpacity={isEdgeLit("me", fn.id) ? 0.45 : 0.06}
-                    style={{ transition: "all 0.25s", pointerEvents: "none" }} />
-                ))}
+                {/* Subtle column dividers */}
+                <line x1={(YOU_X + FA_X) / 2} y1={32} x2={(YOU_X + FA_X) / 2} y2={SVG_H - 8} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
+                {personNodes.length > 0 && <line x1={(FA_X + COL_X) / 2} y1={32} x2={(FA_X + COL_X) / 2} y2={SVG_H - 8} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />}
 
-                {/* Edges: focus → person */}
-                {personNodes.map(pn => {
-                  const fn = focusNodes.find(f => f.label === pn.primaryFocus);
-                  if (!fn) return null;
+                {/* Bezier paths: You → Focus areas */}
+                {focusNodes.map(fn => {
+                  const x1 = YOU_X + YOU_R, x2 = FA_X - FA_HW;
+                  const cpx = (x1 + x2) / 2;
+                  const lit = isEdgeLit("me", fn.id);
                   return (
-                    <line key={`ep-${pn.id}`} x1={fn.x} y1={fn.y} x2={pn.x} y2={pn.y}
-                      stroke={fn.color}
-                      strokeWidth={isEdgeLit(fn.id, pn.id) ? 1.4 : 0.5}
-                      strokeOpacity={isEdgeLit(fn.id, pn.id) ? 0.35 : 0.06}
-                      style={{ transition: "all 0.25s", pointerEvents: "none" }} />
+                    <path key={`ef-${fn.id}`}
+                      d={`M ${x1} ${YOU_Y} C ${cpx} ${YOU_Y} ${cpx} ${fn.y} ${x2} ${fn.y}`}
+                      fill="none" stroke={fn.color}
+                      strokeWidth={lit ? 2 : 0.5}
+                      strokeOpacity={lit ? 0.45 : 0.07}
+                      style={{ transition: "all 0.2s", pointerEvents: "none" }} />
                   );
                 })}
 
-                {/* Focus area nodes */}
-                {focusNodes.map((fn, i) => (
-                  <g key={fn.id} style={{ cursor: "pointer" }}
-                    onMouseEnter={() => { if (!selected) setHovered(fn.id); }}
-                    onMouseLeave={() => { if (!selected) setHovered(null); }}
-                    onClick={e => { e.stopPropagation(); setSelected(selected === fn.id ? null : fn.id); setHovered(null); }}>
-                    <circle cx={fn.x} cy={fn.y} r={fn.r + 14} fill={`url(#wm-fg-${i})`} />
-                    <circle cx={fn.x} cy={fn.y} r={fn.r} fill={`${fn.color}14`} stroke={fn.color}
-                      strokeWidth={active === fn.id ? 2.2 : 1.2}
-                      strokeOpacity={isNodeLit(fn.id) ? 1 : 0.12}
-                      fillOpacity={isNodeLit(fn.id) ? 1 : 0.2}
-                      filter={active === fn.id ? "url(#wm-glow)" : "none"}
-                      style={{ transition: "all 0.25s" }} />
-                    <text x={fn.x} y={fn.y - 1} textAnchor="middle" dominantBaseline="middle"
-                      fill={fn.color} fontSize={fn.r > 26 ? "8.5" : "7.5"} fontFamily="'DM Sans', sans-serif" fontWeight="700"
-                      opacity={isNodeLit(fn.id) ? 1 : 0.12} style={{ transition: "opacity 0.25s", userSelect: "none", pointerEvents: "none" }}>
-                      {fn.label.length > 10 ? fn.label.slice(0, 10) + "…" : fn.label}
-                    </text>
-                    <text x={fn.x} y={fn.y + (fn.r > 26 ? 11 : 10)} textAnchor="middle"
-                      fill={fn.color} fontSize="6.5" fontFamily="'DM Mono', monospace"
-                      opacity={isNodeLit(fn.id) ? 0.65 : 0.1} style={{ transition: "opacity 0.25s", userSelect: "none", pointerEvents: "none" }}>
-                      {fn.count}d
-                    </text>
-                  </g>
-                ))}
+                {/* Bezier paths: Focus areas → Person nodes */}
+                {personNodes.map(pn => {
+                  const fn = focusNodes.find(f => f.label === pn.primaryFocus);
+                  if (!fn) return null;
+                  const x1 = FA_X + FA_HW, x2 = COL_X - pn.r;
+                  const cpx = (x1 + x2) / 2;
+                  const lit = isEdgeLit(fn.id, pn.id);
+                  return (
+                    <path key={`ep-${pn.id}`}
+                      d={`M ${x1} ${fn.y} C ${cpx} ${fn.y} ${cpx} ${pn.y} ${x2} ${pn.y}`}
+                      fill="none" stroke={fn.color}
+                      strokeWidth={lit ? 1.7 : 0.5}
+                      strokeOpacity={lit ? 0.38 : 0.07}
+                      style={{ transition: "all 0.2s", pointerEvents: "none" }} />
+                  );
+                })}
 
-                {/* Person nodes */}
-                {personNodes.map(pn => (
-                  <g key={pn.id} style={{ cursor: "pointer" }}
-                    onMouseEnter={() => { if (!selected) setHovered(pn.id); }}
-                    onMouseLeave={() => { if (!selected) setHovered(null); }}
-                    onClick={e => { e.stopPropagation(); setSelected(selected === pn.id ? null : pn.id); setHovered(null); }}>
-                    <circle cx={pn.x} cy={pn.y} r={pn.r} fill={`${pn.fpColor}12`} stroke={pn.fpColor}
-                      strokeWidth={active === pn.id ? 2 : 1}
-                      strokeOpacity={isNodeLit(pn.id) ? 0.7 : 0.08}
-                      fillOpacity={isNodeLit(pn.id) ? 1 : 0.12}
-                      filter={active === pn.id ? "url(#wm-glow)" : "none"}
-                      style={{ transition: "all 0.25s" }} />
-                    <text x={pn.x} y={pn.y} textAnchor="middle" dominantBaseline="middle"
-                      fill={pn.fpColor} fontSize={pn.r > 15 ? "8" : "7"} fontFamily="'DM Sans', sans-serif" fontWeight="700"
-                      opacity={isNodeLit(pn.id) ? 0.95 : 0.08} style={{ transition: "opacity 0.25s", userSelect: "none", pointerEvents: "none" }}>
-                      {initials(pn.label)}
-                    </text>
-                    {/* Always-visible name label for lit nodes */}
-                    {isNodeLit(pn.id) && active && (
-                      <text x={pn.x} y={pn.y + pn.r + 9} textAnchor="middle"
-                        fill={T.text2} fontSize="7.5" fontFamily="'DM Sans', sans-serif"
-                        style={{ userSelect: "none", pointerEvents: "none" }}>
-                        {pn.label.length > 12 ? pn.label.slice(0, 12) + "…" : pn.label}
+                {/* Focus area nodes (pill shape) */}
+                {focusNodes.map((fn) => {
+                  const lit = isNodeLit(fn.id);
+                  const isAct = active === fn.id;
+                  return (
+                    <g key={fn.id} style={{ cursor: "pointer" }}
+                      onMouseEnter={() => { if (!selected) setHovered(fn.id); }}
+                      onMouseLeave={() => { if (!selected) setHovered(null); }}
+                      onClick={e => { e.stopPropagation(); setSelected(selected === fn.id ? null : fn.id); setHovered(null); }}>
+                      <rect x={FA_X - FA_HW - 10} y={fn.y - FA_HH - 12} width={(FA_HW + 10) * 2} height={(FA_HH + 12) * 2}
+                        rx={FA_HH + 12} fill={fn.color} opacity={lit ? 0.05 : 0} style={{ transition: "opacity 0.2s" }} />
+                      <rect x={FA_X - FA_HW} y={fn.y - FA_HH} width={FA_HW * 2} height={FA_HH * 2}
+                        rx={FA_HH} fill={`${fn.color}18`} stroke={fn.color}
+                        strokeWidth={isAct ? 2.2 : 1.4}
+                        opacity={lit ? 1 : 0.12}
+                        filter={isAct ? "url(#wm-glow-sm)" : "none"}
+                        style={{ transition: "all 0.2s" }} />
+                      <text x={FA_X} y={fn.y - 4} textAnchor="middle"
+                        fill={fn.color} fontSize="10.5" fontWeight="700" fontFamily="'DM Sans',sans-serif"
+                        opacity={lit ? 1 : 0.12} style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                        {fn.label.length > 17 ? fn.label.slice(0, 16) + "…" : fn.label}
                       </text>
-                    )}
-                  </g>
-                ))}
+                      <text x={FA_X} y={fn.y + 11} textAnchor="middle"
+                        fill={fn.color} fontSize="8" fontFamily="'DM Mono',monospace"
+                        opacity={lit ? 0.6 : 0.08} style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                        {fn.count} day{fn.count !== 1 ? "s" : ""}
+                      </text>
+                    </g>
+                  );
+                })}
 
-                {/* Center: Me */}
+                {/* Person nodes (circles + name below) */}
+                {personNodes.map(pn => {
+                  const lit = isNodeLit(pn.id);
+                  const isAct = active === pn.id;
+                  return (
+                    <g key={pn.id} style={{ cursor: "pointer" }}
+                      onMouseEnter={() => { if (!selected) setHovered(pn.id); }}
+                      onMouseLeave={() => { if (!selected) setHovered(null); }}
+                      onClick={e => { e.stopPropagation(); setSelected(selected === pn.id ? null : pn.id); setHovered(null); }}>
+                      <circle cx={pn.x} cy={pn.y} r={pn.r + 12} fill={pn.fpColor} opacity={lit ? 0.04 : 0} style={{ transition: "opacity 0.2s" }} />
+                      <circle cx={pn.x} cy={pn.y} r={pn.r}
+                        fill={`${pn.fpColor}20`} stroke={pn.fpColor}
+                        strokeWidth={isAct ? 2.2 : 1.3}
+                        strokeOpacity={lit ? 0.85 : 0.1}
+                        fillOpacity={lit ? 1 : 0.1}
+                        filter={isAct ? "url(#wm-glow-sm)" : "none"}
+                        style={{ transition: "all 0.2s" }} />
+                      <text x={pn.x} y={pn.y + 1} textAnchor="middle" dominantBaseline="middle"
+                        fill={pn.fpColor} fontSize="9.5" fontWeight="700" fontFamily="'DM Sans',sans-serif"
+                        opacity={lit ? 1 : 0.1} style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                        {initials(pn.label)}
+                      </text>
+                      <text x={pn.x} y={pn.y + pn.r + 13} textAnchor="middle"
+                        fill={T.text2} fontSize="9" fontFamily="'DM Sans',sans-serif"
+                        opacity={lit ? 0.9 : 0.07} style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                        {pn.label.length > 11 ? pn.label.slice(0, 10) + "…" : pn.label}
+                      </text>
+                      <text x={pn.x} y={pn.y + pn.r + 25} textAnchor="middle"
+                        fill={T.text3} fontSize="7.5" fontFamily="'DM Mono',monospace"
+                        opacity={lit ? 0.55 : 0} style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                        {pn.count}×
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* You node */}
                 <g style={{ cursor: "pointer" }}
                   onMouseEnter={() => { if (!selected) setHovered("me"); }}
                   onMouseLeave={() => { if (!selected) setHovered(null); }}
                   onClick={e => { e.stopPropagation(); setSelected(selected === "me" ? null : "me"); setHovered(null); }}>
-                  <circle cx={CX} cy={CY} r={46} fill="url(#wm-me-glow)" />
-                  <circle cx={CX} cy={CY} r={30} fill={T.navy3} stroke={T.accent}
-                    strokeWidth={active === "me" ? 2.8 : 1.8}
+                  <circle cx={YOU_X} cy={YOU_Y} r={YOU_R + 22} fill="url(#wm-you-grad)" />
+                  <circle cx={YOU_X} cy={YOU_Y} r={YOU_R} fill={T.navy3} stroke={T.accent}
+                    strokeWidth={active === "me" ? 2.8 : 2}
                     filter={active === "me" ? "url(#wm-glow)" : "none"}
-                    style={{ transition: "all 0.25s" }} />
-                  <text x={CX} y={CY - 5} textAnchor="middle" dominantBaseline="middle"
-                    fill={T.accent} fontSize="12" fontFamily="'Syne', sans-serif" fontWeight="800"
-                    style={{ userSelect: "none", pointerEvents: "none" }}>You</text>
-                  <text x={CX} y={CY + 9} textAnchor="middle"
-                    fill={T.text3} fontSize="7.5" fontFamily="'DM Mono', monospace"
+                    style={{ transition: "all 0.2s" }} />
+                  <text x={YOU_X} y={YOU_Y - 7} textAnchor="middle" dominantBaseline="middle"
+                    fill={T.accent} fontSize="13" fontFamily="'Syne',sans-serif" fontWeight="800"
+                    style={{ userSelect: "none", pointerEvents: "none" }}>YOU</text>
+                  <text x={YOU_X} y={YOU_Y + 10} textAnchor="middle"
+                    fill={T.text3} fontSize="8" fontFamily="'DM Mono',monospace"
                     style={{ userSelect: "none", pointerEvents: "none" }}>{entries.length}d</text>
                 </g>
               </svg>
             </div>
 
-            {/* Hover/click tooltip panel */}
             {tooltip && (
               <div style={{ position: "absolute", top: 12, right: 12, background: T.navy2, border: `1px solid ${tooltip.color || T.accent}40`, borderRadius: 10, padding: "10px 14px", minWidth: 160, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", pointerEvents: "none" }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: tooltip.color || T.accent, marginBottom: 3 }}>{tooltip.title}</div>
                 <div style={{ fontSize: 11, color: T.text3 }}>{tooltip.sub}</div>
-                {selected && <div style={{ fontSize: 10, color: T.text3, marginTop: 6, opacity: 0.7 }}>Click node again to unpin</div>}
+                {selected && <div style={{ fontSize: 10, color: T.text3, marginTop: 6, opacity: 0.7 }}>Click again to unpin</div>}
               </div>
             )}
           </div>
-
-          {/* Legend grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8, marginBottom: 10 }}>
-            {focusNodes.map(fn => {
-              const connected = personNodes.filter(p => p.primaryFocus === fn.label);
-              return (
-                <div key={fn.id} style={{ display: "flex", alignItems: "center", gap: 8, background: T.navy3, borderRadius: 8, padding: "8px 12px", border: `1px solid ${active === fn.id ? fn.color + "50" : T.border}`, cursor: "pointer", transition: "border-color 0.2s" }}
-                  onClick={() => setSelected(selected === fn.id ? null : fn.id)}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: fn.color, flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fn.label}</div>
-                    <div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>{fn.count}d · {connected.length} people</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ fontSize: 11, color: T.text3 }}>Node size = frequency · Click to pin · Inner ring = focus areas · Outer ring = collaborators</div>
         </>
       )}
     </div>
