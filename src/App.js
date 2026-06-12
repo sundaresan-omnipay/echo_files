@@ -164,6 +164,19 @@ const db = {
   },
 };
 
+// ─── Column feature probe (fires once on mount, prevents PGRST204 on save) ───
+let _faCheck = null;
+let _faSupported = null;
+const probeFocusAreas = () => {
+  if (_faSupported !== null) return Promise.resolve(_faSupported);
+  if (_faCheck) return _faCheck;
+  _faCheck = fetch(`${_REST()}/diary_entries?select=focus_areas&limit=0`, { headers: h() })
+    .then(r => { _faSupported = r.ok; return r.ok; })
+    .catch(() => { _faSupported = false; return false; })
+    .finally(() => { _faCheck = null; });
+  return _faCheck;
+};
+
 // ─── SQL Setup hint (run once in Supabase SQL editor) ───────────────────────
 // CREATE TABLE diary_entries (
 //   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -3421,6 +3434,7 @@ function Diary({ onCountChange, user }) {
   const load = useCallback(async () => {
     setLoading(true);
     if (!isConfigured()) { setLoading(false); return; }
+    probeFocusAreas(); // warm up cache — result ready before user can save
     const d = await db.from("diary_entries").select("*", { order: "date.desc" });
     setEntries(d || []);
     setPrevEntry(d?.[0] || null);
@@ -3447,9 +3461,16 @@ function Diary({ onCountChange, user }) {
       }
       return db.from("diary_entries").insert(data);
     };
-    let result = await doSave(form);
-    // Graceful fallback if focus_areas column migration hasn't been run yet
+    const hasFocusAreas = await probeFocusAreas();
+    let saveData = form;
+    if (!hasFocusAreas) {
+      const { focus_areas, ...rest } = form;
+      saveData = rest;
+    }
+    const result = await doSave(saveData);
+    // Belt-and-suspenders: if still PGRST204 (probe was stale), update cache and retry
     if (result?.code === "PGRST204" && result.message?.includes("focus_areas")) {
+      _faSupported = false;
       const { focus_areas, ...fallback } = form;
       await doSave(fallback);
     }
