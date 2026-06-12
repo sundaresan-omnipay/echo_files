@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import EchoLogo from "./EchoLogo";
 
 // ─── Supabase client (lightweight, no npm) ───────────────────────────────────
 const SUPABASE_URL     = process.env.REACT_APP_SUPABASE_URL     || "https://ewbyjtclhtcnvbrqfwyz.supabase.co";
@@ -297,18 +298,6 @@ const injectStyles = () => {
     .echo-logo {
       padding: 28px 24px 20px;
       border-bottom: 1px solid ${T.border};
-    }
-
-    .echo-logo-text {
-      font-family: 'Syne', sans-serif;
-      font-size: 20px;
-      font-weight: 800;
-      background: linear-gradient(135deg, ${T.accent} 0%, ${T.teal} 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      letter-spacing: 4px;
-      text-transform: uppercase;
     }
 
     .echo-logo-sub {
@@ -956,18 +945,10 @@ const injectStyles = () => {
       pointer-events: none;
     }
     .auth-brand-logo {
-      font-family: 'Syne', sans-serif;
-      font-size: 52px;
-      font-weight: 800;
-      letter-spacing: 10px;
-      text-transform: uppercase;
-      background: linear-gradient(135deg, ${T.accent} 0%, ${T.teal} 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      display: flex;
+      align-items: center;
       line-height: 1;
       margin-bottom: 10px;
-      animation: authLogoShimmer 4s ease-in-out infinite;
     }
     .auth-brand-tagline {
       font-size: 16px;
@@ -4123,7 +4104,9 @@ function AuthPage({ onLogin }) {
       {/* ── Left: Brand panel ── */}
       <div className="auth-brand">
         <div style={{ position: "relative", zIndex: 1 }}>
-          <div className="auth-brand-logo">echo</div>
+          <div className="auth-brand-logo">
+            <EchoLogo size={64} withText dark />
+          </div>
           <div className="auth-brand-tagline">
             Your work, beautifully organised.<br />
             <span style={{ color: T.text3, fontSize: 14 }}>A private workspace built for professionals.</span>
@@ -4150,8 +4133,8 @@ function AuthPage({ onLogin }) {
         <div className="auth-form-inner">
 
           {/* Mobile-only logo */}
-          <div style={{ display: "none", textAlign: "center", marginBottom: 28 }} className="auth-mobile-logo">
-            <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 32, fontWeight: 800, letterSpacing: 6, textTransform: "uppercase", background: `linear-gradient(135deg, ${T.accent} 0%, ${T.teal} 100%)`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>echo</div>
+          <div style={{ display: "none", textAlign: "center", marginBottom: 28, justifyContent: "center" }} className="auth-mobile-logo">
+            <EchoLogo size={36} withText dark />
           </div>
 
           <div className="auth-form-heading">
@@ -5369,7 +5352,7 @@ export default function Echo() {
 
       <aside className={`echo-sidebar ${sidebarOpen ? "mob-open" : ""}`}>
         <div className="echo-logo">
-          <div className="echo-logo-text">echo</div>
+          <EchoLogo size={32} withText dark />
           <div className="echo-logo-sub">Personal workspace</div>
         </div>
 
