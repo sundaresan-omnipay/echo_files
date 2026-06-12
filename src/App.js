@@ -4529,8 +4529,6 @@ function WorkMap() {
   const focusCounts = {};
   entries.forEach(e => { getFocusAreas(e).forEach(f => { focusCounts[f] = (focusCounts[f] || 0) + 1; }); });
   const focusAreas = Object.entries(focusCounts).sort((a,b) => b[1]-a[1]).slice(0, 8);
-  const maxFC = focusAreas[0]?.[1] || 1;
-
   const collabMap = {};
   entries.forEach(e => {
     (e.collaborators || []).forEach(c => {
