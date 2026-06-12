@@ -2211,7 +2211,9 @@ function MyTeam({ user }) {
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => startEdit(t)}>Edit</button>
-                        <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.accent, borderColor: `${T.accent}40` }} onClick={() => setOneOnOne(t)}>1:1</button>
+                        {(!t.relationship || t.relationship === "direct") && (
+                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.accent, borderColor: `${T.accent}40` }} onClick={() => setOneOnOne(t)}>1:1</button>
+                        )}
                         <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.coral, borderColor: `${T.coral}40` }} onClick={() => remove(t)}>✕</button>
                       </div>
                     </div>
