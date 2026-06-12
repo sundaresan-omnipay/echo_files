@@ -1763,6 +1763,21 @@ function Dashboard({ setView, diaryCount, docCount }) {
           alerts.push({ icon: "⚠️", label: "Stalled Task", col: T.coral, msg: `"${stalledCF[0][0].slice(0, 60)}${stalledCF[0][0].length > 60 ? "…" : ""}" has been in carry-forward for ${stalledCF[0][1]}+ days.`, sub: "This may need escalation, redefinition, or removal." });
         }
 
+        // Persistent blocker: same blocker text appearing in 3+ entries
+        const blockerMap = {};
+        recent.forEach(e => {
+          if (e.blockers?.trim()) {
+            const key = e.blockers.trim().toLowerCase().slice(0, 55);
+            if (!blockerMap[key]) blockerMap[key] = { text: e.blockers.trim(), count: 0 };
+            blockerMap[key].count++;
+          }
+        });
+        const persistentBlockers = Object.values(blockerMap).filter(b => b.count >= 3).sort((a,b) => b.count - a.count);
+        if (persistentBlockers.length > 0) {
+          const pb = persistentBlockers[0];
+          alerts.push({ icon: "🚧", label: "Persistent Blocker", col: T.coral, msg: `"${pb.text.slice(0, 65)}${pb.text.length > 65 ? "…" : ""}" has appeared as a blocker ${pb.count} times in 3 weeks.`, sub: "This needs active resolution — escalate, create a task, or remove it." });
+        }
+
         if (alerts.length === 0) return null;
 
         return (
@@ -2018,10 +2033,21 @@ function MyTeam({ user }) {
   const [form, setForm] = useState({ name: "", role: "", emoji: "" });
   const [editId, setEditId] = useState(null);
   const [oneOnOne, setOneOnOne] = useState(null);
+  const [lastSeen, setLastSeen] = useState({});
 
   useEffect(() => {
     if (!user?.id) return;
     refreshTeammates().then(rows => setTeammates(rows));
+    db.from("diary_entries").select("date,collaborators", { order: "date.desc" }).then(rows => {
+      const seen = {};
+      (rows || []).forEach(e => {
+        (e.collaborators || []).forEach(name => {
+          const n = name.trim();
+          if (n && !seen[n]) seen[n] = e.date;
+        });
+      });
+      setLastSeen(seen);
+    });
   }, [user]);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -2118,18 +2144,39 @@ function MyTeam({ user }) {
                   {t.emoji || initials(t.name)}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{t.name}</div>
+                    {(() => {
+                      const d = lastSeen[t.name];
+                      if (!d) return <div title="No diary collaborations recorded" style={{ width: 7, height: 7, borderRadius: "50%", background: T.text3, flexShrink: 0 }} />;
+                      const days = Math.floor((Date.now() - new Date(d + "T00:00:00").getTime()) / 86400000);
+                      const col = days <= 7 ? T.teal : days <= 30 ? T.gold : T.coral;
+                      const lbl = days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`;
+                      return <div title={`Last collaborated: ${lbl}`} style={{ width: 7, height: 7, borderRadius: "50%", background: col, flexShrink: 0 }} />;
+                    })()}
+                  </div>
                   {t.role && (() => {
                     const rm = TEAM_ROLES.find(r => r.label === t.role);
+                    const d = lastSeen[t.name];
+                    const days = d ? Math.floor((Date.now() - new Date(d + "T00:00:00").getTime()) / 86400000) : null;
                     return (
-                      <div style={{
-                        display: "inline-block", fontSize: 10, fontWeight: 600, marginTop: 4,
-                        color: rm?.color || T.text2,
-                        background: `${rm?.color || T.accent}18`,
-                        border: `1px solid ${rm?.color || T.accent}35`,
-                        borderRadius: 4, padding: "1px 6px",
-                      }}>{t.role}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 4 }}>
+                        <div style={{
+                          display: "inline-block", fontSize: 10, fontWeight: 600,
+                          color: rm?.color || T.text2,
+                          background: `${rm?.color || T.accent}18`,
+                          border: `1px solid ${rm?.color || T.accent}35`,
+                          borderRadius: 4, padding: "1px 6px",
+                        }}>{t.role}</div>
+                        {days !== null && <span style={{ fontSize: 10, color: T.text3 }}>{days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`}</span>}
+                      </div>
                     );
+                  })()}
+                  {!t.role && (() => {
+                    const d = lastSeen[t.name];
+                    if (!d) return null;
+                    const days = Math.floor((Date.now() - new Date(d + "T00:00:00").getTime()) / 86400000);
+                    return <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>{days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`}</div>;
                   })()}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -2701,6 +2748,32 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
         {/* ── My Day ── */}
         {tab === "day" && (
           <div>
+            {/* Yesterday's context banner — new entries only */}
+            {!entry && previousEntry && (() => {
+              const prevPoints = (previousEntry.content || "").split("\n").filter(Boolean);
+              const unresolved = (previousEntry.carry_forward || []).filter(i => !i.done);
+              if (prevPoints.length === 0 && unresolved.length === 0) return null;
+              return (
+                <div style={{ background: `${T.accent}0a`, border: `1px solid ${T.accent}22`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.accent, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 5 }}>Yesterday · {fmtDate(previousEntry.date)}</div>
+                    {prevPoints.slice(0, 2).map((l, i) => (
+                      <div key={i} style={{ fontSize: 11, color: T.text3, marginBottom: 2 }}>• {l.slice(0, 60)}{l.length > 60 ? "…" : ""}</div>
+                    ))}
+                    {unresolved.length > 0 && <div style={{ fontSize: 11, color: T.gold, marginTop: 3 }}>⬆ {unresolved.length} unresolved item{unresolved.length !== 1 ? "s" : ""} rolled over</div>}
+                  </div>
+                  <button className="btn btn-ghost btn-sm" style={{ flexShrink: 0, fontSize: 11, whiteSpace: "nowrap" }}
+                    onClick={() => {
+                      const pts = [...prevPoints.slice(0, 3), ...unresolved.map(i => i.text)].filter(Boolean);
+                      const existing = (form.content || "").split("\n").filter(Boolean);
+                      const merged = [...new Set([...existing, ...pts])];
+                      set("content", merged.join("\n"));
+                    }}>
+                    Draft from here ↓
+                  </button>
+                </div>
+              );
+            })()}
             <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Date *</label>
