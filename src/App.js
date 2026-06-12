@@ -5256,6 +5256,12 @@ export default function Echo() {
 
   useEffect(() => {
     if (!user || !isConfigured()) return;
+    db.from("diary_entries").select("id").then(rows => setDiaryCount((rows || []).length));
+    db.from("documents").select("id").then(rows => setDocCount((rows || []).length));
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !isConfigured()) return;
     const dismissed = localStorage.getItem("echo_pi_dismissed");
     if (dismissed && Date.now() - Number(dismissed) < 86400000) return;
     db.from("diary_entries").select("date,mood", { order: "date.desc" }).then(rows => {
