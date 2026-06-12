@@ -191,6 +191,32 @@ const probeTeammateRelationship = () => {
   return _tmRelCheck;
 };
 
+// ─── is_win column probe ─────────────────────────────────────────────────────
+let _winCheck = null;
+let _winSupported = null;
+const probeIsWin = () => {
+  if (_winSupported !== null) return Promise.resolve(_winSupported);
+  if (_winCheck) return _winCheck;
+  _winCheck = fetch(`${_REST()}/diary_entries?select=is_win&limit=0`, { headers: h() })
+    .then(r => { _winSupported = r.ok; return r.ok; })
+    .catch(() => { _winSupported = false; return false; })
+    .finally(() => { _winCheck = null; });
+  return _winCheck;
+};
+
+// ─── teammates.agenda_queue column probe ─────────────────────────────────────
+let _agqCheck = null;
+let _agqSupported = null;
+const probeAgendaQueue = () => {
+  if (_agqSupported !== null) return Promise.resolve(_agqSupported);
+  if (_agqCheck) return _agqCheck;
+  _agqCheck = fetch(`${_REST()}/teammates?select=agenda_queue&limit=0`, { headers: h() })
+    .then(r => { _agqSupported = r.ok; return r.ok; })
+    .catch(() => { _agqSupported = false; return false; })
+    .finally(() => { _agqCheck = null; });
+  return _agqCheck;
+};
+
 // ─── SQL Setup hint (run once in Supabase SQL editor) ───────────────────────
 // CREATE TABLE diary_entries (
 //   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -225,7 +251,13 @@ const probeTeammateRelationship = () => {
 // create table pattern_interrupts (id uuid primary key default gen_random_uuid(), user_id uuid not null, text text not null, created_at timestamptz default now()); alter table pattern_interrupts enable row level security; create policy "own" on pattern_interrupts for all using (auth.uid()=user_id);
 // create table one_on_one_sessions (id uuid primary key default gen_random_uuid(), user_id uuid not null, teammate_id uuid references teammates(id) on delete cascade, teammate_name text not null, session_date date not null default current_date, topics text default '', notes text default '', action_items jsonb default '[]', feedback_given jsonb default '[]', sentiment text default 'positive', next_session_date date, inserted_at timestamptz default now()); alter table one_on_one_sessions enable row level security; create policy "own" on one_on_one_sessions for all using (auth.uid()=user_id);
 // ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS focus_areas jsonb DEFAULT '[]';
+// ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS is_win boolean DEFAULT false;
+// ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS win_tags jsonb DEFAULT '[]';
 // ALTER TABLE teammates ADD COLUMN IF NOT EXISTS relationship text DEFAULT 'direct';
+// ALTER TABLE teammates ADD COLUMN IF NOT EXISTS agenda_queue jsonb DEFAULT '[]';
+// create table commitments (id uuid primary key default gen_random_uuid(), user_id uuid not null, direction text not null, person text not null, what text not null, source text default 'manual', resolved_at timestamptz, inserted_at timestamptz default now()); alter table commitments enable row level security; create policy "own" on commitments for all using (auth.uid()=user_id);
+// create table incidents (id uuid primary key default gen_random_uuid(), user_id uuid not null, date date not null default current_date, type text not null default 'escaped_defect', module text default '', root_cause text default '', test_gap text default '', severity text default 'medium', notes text default '', inserted_at timestamptz default now()); alter table incidents enable row level security; create policy "own" on incidents for all using (auth.uid()=user_id);
+// create table decisions (id uuid primary key default gen_random_uuid(), user_id uuid not null, date date not null default current_date, decision text not null, context text default '', people text default '', inserted_at timestamptz default now()); alter table decisions enable row level security; create policy "own" on decisions for all using (auth.uid()=user_id);
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const T = {
@@ -1316,6 +1348,28 @@ const statusColor   = (s) => TEAM_STATUSES.find(x => x.key === s)?.color   || T.
 const feedbackColor = (t) => FEEDBACK_TYPES.find(x => x.key === t)?.color  || T.text3;
 const priorityColor = (p) => PRIORITIES.find(x => x.key === p)?.color      || T.text3;
 
+const WIN_TAGS = [
+  { key: "quality",    label: "Quality",    color: T.teal,    icon: "🎯" },
+  { key: "velocity",   label: "Velocity",   color: T.accent,  icon: "⚡" },
+  { key: "mentorship", label: "Mentorship", color: T.gold,    icon: "🌱" },
+  { key: "process",    label: "Process",    color: "#A78BFA", icon: "⚙️" },
+  { key: "cost",       label: "Cost Saved", color: T.green,   icon: "💰" },
+];
+
+const INCIDENT_TYPES = [
+  { key: "escaped_defect", label: "Escaped Defect",   color: T.coral,   icon: "🐛" },
+  { key: "prod_issue",     label: "Prod Issue",        color: "#FF6B6B", icon: "🚨" },
+  { key: "missed_test",    label: "Missed Test Case",  color: T.gold,    icon: "⚠️" },
+  { key: "false_positive", label: "False Positive",   color: T.accent,  icon: "🔵" },
+];
+
+const SEVERITY = [
+  { key: "low",      label: "Low",      color: T.teal  },
+  { key: "medium",   label: "Medium",   color: T.gold  },
+  { key: "high",     label: "High",     color: T.coral },
+  { key: "critical", label: "Critical", color: "#FF3B30" },
+];
+
 const DOC_CATEGORIES = ["Identity", "Finance", "Legal", "Medical", "Work", "Property", "Travel", "Education", "Other"];
 
 const isConfigured = () => SUPABASE_URL && SUPABASE_ANON_KEY;
@@ -1411,11 +1465,13 @@ ${(entry.tags||[]).length ? `<div class="section-title">Tags</div><div>${entry.t
 }
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
-function Dashboard({ setView, diaryCount, docCount }) {
+function Dashboard({ setView, diaryCount, docCount, user }) {
   const [recentEntries, setRecentEntries] = useState([]);
   const [heatEntries, setHeatEntries]     = useState([]);
   const [recentDocs, setRecentDocs]       = useState([]);
   const [onThisDay, setOnThisDay]         = useState({ week: null, month: null });
+  const [openCommitCount, setOpenCommitCount] = useState(null);
+  const [weeklyModal, setWeeklyModal]     = useState(false);
 
   useEffect(() => {
     if (!isConfigured()) return;
@@ -1424,6 +1480,9 @@ function Dashboard({ setView, diaryCount, docCount }) {
       setHeatEntries(d || []);
     });
     db.from("documents").select("*", { order: "created_at.desc" }).then(d => setRecentDocs((d || []).slice(0, 4)));
+    db.from("commitments").select("id,resolved_at", { order: "inserted_at.asc" }).then(rows => {
+      if (Array.isArray(rows)) setOpenCommitCount(rows.filter(r => !r.resolved_at).length);
+    });
 
     const weekAgo  = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
     const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate() - 30);
@@ -1444,25 +1503,34 @@ function Dashboard({ setView, diaryCount, docCount }) {
     <div className="echo-content fade-in">
       <ConfigBanner />
 
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 24, fontWeight: 600, color: T.text1 }}>{greeting}</div>
-        <div style={{ fontSize: 14, color: T.text3, marginTop: 4 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 24, fontWeight: 600, color: T.text1 }}>{greeting}</div>
+          <div style={{ fontSize: 14, color: T.text3, marginTop: 4 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</div>
+        </div>
+        <button onClick={() => setWeeklyModal(true)} style={{
+          display: "flex", alignItems: "center", gap: 8,
+          background: `${T.accent}18`, border: `1px solid ${T.accent}40`,
+          borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 500,
+          color: T.accent, cursor: "pointer",
+        }}>📋 Weekly Update</button>
       </div>
 
       <div className="grid-4 mb-16">
         {[
-          { label: "Diary Entries", value: diaryCount, color: T.accent, icon: "📓" },
-          { label: "Documents", value: docCount, color: T.teal, icon: "🗂️" },
-          { label: "This Month", value: heatEntries.filter(e => e.date?.startsWith(new Date().toISOString().slice(0,7))).length, color: T.gold, icon: "📅" },
-          { label: "Today's Date", value: new Date().getDate(), color: T.coral, icon: "📌" },
+          { label: "Diary Entries", value: diaryCount, color: T.accent, icon: "📓", view: "diary" },
+          { label: "Wins (Month)", value: heatEntries.filter(e => e.is_win && e.date?.startsWith(new Date().toISOString().slice(0,7))).length, color: T.gold, icon: "🏆", view: "brag" },
+          { label: "This Month", value: heatEntries.filter(e => e.date?.startsWith(new Date().toISOString().slice(0,7))).length, color: T.teal, icon: "📅", view: "diary" },
+          { label: "Open Commitments", value: openCommitCount !== null ? openCommitCount : "—", color: openCommitCount > 0 ? T.coral : T.text3, icon: "🤝", view: "commitments" },
         ].map((s) => (
-          <div key={s.label} className="stat-card">
+          <div key={s.label} className="stat-card" style={{ cursor: "pointer" }} onClick={() => setView(s.view)}>
             <div style={{ fontSize: 22, marginBottom: 8 }}>{s.icon}</div>
             <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
             <div className="stat-label">{s.label}</div>
           </div>
         ))}
       </div>
+      {weeklyModal && <WeeklyUpdateModal user={user} onClose={() => setWeeklyModal(false)} />}
 
       {/* ── Working-Day Mood Heatmap ── */}
       {(() => {
@@ -2262,6 +2330,10 @@ function OneOnOneModal({ teammate, user, onClose }) {
   const [loading, setLoading] = useState(true);
   const [context, setContext] = useState({ collabs: [], updates: [], feedback: [] });
   const [sessions, setSessions] = useState([]);
+  const [openCommitments, setOpenCommitments] = useState([]);
+  const [agendaQueue, setAgendaQueue] = useState([]);
+  const [agendaInput, setAgendaInput] = useState("");
+  const [hasAgendaCol, setHasAgendaCol] = useState(false);
   const [form, setForm] = useState({
     session_date: today(),
     topics: "",
@@ -2278,10 +2350,13 @@ function OneOnOneModal({ teammate, user, onClose }) {
 
   useEffect(() => {
     if (!user?.id || !teammate?.id) return;
+    const agqOk = probeAgendaQueue();
     Promise.all([
       db.from("diary_entries").select("*", { order: "date.desc" }),
       db.from("one_on_one_sessions").select("*", { eq: ["teammate_id", teammate.id], order: "session_date.desc" }),
-    ]).then(([entries, past]) => {
+      db.from("commitments").select("*", { order: "inserted_at.asc" }),
+      db.from("teammates").select("id,agenda_queue", { eq: ["id", teammate.id] }),
+    ]).then(([entries, past, commits, tmRows]) => {
       const name = teammate.name;
       const rel = (entries || []).filter(e =>
         (e.collaborators || []).includes(name) ||
@@ -2298,11 +2373,33 @@ function OneOnOneModal({ teammate, user, onClose }) {
         ).slice(0, 6),
       });
       setSessions(past || []);
+      // commitments involving this person (ignore DB errors if table missing)
+      if (Array.isArray(commits)) {
+        setOpenCommitments(commits.filter(c => !c.resolved_at && c.person?.toLowerCase() === name.toLowerCase()));
+      }
+      agqOk.then(ok => {
+        setHasAgendaCol(ok);
+        if (ok && tmRows?.[0]?.agenda_queue) setAgendaQueue(tmRows[0].agenda_queue);
+      });
       setLoading(false);
-    });
+    }).catch(() => setLoading(false));
   }, [user, teammate]);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const addToAgenda = async () => {
+    if (!agendaInput.trim() || !hasAgendaCol) return;
+    const next = [...agendaQueue, { text: agendaInput.trim(), added: new Date().toISOString() }];
+    setAgendaQueue(next);
+    setAgendaInput("");
+    await db.from("teammates").update({ agenda_queue: next }, teammate.id);
+  };
+
+  const removeAgendaItem = async (idx) => {
+    const next = agendaQueue.filter((_, i) => i !== idx);
+    setAgendaQueue(next);
+    if (hasAgendaCol) await db.from("teammates").update({ agenda_queue: next }, teammate.id);
+  };
 
   const addAction = () => {
     if (!actionInput.trim()) return;
@@ -2404,14 +2501,81 @@ function OneOnOneModal({ teammate, user, onClose }) {
             background: T.navy2,
           }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1, marginBottom: 14, textTransform: "uppercase" }}>
-              Echo Context
+              Pre-Meeting Brief
             </div>
+
+            {/* ── Agenda Queue ── */}
+            {(agendaQueue.length > 0 || hasAgendaCol) && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.gold, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>📋 Agenda</div>
+                {agendaQueue.length === 0 ? (
+                  <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>Nothing queued yet</div>
+                ) : agendaQueue.map((item, i) => (
+                  <div key={i} style={{ display: "flex", gap: 6, alignItems: "flex-start", marginBottom: 5 }}>
+                    <span style={{ color: T.gold, fontSize: 12, marginTop: 1, flexShrink: 0 }}>•</span>
+                    <span style={{ flex: 1, fontSize: 12, color: T.text1, lineHeight: 1.4 }}>{item.text}</span>
+                    <button onClick={() => removeAgendaItem(i)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 11, flexShrink: 0, padding: 0 }}>✕</button>
+                  </div>
+                ))}
+                {hasAgendaCol && (
+                  <div style={{ display: "flex", gap: 5, marginTop: 8 }}>
+                    <input className="form-input" style={{ fontSize: 11, padding: "4px 8px", flex: 1 }}
+                      placeholder="Queue a topic…"
+                      value={agendaInput}
+                      onChange={e => setAgendaInput(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addToAgenda())} />
+                    <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, flexShrink: 0 }} onClick={addToAgenda}>+</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Open Commitments ── */}
+            {openCommitments.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.coral, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>🤝 Open Commitments</div>
+                {openCommitments.map(c => {
+                  const days = Math.floor((Date.now() - new Date(c.inserted_at).getTime()) / 86400000);
+                  return (
+                    <div key={c.id} style={{ background: T.navy3, borderRadius: 7, padding: "7px 9px", marginBottom: 5, borderLeft: `2px solid ${c.direction === "i_owe" ? T.accent : T.coral}` }}>
+                      <div style={{ fontSize: 11, color: T.text2, lineHeight: 1.4 }}>{c.what}</div>
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>
+                        {c.direction === "i_owe" ? "You owe" : "They owe"} · {days === 0 ? "today" : `${days}d ago`}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ── Last Session ── */}
+            {sessions.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.teal, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>🕐 Last Session</div>
+                <div style={{ background: T.navy3, borderRadius: 7, padding: "7px 9px" }}>
+                  <div style={{ fontSize: 10, color: T.text3, marginBottom: 3 }}>{sessions[0].session_date}</div>
+                  {sessions[0].notes?.trim() && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>{sessions[0].notes}</div>}
+                  {sessions[0].action_items?.filter(a => !a.done).length > 0 && (
+                    <div style={{ fontSize: 11, color: T.gold, marginTop: 4 }}>
+                      {sessions[0].action_items.filter(a => !a.done).length} open action item{sessions[0].action_items.filter(a => !a.done).length !== 1 ? "s" : ""}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Diary separator ── */}
+            {(context.collabs.length > 0 || context.updates.length > 0 || context.feedback.length > 0) && (
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1, marginBottom: 12, textTransform: "uppercase", borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
+                Diary Context
+              </div>
+            )}
+
             {loading ? (
               <div style={{ color: T.text3, fontSize: 12, textAlign: "center", paddingTop: 30 }}>Loading...</div>
             ) : context.collabs.length === 0 && context.updates.length === 0 && context.feedback.length === 0 ? (
-              <div style={{ color: T.text3, fontSize: 12, textAlign: "center", paddingTop: 30, lineHeight: 1.8 }}>
-                No diary data found for {teammate.name}.<br/>
-                Log collaborations and team updates in your diary to see context here.
+              <div style={{ color: T.text3, fontSize: 12, lineHeight: 1.8 }}>
+                No diary data for {teammate.name}.
               </div>
             ) : (
               <>
@@ -2689,12 +2853,16 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
     mood:           entry.mood           || "",
     content:        entry.content        || "",
     linked_note:    entry.linked_note    || null,
+    is_win:         entry.is_win         || false,
+    win_tags:       entry.win_tags       || [],
   } : {
     date: today(), focus_area: "", focus_areas: [], mood: "", content: "", blockers: "",
     jira_links: [], collaborators: [], tags: [], team_updates: [], feedback_given: [],
     carry_forward: initCF,
     reminders: initReminders,
     linked_note: null,
+    is_win: false,
+    win_tags: [],
   });
 
   const [tab, setTab] = useState("day");
@@ -3003,6 +3171,49 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
                       {t} ✕
                     </span>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── Mark as Win ── */}
+            <div style={{
+              background: form.is_win ? `${T.gold}10` : T.navy3,
+              border: `1px solid ${form.is_win ? `${T.gold}60` : T.border}`,
+              borderRadius: 10, padding: "12px 14px", marginBottom: 16,
+              cursor: "pointer", transition: "all 0.2s",
+            }} onClick={() => set("is_win", !form.is_win)}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 20, flexShrink: 0 }}>{form.is_win ? "🏆" : "🏅"}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: form.is_win ? T.gold : T.text2 }}>
+                    {form.is_win ? "Marked as Win — goes to your Brag Doc" : "Mark as Win"}
+                  </div>
+                  {!form.is_win && <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Caught a bug? Shipped something? Mentored someone? Flag it.</div>}
+                </div>
+                <div style={{ width: 36, height: 20, borderRadius: 10, background: form.is_win ? T.gold : T.navy4, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                  <div style={{ position: "absolute", top: 2, left: form.is_win ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
+                </div>
+              </div>
+              {form.is_win && (
+                <div style={{ marginTop: 12 }} onClick={e => e.stopPropagation()}>
+                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>Impact type (optional)</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {WIN_TAGS.map(wt => {
+                      const sel = (form.win_tags || []).includes(wt.key);
+                      return (
+                        <button key={wt.key} onClick={() => set("win_tags", sel
+                          ? (form.win_tags || []).filter(x => x !== wt.key)
+                          : [...(form.win_tags || []), wt.key]
+                        )} style={{
+                          fontSize: 11, padding: "4px 10px", borderRadius: 20, cursor: "pointer",
+                          border: `1px solid ${sel ? wt.color : T.border}`,
+                          background: sel ? `${wt.color}22` : "transparent",
+                          color: sel ? wt.color : T.text3,
+                          fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s",
+                        }}>{wt.icon} {wt.label}</button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -3463,7 +3674,7 @@ function Diary({ onCountChange, user }) {
   const load = useCallback(async () => {
     setLoading(true);
     if (!isConfigured()) { setLoading(false); return; }
-    probeFocusAreas(); // warm up cache — result ready before user can save
+    probeFocusAreas(); probeIsWin(); // warm up caches — results ready before user can save
     const d = await db.from("diary_entries").select("*", { order: "date.desc" });
     setEntries(d || []);
     setPrevEntry(d?.[0] || null);
@@ -3490,18 +3701,14 @@ function Diary({ onCountChange, user }) {
       }
       return db.from("diary_entries").insert(data);
     };
-    const hasFocusAreas = await probeFocusAreas();
+    const [hasFocusAreas, hasWin] = await Promise.all([probeFocusAreas(), probeIsWin()]);
     let saveData = form;
-    if (!hasFocusAreas) {
-      const { focus_areas, ...rest } = form;
-      saveData = rest;
-    }
+    if (!hasFocusAreas) { const { focus_areas, ...rest } = saveData; saveData = rest; }
+    if (!hasWin) { const { is_win, win_tags, ...rest } = saveData; saveData = rest; }
     const result = await doSave(saveData);
-    // Belt-and-suspenders: if still PGRST204 (probe was stale), update cache and retry
-    if (result?.code === "PGRST204" && result.message?.includes("focus_areas")) {
-      _faSupported = false;
-      const { focus_areas, ...fallback } = form;
-      await doSave(fallback);
+    if (result?.code === "PGRST204") {
+      if (result.message?.includes("focus_areas")) { _faSupported = false; const { focus_areas, ...f } = form; await doSave(f); }
+      else if (result.message?.includes("is_win") || result.message?.includes("win_tags")) { _winSupported = false; const { is_win, win_tags, ...f } = form; await doSave(f); }
     }
     load();
   };
@@ -5234,27 +5441,739 @@ function Resolve({ user }) {
   );
 }
 
+// ─── Brag Doc ─────────────────────────────────────────────────────────────────
+function BragDoc() {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState("quarter");
+  const [filterTag, setFilterTag] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [supported, setSupported] = useState(true);
+
+  useEffect(() => {
+    if (!isConfigured()) { setLoading(false); return; }
+    probeIsWin().then(ok => {
+      setSupported(ok);
+      if (!ok) { setLoading(false); return; }
+      db.from("diary_entries").select("*", { order: "date.desc" }).then(rows => {
+        setEntries((rows || []).filter(e => e.is_win));
+        setLoading(false);
+      });
+    });
+  }, []);
+
+  const PERIODS = [
+    { key: "month", label: "This Month" },
+    { key: "quarter", label: "This Quarter" },
+    { key: "year", label: "This Year" },
+    { key: "all", label: "All Time" },
+  ];
+
+  const getQuarterStart = () => {
+    const n = new Date();
+    return new Date(n.getFullYear(), Math.floor(n.getMonth() / 3) * 3, 1);
+  };
+
+  const filtered = entries.filter(e => {
+    if (!e.date) return false;
+    const d = new Date(e.date + "T00:00:00");
+    const n = new Date();
+    if (period === "month") return d >= new Date(n.getFullYear(), n.getMonth(), 1);
+    if (period === "quarter") return d >= getQuarterStart();
+    if (period === "year") return d >= new Date(n.getFullYear(), 0, 1);
+    return true;
+  }).filter(e => !filterTag || (e.win_tags || []).includes(filterTag));
+
+  const byTag = {};
+  WIN_TAGS.forEach(wt => { byTag[wt.key] = []; });
+  byTag.untagged = [];
+  filtered.forEach(e => {
+    const tags = e.win_tags?.length ? e.win_tags : ["untagged"];
+    tags.forEach(t => { if (byTag[t]) byTag[t].push(e); else byTag.untagged.push(e); });
+  });
+
+  const generateEvidence = () => {
+    const periodLabel = PERIODS.find(p => p.key === period)?.label || period;
+    const lines = [`PERFORMANCE EVIDENCE — ${periodLabel.toUpperCase()}`,
+      `Generated ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`,
+      "═".repeat(55), ""];
+    WIN_TAGS.forEach(wt => {
+      const wins = byTag[wt.key];
+      if (!wins?.length) return;
+      lines.push(`${wt.icon} ${wt.label.toUpperCase()} (${wins.length})`);
+      wins.forEach(e => {
+        const pts = (e.content || "").split("\n").filter(Boolean);
+        lines.push(`  • [${e.date}] ${pts[0] || (e.focus_areas || []).join(", ") || "Win logged"}`);
+        pts.slice(1, 4).forEach(p => lines.push(`    ${p}`));
+      });
+      lines.push("");
+    });
+    if (byTag.untagged?.length) {
+      lines.push(`📌 GENERAL (${byTag.untagged.length})`);
+      byTag.untagged.forEach(e => {
+        const pts = (e.content || "").split("\n").filter(Boolean);
+        lines.push(`  • [${e.date}] ${pts[0] || "Win logged"}`);
+      });
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 3000); });
+  };
+
+  if (!supported) return (
+    <div className="echo-content fade-in">
+      <div className="card" style={{ textAlign: "center", padding: 40 }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>🏆</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: T.text1, marginBottom: 8 }}>Run the migration first</div>
+        <pre style={{ background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 16px", margin: "16px auto", fontSize: 12, color: T.teal, textAlign: "left", maxWidth: 500, whiteSpace: "pre-wrap" }}>
+{`ALTER TABLE diary_entries
+  ADD COLUMN IF NOT EXISTS is_win boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS win_tags jsonb DEFAULT '[]';`}
+        </pre>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="echo-content fade-in">
+      <ConfigBanner />
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 4, background: T.navy2, borderRadius: 10, padding: 4 }}>
+          {PERIODS.map(p => (
+            <button key={p.key} onClick={() => setPeriod(p.key)} style={{
+              fontSize: 12, fontWeight: 500, padding: "5px 12px", borderRadius: 7, cursor: "pointer",
+              background: period === p.key ? T.accent : "transparent",
+              color: period === p.key ? "#fff" : T.text2, border: "none", transition: "all 0.15s",
+            }}>{p.label}</button>
+          ))}
+        </div>
+        <div style={{ flex: 1 }} />
+        <button onClick={generateEvidence} disabled={filtered.length === 0} style={{
+          display: "flex", alignItems: "center", gap: 8,
+          background: copied ? T.teal : `linear-gradient(135deg, ${T.accentDim}, ${T.accent})`,
+          color: "#fff", border: "none", borderRadius: 10, padding: "8px 18px",
+          fontSize: 13, fontWeight: 600, cursor: filtered.length === 0 ? "not-allowed" : "pointer",
+          opacity: filtered.length === 0 ? 0.5 : 1, transition: "all 0.2s",
+        }}>{copied ? "✓ Copied to clipboard" : "📋 Generate Appraisal Evidence"}</button>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+        <button onClick={() => setFilterTag(null)} style={{ fontSize: 11, padding: "4px 12px", borderRadius: 20, cursor: "pointer", background: !filterTag ? `${T.accent}22` : "transparent", color: !filterTag ? T.accent : T.text3, border: `1px solid ${!filterTag ? T.accent : T.border}` }}>
+          All ({filtered.length})
+        </button>
+        {WIN_TAGS.map(wt => {
+          const cnt = (byTag[wt.key] || []).length;
+          return (
+            <button key={wt.key} onClick={() => setFilterTag(filterTag === wt.key ? null : wt.key)} style={{
+              fontSize: 11, padding: "4px 12px", borderRadius: 20, cursor: "pointer",
+              background: filterTag === wt.key ? `${wt.color}22` : "transparent",
+              color: filterTag === wt.key ? wt.color : (cnt > 0 ? T.text2 : T.text3),
+              border: `1px solid ${filterTag === wt.key ? wt.color : T.border}`, opacity: cnt === 0 ? 0.4 : 1,
+            }}>{wt.icon} {wt.label} {cnt > 0 ? `(${cnt})` : ""}</button>
+          );
+        })}
+      </div>
+      {loading ? (
+        <div style={{ textAlign: "center", color: T.text3, padding: 40 }}>Loading wins…</div>
+      ) : filtered.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>🏆</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: T.text1, marginBottom: 8 }}>No wins logged yet</div>
+          <div style={{ fontSize: 13, color: T.text3, lineHeight: 1.7 }}>Open any diary entry and tap <strong style={{ color: T.gold }}>🏆 Mark as Win</strong>.</div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {filtered.map(e => {
+            const pts = (e.content || "").split("\n").filter(Boolean);
+            const tags = e.win_tags || [];
+            return (
+              <div key={e.id} className="card" style={{ borderLeft: `3px solid ${T.gold}`, background: `${T.gold}06` }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  <div style={{ fontSize: 22, flexShrink: 0, marginTop: 2 }}>🏆</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, color: T.text3 }}>{e.date}</span>
+                      {(e.focus_areas || []).slice(0, 2).map(f => <span key={f} className="focus-badge" style={{ fontSize: 10 }}>{f}</span>)}
+                      {tags.map(t => { const wt = WIN_TAGS.find(x => x.key === t); return wt ? <span key={t} style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: `${wt.color}22`, color: wt.color, border: `1px solid ${wt.color}40` }}>{wt.icon} {wt.label}</span> : null; })}
+                    </div>
+                    {pts.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        {pts.slice(0, 4).map((p, i) => <div key={i} style={{ fontSize: 13, color: i === 0 ? T.text1 : T.text2, lineHeight: 1.5 }}>{i === 0 ? p : `• ${p}`}</div>)}
+                        {pts.length > 4 && <div style={{ fontSize: 11, color: T.text3 }}>+{pts.length - 4} more lines</div>}
+                      </div>
+                    ) : <div style={{ fontSize: 13, color: T.text3, fontStyle: "italic" }}>No content logged</div>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Commitments ──────────────────────────────────────────────────────────────
+function Commitments({ user }) {
+  const [items, setItems] = useState([]);
+  const [form, setForm] = useState({ direction: "i_owe", person: "", what: "" });
+  const [loading, setLoading] = useState(true);
+  const [showResolved, setShowResolved] = useState(false);
+  const [tableExists, setTableExists] = useState(true);
+
+  const load = useCallback(async () => {
+    const rows = await db.from("commitments").select("*", { order: "inserted_at.asc" });
+    if (rows && rows.code) { setTableExists(false); setLoading(false); return; }
+    setItems(rows || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { if (isConfigured()) load(); else setLoading(false); }, [load]);
+
+  const add = async () => {
+    if (!form.person.trim() || !form.what.trim()) return;
+    await db.from("commitments").insert({ user_id: user.id, direction: form.direction, person: form.person.trim(), what: form.what.trim() });
+    setForm(f => ({ ...f, person: "", what: "" }));
+    load();
+  };
+
+  const resolve = async (id) => { await db.from("commitments").update({ resolved_at: new Date().toISOString() }, id); load(); };
+  const reopen  = async (id) => { await db.from("commitments").update({ resolved_at: null }, id); load(); };
+  const remove  = async (id) => { await db.from("commitments").delete(id); setItems(prev => prev.filter(i => i.id !== id)); };
+
+  const daysSince = (ts) => Math.floor((Date.now() - new Date(ts).getTime()) / 86400000);
+  const open = items.filter(i => !i.resolved_at);
+  const resolved = items.filter(i => !!i.resolved_at);
+  const iOwe     = open.filter(i => i.direction === "i_owe").sort((a, b) => new Date(a.inserted_at) - new Date(b.inserted_at));
+  const waitingOn = open.filter(i => i.direction === "waiting_on").sort((a, b) => new Date(a.inserted_at) - new Date(b.inserted_at));
+
+  if (!tableExists) return (
+    <div className="echo-content fade-in">
+      <div className="card" style={{ textAlign: "center", padding: 40 }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>🤝</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: T.text1, marginBottom: 8 }}>Run the migration first</div>
+        <pre style={{ background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 16px", margin: "16px auto", fontSize: 12, color: T.teal, textAlign: "left", maxWidth: 580, whiteSpace: "pre-wrap" }}>
+{`create table commitments (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  direction text not null,
+  person text not null,
+  what text not null,
+  source text default 'manual',
+  resolved_at timestamptz,
+  inserted_at timestamptz default now()
+);
+alter table commitments enable row level security;
+create policy "own" on commitments for all using (auth.uid()=user_id);`}
+        </pre>
+      </div>
+    </div>
+  );
+
+  const CommitCard = ({ item }) => {
+    const days = daysSince(item.inserted_at);
+    const urgentColor = item.direction === "waiting_on" && days >= 5 ? T.coral : days >= 3 ? T.gold : T.text3;
+    return (
+      <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 8, borderLeft: `3px solid ${item.direction === "i_owe" ? T.accent : T.coral}` }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, color: T.text1, fontWeight: 500, lineHeight: 1.4, marginBottom: 4 }}>{item.what}</div>
+            <div style={{ fontSize: 11, color: T.text3 }}>
+              {item.direction === "i_owe" ? "→ " : "← "}<span style={{ color: T.text2, fontWeight: 500 }}>{item.person}</span>
+              <span style={{ color: urgentColor, marginLeft: 8 }}>· {days === 0 ? "today" : `${days}d ago`}</span>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+            <button onClick={() => resolve(item.id)} title="Mark done" style={{ background: `${T.teal}18`, color: T.teal, border: `1px solid ${T.teal}40`, borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>✓</button>
+            <button onClick={() => remove(item.id)} style={{ background: "none", color: T.text3, border: `1px solid ${T.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>✕</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="echo-content fade-in">
+      <ConfigBanner />
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.text1, marginBottom: 12 }}>Log a commitment</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", background: T.navy3, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, flexShrink: 0 }}>
+            {[{ key: "i_owe", label: "I owe", color: T.accent }, { key: "waiting_on", label: "Waiting on", color: T.coral }].map(d => (
+              <button key={d.key} onClick={() => setForm(f => ({ ...f, direction: d.key }))} style={{
+                padding: "8px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                background: form.direction === d.key ? `${d.color}22` : "transparent",
+                color: form.direction === d.key ? d.color : T.text3, border: "none", transition: "all 0.15s",
+              }}>{d.label}</button>
+            ))}
+          </div>
+          <input className="form-input" placeholder="Person" value={form.person} style={{ width: 140, flex: "none" }} onChange={e => setForm(f => ({ ...f, person: e.target.value }))} />
+          <input className="form-input" placeholder="What exactly…" value={form.what} style={{ flex: 1, minWidth: 180 }} onChange={e => setForm(f => ({ ...f, what: e.target.value }))} onKeyDown={e => e.key === "Enter" && add()} />
+          <button className="btn btn-primary" onClick={add} disabled={!form.person.trim() || !form.what.trim()} style={{ flexShrink: 0 }}>Add</button>
+        </div>
+      </div>
+      {loading ? (
+        <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>Loading…</div>
+      ) : (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: T.accent }} />
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text1 }}>I owe</div>
+                {iOwe.length > 0 && <span style={{ fontSize: 11, background: `${T.accent}22`, color: T.accent, borderRadius: 10, padding: "1px 7px" }}>{iOwe.length}</span>}
+              </div>
+              {iOwe.length === 0 ? <div style={{ fontSize: 13, color: T.text3, fontStyle: "italic" }}>You're all caught up.</div> : iOwe.map(item => <CommitCard key={item.id} item={item} />)}
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: T.coral }} />
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text1 }}>Waiting on</div>
+                {waitingOn.length > 0 && <span style={{ fontSize: 11, background: `${T.coral}22`, color: T.coral, borderRadius: 10, padding: "1px 7px" }}>{waitingOn.length}</span>}
+              </div>
+              {waitingOn.length === 0 ? <div style={{ fontSize: 13, color: T.text3, fontStyle: "italic" }}>Nothing blocked on others.</div> : waitingOn.map(item => <CommitCard key={item.id} item={item} />)}
+            </div>
+          </div>
+          {resolved.length > 0 && (
+            <div>
+              <button onClick={() => setShowResolved(o => !o)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: T.text3, display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                {showResolved ? "▾" : "▸"} {resolved.length} resolved
+              </button>
+              {showResolved && resolved.map(item => (
+                <div key={item.id} style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", marginBottom: 6, display: "flex", gap: 10, alignItems: "center", opacity: 0.6 }}>
+                  <span style={{ fontSize: 12, color: T.teal }}>✓</span>
+                  <span style={{ flex: 1, fontSize: 12, color: T.text3, textDecoration: "line-through" }}>{item.what}</span>
+                  <span style={{ fontSize: 11, color: T.text3 }}>{item.person}</span>
+                  <button onClick={() => reopen(item.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: T.text3 }}>reopen</button>
+                  <button onClick={() => remove(item.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: T.text3 }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Incident Log ─────────────────────────────────────────────────────────────
+function IncidentLog({ user }) {
+  const [incidents, setIncidents] = useState([]);
+  const [form, setForm] = useState({ date: today(), type: "escaped_defect", module: "", root_cause: "", test_gap: "", severity: "medium", notes: "" });
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [tableExists, setTableExists] = useState(true);
+
+  const load = useCallback(async () => {
+    const rows = await db.from("incidents").select("*", { order: "date.desc" });
+    if (rows && rows.code) { setTableExists(false); setLoading(false); return; }
+    setIncidents(rows || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { if (isConfigured()) load(); else setLoading(false); }, [load]);
+
+  const save = async () => {
+    if (!form.root_cause.trim()) return;
+    setSaving(true);
+    await db.from("incidents").insert({ user_id: user.id, ...form });
+    setForm({ date: today(), type: "escaped_defect", module: "", root_cause: "", test_gap: "", severity: "medium", notes: "" });
+    setAdding(false); setSaving(false); load();
+  };
+
+  const moduleCounts = {};
+  incidents.forEach(i => { if (i.module) moduleCounts[i.module] = (moduleCounts[i.module] || 0) + 1; });
+  const topModules = Object.entries(moduleCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  const rcPatterns = {};
+  incidents.forEach(i => {
+    if (!i.root_cause) return;
+    const lc = i.root_cause.toLowerCase();
+    const cat = lc.includes("test") ? "Missing Tests" : lc.includes("env") || lc.includes("config") ? "Config/Env" : lc.includes("data") ? "Data Issue" : lc.includes("timeout") || lc.includes("race") ? "Timing/Race" : "Logic Error";
+    rcPatterns[cat] = (rcPatterns[cat] || 0) + 1;
+  });
+
+  if (!tableExists) return (
+    <div className="echo-content fade-in">
+      <div className="card" style={{ textAlign: "center", padding: 40 }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>🐛</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: T.text1, marginBottom: 8 }}>Run the migration first</div>
+        <pre style={{ background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 16px", margin: "16px auto", fontSize: 12, color: T.teal, textAlign: "left", maxWidth: 540, whiteSpace: "pre-wrap" }}>
+{`create table incidents (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  date date not null default current_date,
+  type text not null default 'escaped_defect',
+  module text default '', root_cause text default '',
+  test_gap text default '', severity text default 'medium',
+  notes text default '',
+  inserted_at timestamptz default now()
+);
+alter table incidents enable row level security;
+create policy "own" on incidents for all using (auth.uid()=user_id);`}
+        </pre>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="echo-content fade-in">
+      <ConfigBanner />
+      {incidents.length >= 3 && (
+        <div className="card" style={{ marginBottom: 20, borderLeft: `3px solid ${T.coral}` }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.coral, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 12 }}>📊 Escape Patterns</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {topModules.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, color: T.text3, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>By Module</div>
+                {topModules.map(([mod, cnt]) => (
+                  <div key={mod} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <div style={{ flex: 1, height: 4, background: T.navy3, borderRadius: 2 }}>
+                      <div style={{ width: `${(cnt / topModules[0][1]) * 100}%`, height: "100%", background: T.coral, borderRadius: 2 }} />
+                    </div>
+                    <span style={{ fontSize: 11, color: T.text2, minWidth: 70 }}>{mod}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.coral, minWidth: 20 }}>{cnt}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {Object.keys(rcPatterns).length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, color: T.text3, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>By Root Cause</div>
+                {Object.entries(rcPatterns).sort((a, b) => b[1] - a[1]).map(([cat, cnt]) => (
+                  <div key={cat} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: T.text2, flex: 1 }}>{cat}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.gold }}>{cnt}×</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 13, color: T.text3 }}>{incidents.length} incident{incidents.length !== 1 ? "s" : ""} logged</div>
+        <button className="btn btn-primary" onClick={() => setAdding(o => !o)}>{adding ? "Cancel" : "+ Log Incident"}</button>
+      </div>
+      {adding && (
+        <div className="card" style={{ marginBottom: 20, border: `1px solid ${T.coral}40` }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Date</label>
+              <input type="date" className="form-input" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Module / Area</label>
+              <input className="form-input" placeholder="e.g. 3DS, Payment Flow" value={form.module} onChange={e => setForm(f => ({ ...f, module: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <label className="form-label">Type</label>
+              <select className="form-input" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                {INCIDENT_TYPES.map(t => <option key={t.key} value={t.key}>{t.icon} {t.label}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1, minWidth: 120 }}>
+              <label className="form-label">Severity</label>
+              <select className="form-input" value={form.severity} onChange={e => setForm(f => ({ ...f, severity: e.target.value }))}>
+                {SEVERITY.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="form-group" style={{ margin: "0 0 10px" }}>
+            <label className="form-label">Root Cause *</label>
+            <input className="form-input" placeholder="What caused this to escape?" value={form.root_cause} onChange={e => setForm(f => ({ ...f, root_cause: e.target.value }))} />
+          </div>
+          <div className="form-group" style={{ margin: "0 0 12px" }}>
+            <label className="form-label">What test would have caught it?</label>
+            <input className="form-input" placeholder="e.g. Integration test for 3DS redirect flow" value={form.test_gap} onChange={e => setForm(f => ({ ...f, test_gap: e.target.value }))} />
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button className="btn btn-ghost" onClick={() => setAdding(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={saving || !form.root_cause.trim()}>{saving ? "Saving…" : "Log Incident"}</button>
+          </div>
+        </div>
+      )}
+      {loading ? (
+        <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>Loading…</div>
+      ) : incidents.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🐛</div>
+          <div style={{ fontSize: 15, color: T.text1, marginBottom: 6 }}>No incidents logged</div>
+          <div style={{ fontSize: 13, color: T.text3 }}>Log every escaped defect and prod issue. Patterns emerge after 3–4 entries.</div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {incidents.map(inc => {
+            const tm = INCIDENT_TYPES.find(t => t.key === inc.type) || INCIDENT_TYPES[0];
+            const sm = SEVERITY.find(s => s.key === inc.severity) || SEVERITY[1];
+            return (
+              <div key={inc.id} className="card" style={{ borderLeft: `3px solid ${tm.color}` }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div style={{ fontSize: 20, flexShrink: 0, marginTop: 2 }}>{tm.icon}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, color: T.text3 }}>{inc.date}</span>
+                      {inc.module && <span style={{ fontSize: 11, fontWeight: 600, color: tm.color, background: `${tm.color}18`, borderRadius: 4, padding: "1px 6px" }}>{inc.module}</span>}
+                      <span style={{ fontSize: 11, color: sm.color, background: `${sm.color}18`, borderRadius: 4, padding: "1px 6px" }}>{sm.label}</span>
+                    </div>
+                    <div style={{ fontSize: 13, color: T.text1, marginBottom: 4 }}>{inc.root_cause}</div>
+                    {inc.test_gap && <div style={{ fontSize: 12, color: T.teal, marginTop: 4 }}><span style={{ color: T.text3 }}>Test gap: </span>{inc.test_gap}</div>}
+                  </div>
+                  <button onClick={() => { db.from("incidents").delete(inc.id); setIncidents(p => p.filter(i => i.id !== inc.id)); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 13, flexShrink: 0 }}>✕</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Decision Log ─────────────────────────────────────────────────────────────
+function DecisionLog({ user }) {
+  const [decisions, setDecisions] = useState([]);
+  const [form, setForm] = useState({ date: today(), decision: "", context: "", people: "" });
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [tableExists, setTableExists] = useState(true);
+
+  const load = useCallback(async () => {
+    const rows = await db.from("decisions").select("*", { order: "date.desc" });
+    if (rows && rows.code) { setTableExists(false); setLoading(false); return; }
+    setDecisions(rows || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { if (isConfigured()) load(); else setLoading(false); }, [load]);
+
+  const save = async () => {
+    if (!form.decision.trim()) return;
+    setSaving(true);
+    await db.from("decisions").insert({ user_id: user.id, ...form });
+    setForm({ date: today(), decision: "", context: "", people: "" });
+    setAdding(false); setSaving(false); load();
+  };
+
+  const filtered = decisions.filter(d => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return d.decision?.toLowerCase().includes(q) || d.context?.toLowerCase().includes(q) || d.people?.toLowerCase().includes(q);
+  });
+
+  if (!tableExists) return (
+    <div className="echo-content fade-in">
+      <div className="card" style={{ textAlign: "center", padding: 40 }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>🧠</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: T.text1, marginBottom: 8 }}>Run the migration first</div>
+        <pre style={{ background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 16px", margin: "16px auto", fontSize: 12, color: T.teal, textAlign: "left", maxWidth: 540, whiteSpace: "pre-wrap" }}>
+{`create table decisions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  date date not null default current_date,
+  decision text not null,
+  context text default '',
+  people text default '',
+  inserted_at timestamptz default now()
+);
+alter table decisions enable row level security;
+create policy "own" on decisions for all using (auth.uid()=user_id);`}
+        </pre>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="echo-content fade-in">
+      <ConfigBanner />
+      <div style={{ display: "flex", gap: 10, marginBottom: 20, alignItems: "center" }}>
+        <input className="form-input" placeholder="Search decisions…" value={search} onChange={e => setSearch(e.target.value)} style={{ flex: 1, maxWidth: 360 }} />
+        <div style={{ flex: 1 }} />
+        <button className="btn btn-primary" onClick={() => setAdding(o => !o)}>{adding ? "Cancel" : "+ Log Decision"}</button>
+      </div>
+      {adding && (
+        <div className="card" style={{ marginBottom: 20, border: `1px solid ${T.teal}40` }}>
+          <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 12, marginBottom: 10 }}>
+            <div><label className="form-label">Date</label>
+              <input type="date" className="form-input" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+            </div>
+            <div><label className="form-label">Decision *</label>
+              <input className="form-input" placeholder="What was decided?" value={form.decision} onChange={e => setForm(f => ({ ...f, decision: e.target.value }))} />
+            </div>
+          </div>
+          <div className="form-group" style={{ margin: "0 0 10px" }}>
+            <label className="form-label">Context / Why</label>
+            <input className="form-input" placeholder="Why this? What options were considered?" value={form.context} onChange={e => setForm(f => ({ ...f, context: e.target.value }))} />
+          </div>
+          <div className="form-group" style={{ margin: "0 0 12px" }}>
+            <label className="form-label">Who was in the room</label>
+            <input className="form-input" placeholder="e.g. Sundar, Rohit, PM" value={form.people} onChange={e => setForm(f => ({ ...f, people: e.target.value }))} />
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button className="btn btn-ghost" onClick={() => setAdding(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={saving || !form.decision.trim()}>{saving ? "Saving…" : "Save Decision"}</button>
+          </div>
+        </div>
+      )}
+      {loading ? (
+        <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>Loading…</div>
+      ) : filtered.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🧠</div>
+          <div style={{ fontSize: 15, color: T.text1, marginBottom: 6 }}>{search ? "No matching decisions" : "No decisions logged yet"}</div>
+          <div style={{ fontSize: 13, color: T.text3, lineHeight: 1.7, maxWidth: 380, margin: "0 auto" }}>
+            Log architectural choices, process calls, and key decisions. Boring now; invaluable when someone asks why in six months.
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map(d => (
+            <div key={d.id} className="card" style={{ borderLeft: `3px solid ${T.teal}` }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ fontSize: 18, flexShrink: 0, marginTop: 2 }}>🧠</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, color: T.text3 }}>{d.date}</span>
+                    {d.people && d.people.split(",").map(p => <span key={p} style={{ fontSize: 10, color: T.text2, background: T.navy3, borderRadius: 4, padding: "1px 6px" }}>{p.trim()}</span>)}
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: T.text1, marginBottom: 4, lineHeight: 1.4 }}>{d.decision}</div>
+                  {d.context && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.5 }}>{d.context}</div>}
+                </div>
+                <button onClick={() => { db.from("decisions").delete(d.id); setDecisions(p => p.filter(x => x.id !== d.id)); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 13, flexShrink: 0 }}>✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Weekly Update Modal ───────────────────────────────────────────────────────
+function WeeklyUpdateModal({ user, onClose }) {
+  const [text, setText] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isConfigured() || !user) { setText("Configure Supabase first."); setLoading(false); return; }
+    const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 7);
+    const wStr = weekStart.toISOString().split("T")[0];
+    const fmt = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+    Promise.all([
+      db.from("diary_entries").select("*", { order: "date.desc" }),
+      db.from("one_on_one_sessions").select("*", { order: "session_date.desc" }),
+      db.from("commitments").select("*", { order: "inserted_at.desc" }),
+    ]).then(([entries, sessions, commitments]) => {
+      const thisWeek = (entries || []).filter(e => e.date >= wStr);
+      const thisSess = (sessions || []).filter(s => s.session_date >= wStr);
+      const wins = thisWeek.filter(e => e.is_win);
+      const openBlocks = Array.isArray(commitments) ? commitments.filter(c => !c.resolved_at && c.direction === "waiting_on") : [];
+      const closed = Array.isArray(commitments) ? commitments.filter(c => !!c.resolved_at && new Date(c.resolved_at) >= weekStart) : [];
+      const allPts = thisWeek.flatMap(e => (e.content || "").split("\n").filter(Boolean).map(p => ({ text: p, win: e.is_win })));
+      const lines = [`📋 Weekly Update — w/e ${fmt(new Date().toISOString().split("T")[0])}`, ""];
+      if (allPts.length > 0) {
+        lines.push("✅ Done this week");
+        allPts.slice(0, 8).forEach(p => lines.push(`  • ${p.text}${p.win ? " 🏆" : ""}`));
+        if (allPts.length > 8) lines.push(`  … and ${allPts.length - 8} more`);
+        lines.push("");
+      }
+      if (wins.length > 0) {
+        lines.push(`🏆 Wins (${wins.length})`);
+        wins.forEach(w => { const f = (w.content || "").split("\n").filter(Boolean)[0]; if (f) lines.push(`  • ${f}`); });
+        lines.push("");
+      }
+      if (thisSess.length > 0) {
+        lines.push("👥 1:1s held");
+        thisSess.forEach(s => { lines.push(`  • ${s.teammate_name} — ${s.session_date}`); if (s.notes?.trim()) lines.push(`    ${s.notes.split("\n")[0].slice(0, 80)}`); });
+        lines.push("");
+      }
+      if (closed.length > 0) {
+        lines.push(`✓ Commitments closed (${closed.length})`);
+        closed.forEach(c => lines.push(`  • ${c.direction === "i_owe" ? "Delivered to" : "Received from"} ${c.person}: ${c.what}`));
+        lines.push("");
+      }
+      if (openBlocks.length > 0) {
+        lines.push("🚧 Blocked on others");
+        openBlocks.forEach(c => { const days = Math.floor((Date.now() - new Date(c.inserted_at).getTime()) / 86400000); lines.push(`  • Waiting on ${c.person}: ${c.what} (${days}d)`); });
+        lines.push("");
+      }
+      if (allPts.length === 0 && wins.length === 0 && thisSess.length === 0) lines.push("No diary entries this week. Log some activity first.");
+      setText(lines.join("\n"));
+      setLoading(false);
+    }).catch(() => {
+      Promise.all([
+        db.from("diary_entries").select("*", { order: "date.desc" }),
+        db.from("one_on_one_sessions").select("*", { order: "session_date.desc" }),
+      ]).then(([entries, sessions]) => {
+        const thisWeek = (entries || []).filter(e => e.date >= wStr);
+        const thisSess = (sessions || []).filter(s => s.session_date >= wStr);
+        const allPts = thisWeek.flatMap(e => (e.content || "").split("\n").filter(Boolean));
+        const lines = ["📋 Weekly Update", ""];
+        if (allPts.length > 0) { lines.push("✅ Done"); allPts.slice(0, 8).forEach(p => lines.push(`  • ${p}`)); lines.push(""); }
+        if (thisSess.length > 0) { lines.push("👥 1:1s"); thisSess.forEach(s => lines.push(`  • ${s.teammate_name}`)); lines.push(""); }
+        setText(lines.join("\n") || "No activity this week.");
+        setLoading(false);
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const copy = () => { navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); }); };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+        <div className="modal-title">
+          <span>📋 Weekly Update Draft</span>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <div style={{ fontSize: 12, color: T.text3, marginBottom: 14 }}>Auto-built from your diary, 1:1s, and commitments. Edit before sending.</div>
+        {loading ? (
+          <div style={{ textAlign: "center", color: T.text3, padding: 30 }}>Building your update…</div>
+        ) : (
+          <textarea value={text} onChange={e => setText(e.target.value)} style={{ width: "100%", minHeight: 300, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px", fontSize: 13, color: T.text1, fontFamily: "'DM Mono', monospace", lineHeight: 1.7, resize: "vertical" }} />
+        )}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+          <button className="btn btn-primary" onClick={copy} disabled={loading}>{copied ? "✓ Copied!" : "Copy to Clipboard"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────────────────────
 const NAV = [
-  { id: "dashboard", label: "Dashboard",      icon: "🏠", section: "Overview" },
-  { id: "diary",     label: "Corporate Diary", icon: "📓", dot: T.accent, section: "Modules" },
-  { id: "locker",    label: "DigiLocker",      icon: "🗂️", dot: T.teal,   section: "Modules" },
-  { id: "team",      label: "My Team",         icon: "👥", section: "Insights" },
-  { id: "resume",    label: "Shadow Resume",   icon: "📋", dot: T.gold,   section: "Insights" },
-  { id: "workmap",   label: "Work Map",        icon: "🕸️", dot: T.teal,   section: "Insights" },
-  { id: "credits",   label: "Credit Tracker",  icon: "⭐", dot: T.gold,   section: "Insights" },
-  { id: "resolve",   label: "Resolve",         icon: "🔥", dot: T.coral,  section: "Insights" },
+  { id: "dashboard",   label: "Dashboard",      icon: "🏠", section: "Overview" },
+  { id: "diary",       label: "Corporate Diary", icon: "📓", dot: T.accent, section: "Modules" },
+  { id: "locker",      label: "DigiLocker",      icon: "🗂️", dot: T.teal,   section: "Modules" },
+  { id: "commitments", label: "Commitments",     icon: "🤝", dot: T.coral,  section: "Modules" },
+  { id: "incidents",   label: "Incident Log",    icon: "🐛", dot: T.coral,  section: "Modules" },
+  { id: "decisions",   label: "Decision Log",    icon: "🧠", dot: T.teal,   section: "Modules" },
+  { id: "team",        label: "My Team",         icon: "👥", section: "Insights" },
+  { id: "brag",        label: "Brag Doc",        icon: "🏆", dot: T.gold,   section: "Insights" },
+  { id: "resume",      label: "Shadow Resume",   icon: "📋", dot: T.gold,   section: "Insights" },
+  { id: "workmap",     label: "Work Map",        icon: "🕸️", dot: T.teal,   section: "Insights" },
+  { id: "credits",     label: "Credit Tracker",  icon: "⭐", dot: T.gold,   section: "Insights" },
+  { id: "resolve",     label: "Resolve",         icon: "🔥", dot: T.coral,  section: "Insights" },
 ];
 
 const PAGE_META = {
-  dashboard: { title: "Dashboard",       sub: "Your personal command centre" },
-  diary:     { title: "Corporate Diary", sub: "Daily work log — tickets, feedback, notes" },
-  locker:    { title: "DigiLocker",      sub: "Secure document storage & retrieval" },
-  team:      { title: "My Team",         sub: "Saved teammates for quick collaborator selection" },
-  resume:    { title: "Shadow Resume",   sub: "Auto-built from your diary — your work in numbers" },
-  workmap:   { title: "Work Map",        sub: "How your focus areas, collaborators and tickets connect" },
-  credits:   { title: "Credit Tracker",  sub: "Log credit given and received — track the balance" },
-  resolve:   { title: "Resolve",         sub: "Days you stayed strong — track habits you're breaking" },
+  dashboard:   { title: "Dashboard",       sub: "Your personal command centre" },
+  diary:       { title: "Corporate Diary", sub: "Daily work log — tickets, feedback, notes" },
+  locker:      { title: "DigiLocker",      sub: "Secure document storage & retrieval" },
+  commitments: { title: "Commitments",     sub: "What you owe and what others owe you — nothing leaks" },
+  incidents:   { title: "Incident Log",    sub: "Escaped defects and prod issues — patterns over time" },
+  decisions:   { title: "Decision Log",    sub: "Dated record of what was decided and why" },
+  team:        { title: "My Team",         sub: "Saved teammates for quick collaborator selection" },
+  brag:        { title: "Brag Doc",        sub: "Your wins, tagged by impact — appraisal evidence on demand" },
+  resume:      { title: "Shadow Resume",   sub: "Auto-built from your diary — your work in numbers" },
+  workmap:     { title: "Work Map",        sub: "How your focus areas, collaborators and tickets connect" },
+  credits:     { title: "Credit Tracker",  sub: "Log credit given and received — track the balance" },
+  resolve:     { title: "Resolve",         sub: "Days you stayed strong — track habits you're breaking" },
 };
 
 export default function Echo() {
@@ -5433,20 +6352,24 @@ export default function Echo() {
           <div style={{ fontSize: 13, color: T.text3 }}>{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
         </div>
 
-        {view === "dashboard" && <Dashboard setView={setView} diaryCount={diaryCount} docCount={docCount} />}
-        {view === "diary"     && <Diary onCountChange={setDiaryCount} user={user} />}
-        {view === "locker"    && isOwner && <DigiLocker onCountChange={setDocCount} />}
-        {view === "locker"    && !isOwner && (
+        {view === "dashboard"   && <Dashboard setView={setView} diaryCount={diaryCount} docCount={docCount} user={user} />}
+        {view === "diary"       && <Diary onCountChange={setDiaryCount} user={user} />}
+        {view === "locker"      && isOwner && <DigiLocker onCountChange={setDocCount} />}
+        {view === "locker"      && !isOwner && (
           <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>🔒</div>
             <div style={{ fontSize: 16 }}>DigiLocker is private.</div>
           </div>
         )}
-        {view === "team"    && <MyTeam user={user} />}
-        {view === "resume"  && <ShadowResume />}
-        {view === "workmap" && <WorkMap />}
-        {view === "credits" && <CreditTracker user={user} />}
-        {view === "resolve" && <Resolve user={user} />}
+        {view === "commitments" && <Commitments user={user} />}
+        {view === "incidents"   && <IncidentLog user={user} />}
+        {view === "decisions"   && <DecisionLog user={user} />}
+        {view === "team"        && <MyTeam user={user} />}
+        {view === "brag"        && <BragDoc />}
+        {view === "resume"      && <ShadowResume />}
+        {view === "workmap"     && <WorkMap />}
+        {view === "credits"     && <CreditTracker user={user} />}
+        {view === "resolve"     && <Resolve user={user} />}
       </main>
 
       {/* ── Pattern Interrupt overlay ── */}
