@@ -217,6 +217,41 @@ const probeAgendaQueue = () => {
   return _agqCheck;
 };
 
+let _catCheck = null;
+let _catSupported = null;
+const probeCategories = () => {
+  if (_catSupported !== null) return Promise.resolve(_catSupported);
+  if (_catCheck) return _catCheck;
+  _catCheck = fetch(`${_REST()}/diary_entries?select=categories&limit=0`, { headers: h() })
+    .then(r => { _catSupported = r.ok; return r.ok; })
+    .catch(() => { _catSupported = false; return false; })
+    .finally(() => { _catCheck = null; });
+  return _catCheck;
+};
+
+const GROQ_KEY_STORAGE = "echo_groq_key";
+async function callGroq(bullets) {
+  const key = localStorage.getItem(GROQ_KEY_STORAGE);
+  if (!key || !bullets.length) return null;
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama3-8b-8192",
+      messages: [
+        { role: "system", content: 'You are a work diary assistant. Categorise each work item into exactly one of four categories. meeting = calls, standups, 1:1s, planning sessions, discussions with people. execution = coding, building, deploying, implementing, fixing, writing, shipping. validation = testing, reviewing PRs, QA, verifying, checking, debugging, exploring. other = everything else (admin, reading, personal, unclear). Return JSON only with shape: {"meeting":[],"execution":[],"validation":[],"other":[]}' },
+        { role: "user", content: `Categorise these work items:\n${bullets.join("\n")}` }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0,
+      max_tokens: 1024,
+    })
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message || `Groq error ${res.status}`);
+  return JSON.parse(json.choices[0].message.content);
+}
+
 // ─── SQL Setup hint (run once in Supabase SQL editor) ───────────────────────
 // CREATE TABLE diary_entries (
 //   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -2855,6 +2890,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
     linked_note:    entry.linked_note    || null,
     is_win:         entry.is_win         || false,
     win_tags:       entry.win_tags       || [],
+    categories:     entry.categories     || {},
   } : {
     date: today(), focus_area: "", focus_areas: [], mood: "", content: "", blockers: "",
     jira_links: [], collaborators: [], tags: [], team_updates: [], feedback_given: [],
@@ -2863,6 +2899,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
     linked_note: null,
     is_win: false,
     win_tags: [],
+    categories: {},
   });
 
   const [tab, setTab] = useState("day");
@@ -2876,8 +2913,27 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
   const [reminderInput, setReminderInput] = useState("");
   const [pointInput, setPointInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [showGroqSetup, setShowGroqSetup] = useState(false);
+  const [groqKeyDraft, setGroqKeyDraft] = useState("");
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const categorise = async () => {
+    const bullets = (form.content || "").split("\n").filter(b => b.trim());
+    if (!bullets.length) return;
+    if (!localStorage.getItem(GROQ_KEY_STORAGE)) { setShowGroqSetup(true); return; }
+    setAiLoading(true); setAiError(""); setShowGroqSetup(false);
+    try {
+      const cats = await callGroq(bullets);
+      if (cats) set("categories", cats);
+    } catch (e) {
+      setAiError(e.message || "AI error — check your Groq API key.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const _now = new Date();
   const _todayStr = _now.toISOString().slice(0, 10);
@@ -3004,62 +3060,59 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
                 </div>
               );
             })()}
-            <div className="grid-2">
-              <div className="form-group">
+            {/* ── Compact header: Date + Mood side by side ── */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 14, alignItems: "flex-start" }}>
+              <div style={{ flex: "0 0 160px" }}>
                 <label className="form-label">Date *</label>
                 <input type="date" className="form-input" value={form.date} onChange={e => set("date", e.target.value)} />
               </div>
-              <div className="form-group">
-                <label className="form-label">Focus Areas</label>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {FOCUS_AREAS.map(f => {
-                    const selected = (form.focus_areas || []).includes(f);
-                    return (
-                      <button key={f} onClick={() => set("focus_areas", selected
-                        ? (form.focus_areas || []).filter(x => x !== f)
-                        : [...(form.focus_areas || []), f]
-                      )} style={{
-                        fontSize: 11, padding: "3px 9px", borderRadius: 20, cursor: "pointer",
-                        border: `1px solid ${selected ? T.accent : T.border}`,
-                        background: selected ? `${T.accent}22` : "transparent",
-                        color: selected ? T.accent : T.text3,
-                        fontFamily: "'DM Sans', sans-serif",
-                        transition: "all 0.15s",
-                      }}>{f}</button>
-                    );
-                  })}
+              <div style={{ flex: 1 }}>
+                <label className="form-label">Energy / Mood</label>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
+                  {MOODS.map(m => (
+                    <button key={m.key} className={`mood-btn${form.mood === m.key ? " selected" : ""}`} title={m.label}
+                      onClick={() => set("mood", form.mood === m.key ? "" : m.key)}>
+                      {m.emoji}
+                    </button>
+                  ))}
                 </div>
-                {(form.focus_areas || []).length > 0 && (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                    {(form.focus_areas || []).map(f => (
-                      <span key={f} className="focus-badge" style={{ cursor: "pointer", fontSize: 11 }}
-                        onClick={() => set("focus_areas", (form.focus_areas || []).filter(x => x !== f))}>
-                        {f} ✕
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Energy / Mood</label>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {MOODS.map(m => (
-                  <button key={m.key} className={`mood-btn${form.mood === m.key ? " selected" : ""}`} title={m.label}
-                    onClick={() => set("mood", form.mood === m.key ? "" : m.key)}>
-                    {m.emoji}
-                  </button>
-                ))}
+            {/* ── Focus Areas (horizontal chips) ── */}
+            <div style={{ marginBottom: 14 }}>
+              <label className="form-label">Focus Areas</label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {FOCUS_AREAS.map(f => {
+                  const selected = (form.focus_areas || []).includes(f);
+                  return (
+                    <button key={f} onClick={() => set("focus_areas", selected
+                      ? (form.focus_areas || []).filter(x => x !== f)
+                      : [...(form.focus_areas || []), f]
+                    )} style={{
+                      fontSize: 11, padding: "3px 9px", borderRadius: 20, cursor: "pointer",
+                      border: `1px solid ${selected ? T.accent : T.border}`,
+                      background: selected ? `${T.accent}22` : "transparent",
+                      color: selected ? T.accent : T.text3,
+                      fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s",
+                    }}>{f}</button>
+                  );
+                })}
               </div>
             </div>
 
+            {/* ── Log Zone ── */}
             <div className="form-group">
               <label className="form-label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {contentLabel}
                 {contentModeTag && (
                   <span style={{ fontSize: 10, fontWeight: 600, color: contentModeTag.color, background: `${contentModeTag.color}18`, border: `1px solid ${contentModeTag.color}35`, borderRadius: 4, padding: "1px 7px", letterSpacing: 0.4 }}>
                     {contentModeTag.text}
+                  </span>
+                )}
+                {(form.content || "").split("\n").filter(p => p.trim()).length > 0 && (
+                  <span style={{ marginLeft: "auto", fontSize: 11, color: T.text3 }}>
+                    {(form.content || "").split("\n").filter(p => p.trim()).length} items
                   </span>
                 )}
               </label>
@@ -3110,97 +3163,182 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
                   setPointInput("");
                 }}>+ Add</button>
               </div>
-              <div style={{ fontSize: 11, color: T.text3, marginTop: 5 }}>Press Enter to add each point. Paste multiple lines to bulk-add.</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 5 }}>Press Enter to add · Paste multiple lines to bulk-add</div>
             </div>
 
+            {/* ── AI Categorise ── */}
+            {(form.content || "").split("\n").filter(p => p.trim()).length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <button onClick={categorise} disabled={aiLoading} style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    background: aiLoading ? T.navy3 : `${T.accent}15`,
+                    border: `1px solid ${aiLoading ? T.border : `${T.accent}60`}`,
+                    borderRadius: 8, padding: "6px 14px",
+                    cursor: aiLoading ? "default" : "pointer",
+                    fontSize: 12, fontWeight: 600,
+                    color: aiLoading ? T.text3 : T.accent,
+                    fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s",
+                  }}>
+                    <span style={{ fontSize: 13 }}>{aiLoading ? "⏳" : "✨"}</span>
+                    {aiLoading ? "Categorising…" : "Categorise with AI"}
+                  </button>
+                  {Object.keys(form.categories || {}).some(k => (form.categories[k] || []).length > 0) && !aiLoading && (
+                    <span style={{ fontSize: 11, color: T.teal }}>✓ Done · click to refresh</span>
+                  )}
+                  {aiError && <span style={{ fontSize: 11, color: T.coral }}>{aiError}</span>}
+                </div>
+
+                {showGroqSetup && (
+                  <div style={{ marginTop: 10, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text1, marginBottom: 4 }}>Groq API Key</div>
+                    <div style={{ fontSize: 11, color: T.text3, marginBottom: 10 }}>
+                      Free at <span style={{ color: T.accent }}>console.groq.com</span> · uses Llama 3 · key stored locally only, never sent anywhere else.
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input type="password" className="form-input" placeholder="gsk_…" value={groqKeyDraft}
+                        onChange={e => setGroqKeyDraft(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter" && groqKeyDraft.trim()) {
+                            localStorage.setItem(GROQ_KEY_STORAGE, groqKeyDraft.trim());
+                            setShowGroqSetup(false); setGroqKeyDraft("");
+                            categorise();
+                          }
+                        }} />
+                      <button className="btn btn-primary btn-sm" onClick={() => {
+                        if (!groqKeyDraft.trim()) return;
+                        localStorage.setItem(GROQ_KEY_STORAGE, groqKeyDraft.trim());
+                        setShowGroqSetup(false); setGroqKeyDraft("");
+                        categorise();
+                      }}>Save & Run</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setShowGroqSetup(false)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {Object.keys(form.categories || {}).some(k => (form.categories[k] || []).length > 0) && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+                    {[
+                      { key: "meeting",    label: "Meetings",   icon: "🤝", color: T.accent },
+                      { key: "execution",  label: "Execution",  icon: "⚡", color: T.teal },
+                      { key: "validation", label: "Validation", icon: "✅", color: "#4CAF50" },
+                      { key: "other",      label: "Other",      icon: "📋", color: T.text2 },
+                    ].filter(cat => (form.categories[cat.key] || []).length > 0).map(cat => (
+                      <div key={cat.key} style={{
+                        background: `${cat.color}0d`, border: `1px solid ${cat.color}30`,
+                        borderRadius: 10, padding: "10px 12px",
+                      }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: cat.color, marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>
+                          {cat.icon} {cat.label}
+                          <span style={{ fontWeight: 400, color: T.text3 }}>· {(form.categories[cat.key] || []).length}</span>
+                        </div>
+                        {(form.categories[cat.key] || []).map((item, i) => (
+                          <div key={i} style={{ fontSize: 12, color: T.text2, lineHeight: 1.5, marginBottom: 2 }}>• {item}</div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Blockers ── */}
             <div className="form-group">
               <label className="form-label">Blockers</label>
-              <textarea className="form-textarea" style={{ minHeight: 60 }}
-                placeholder="Dependencies, missing access, unclear requirements, anything slowing progress..."
+              <textarea className="form-textarea" style={{ minHeight: 50 }}
+                placeholder="What's slowing you down? Missing access, unclear requirements, dependencies…"
                 value={form.blockers || ""} onChange={e => set("blockers", e.target.value)} />
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Jira Tickets</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input type="text" className="form-input" placeholder="Ticket ID or URL (e.g. PROJ-123)" value={jiraInput}
-                  onChange={e => setJiraInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addJira())} />
-                <button className="btn btn-ghost btn-sm" onClick={addJira}>Add</button>
-              </div>
-              {form.jira_links.length > 0 && (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                  {form.jira_links.map(l => (
-                    <span key={l} className="ticket-chip" style={{ cursor: "pointer" }} onClick={() => set("jira_links", form.jira_links.filter(x => x !== l))}>
-                      {l} ✕
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Collaborators</label>
-              {/* Quick-pick from saved teammates */}
-              {(() => {
-                const saved = loadTeammates();
-                const unpicked = saved.filter(t => !form.collaborators.includes(t.name));
-                if (unpicked.length === 0) return null;
-                return (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-                    {unpicked.map((t, i) => (
-                      <button key={i} onClick={() => set("collaborators", [...form.collaborators, t.name])}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 5,
-                          background: "rgba(79,142,247,0.08)", border: `1px solid ${T.border}`,
-                          borderRadius: 20, padding: "3px 10px", cursor: "pointer",
-                          fontSize: 12, color: T.accent, fontFamily: "'DM Sans', sans-serif",
-                          transition: "all 0.15s",
-                        }}
-                        title={t.role || t.name}
-                      >
-                        <span style={{ fontSize: 13 }}>{t.emoji || "👤"}</span>
-                        {t.name}
-                      </button>
-                    ))}
+            {/* ── Secondary details: Jira + Collaborators + Tags (collapsible) ── */}
+            <details style={{ marginBottom: 16 }}>
+              <summary style={{ fontSize: 12, color: T.text3, cursor: "pointer", userSelect: "none", listStyle: "none", display: "flex", alignItems: "center", gap: 6, padding: "4px 0" }}>
+                <span style={{ fontSize: 10, display: "inline-block", transition: "transform 0.15s" }}>▸</span>
+                <span>More details</span>
+                {(form.jira_links.length + form.collaborators.length + form.tags.length) > 0 && (
+                  <span style={{ fontSize: 10, background: `${T.accent}20`, color: T.accent, borderRadius: 10, padding: "1px 7px", marginLeft: 2 }}>
+                    {form.jira_links.length + form.collaborators.length + form.tags.length}
+                  </span>
+                )}
+              </summary>
+              <div style={{ marginTop: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Jira Tickets</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input type="text" className="form-input" placeholder="Ticket ID or URL (e.g. PROJ-123)" value={jiraInput}
+                      onChange={e => setJiraInput(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addJira())} />
+                    <button className="btn btn-ghost btn-sm" onClick={addJira}>Add</button>
                   </div>
-                );
-              })()}
-              <div style={{ display: "flex", gap: 8 }}>
-                <input type="text" className="form-input" placeholder="Or type a name manually" value={collabInput}
-                  onChange={e => setCollabInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addCollab())} />
-                <button className="btn btn-ghost btn-sm" onClick={addCollab}>Add</button>
-              </div>
-              {form.collaborators.length > 0 && (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                  {form.collaborators.map(c => (
-                    <span key={c} className="tag tag-blue" style={{ cursor: "pointer" }} onClick={() => set("collaborators", form.collaborators.filter(x => x !== c))}>
-                      👤 {c} ✕
-                    </span>
-                  ))}
+                  {form.jira_links.length > 0 && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                      {form.jira_links.map(l => (
+                        <span key={l} className="ticket-chip" style={{ cursor: "pointer" }} onClick={() => set("jira_links", form.jira_links.filter(x => x !== l))}>
+                          {l} ✕
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Tags</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input type="text" className="form-input" placeholder="Add tag, press Enter" value={tagInput}
-                  onChange={e => setTagInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addTag())} />
-                <button className="btn btn-ghost btn-sm" onClick={addTag}>Add</button>
-              </div>
-              {form.tags.length > 0 && (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                  {form.tags.map(t => (
-                    <span key={t} className="tag tag-teal" style={{ cursor: "pointer" }} onClick={() => set("tags", form.tags.filter(x => x !== t))}>
-                      {t} ✕
-                    </span>
-                  ))}
+                <div className="form-group">
+                  <label className="form-label">Collaborators</label>
+                  {(() => {
+                    const saved = loadTeammates();
+                    const unpicked = saved.filter(t => !form.collaborators.includes(t.name));
+                    if (unpicked.length === 0) return null;
+                    return (
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                        {unpicked.map((t, i) => (
+                          <button key={i} onClick={() => set("collaborators", [...form.collaborators, t.name])}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 5,
+                              background: "rgba(79,142,247,0.08)", border: `1px solid ${T.border}`,
+                              borderRadius: 20, padding: "3px 10px", cursor: "pointer",
+                              fontSize: 12, color: T.accent, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s",
+                            }} title={t.role || t.name}>
+                            <span style={{ fontSize: 13 }}>{t.emoji || "👤"}</span>
+                            {t.name}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input type="text" className="form-input" placeholder="Or type a name manually" value={collabInput}
+                      onChange={e => setCollabInput(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addCollab())} />
+                    <button className="btn btn-ghost btn-sm" onClick={addCollab}>Add</button>
+                  </div>
+                  {form.collaborators.length > 0 && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                      {form.collaborators.map(c => (
+                        <span key={c} className="tag tag-blue" style={{ cursor: "pointer" }} onClick={() => set("collaborators", form.collaborators.filter(x => x !== c))}>
+                          👤 {c} ✕
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+                <div className="form-group">
+                  <label className="form-label">Tags</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input type="text" className="form-input" placeholder="Add tag, press Enter" value={tagInput}
+                      onChange={e => setTagInput(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addTag())} />
+                    <button className="btn btn-ghost btn-sm" onClick={addTag}>Add</button>
+                  </div>
+                  {form.tags.length > 0 && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                      {form.tags.map(t => (
+                        <span key={t} className="tag tag-teal" style={{ cursor: "pointer" }} onClick={() => set("tags", form.tags.filter(x => x !== t))}>
+                          {t} ✕
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </details>
 
             {/* ── Mark as Win ── */}
             <div style={{
@@ -3701,7 +3839,7 @@ function Diary({ onCountChange, user }) {
   const load = useCallback(async () => {
     setLoading(true);
     if (!isConfigured()) { setLoading(false); return; }
-    probeFocusAreas(); probeIsWin(); // warm up caches — results ready before user can save
+    probeFocusAreas(); probeIsWin(); probeCategories(); // warm up caches — results ready before user can save
     const d = await db.from("diary_entries").select("*", { order: "date.desc" });
     setEntries(d || []);
     setPrevEntry(d?.[0] || null);
@@ -3728,14 +3866,16 @@ function Diary({ onCountChange, user }) {
       }
       return db.from("diary_entries").insert(data);
     };
-    const [hasFocusAreas, hasWin] = await Promise.all([probeFocusAreas(), probeIsWin()]);
+    const [hasFocusAreas, hasWin, hasCats] = await Promise.all([probeFocusAreas(), probeIsWin(), probeCategories()]);
     let saveData = form;
     if (!hasFocusAreas) { const { focus_areas, ...rest } = saveData; saveData = rest; }
     if (!hasWin) { const { is_win, win_tags, ...rest } = saveData; saveData = rest; }
+    if (!hasCats) { const { categories, ...rest } = saveData; saveData = rest; }
     const result = await doSave(saveData);
     if (result?.code === "PGRST204") {
       if (result.message?.includes("focus_areas")) { _faSupported = false; const { focus_areas, ...f } = form; await doSave(f); }
       else if (result.message?.includes("is_win") || result.message?.includes("win_tags")) { _winSupported = false; const { is_win, win_tags, ...f } = form; await doSave(f); }
+      else if (result.message?.includes("categories")) { _catSupported = false; const { categories, ...f } = form; await doSave(f); }
     }
     load();
   };
