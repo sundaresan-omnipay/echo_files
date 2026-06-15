@@ -4999,15 +4999,19 @@ function WorkMap() {
 
   if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Building work map…</div>;
 
-  const SVG_W = 860, SVG_H = 500;
-  const YOU_X = 70, YOU_Y = SVG_H / 2, YOU_R = 42;
-  const FA_X = 310, FA_HW = 76, FA_HH = 26;
-  const COL_X = 660;
-  const faPalette = [T.accent, T.teal, T.gold, T.coral, "#a78bfa", "#38bdf8", "#fb923c", T.green];
+  // ── Layout constants
+  const SVG_W = 960, SVG_H = 560;
+  const YOU_X = 108, YOU_Y = SVG_H / 2, YOU_R = 52;
+  const FA_X = 370, FA_HW = 94, FA_HH = 34;
+  const COL_CX = 658; // circle centre x for collaborators
+  const NODE_R = 20;
+  const faPalette = [T.accent, T.teal, T.gold, T.coral, "#a78bfa", "#38bdf8", "#fb923c", "#4ade80"];
 
+  // ── Data processing
   const focusCounts = {};
   entries.forEach(e => { getFocusAreas(e).forEach(f => { focusCounts[f] = (focusCounts[f] || 0) + 1; }); });
-  const focusAreas = Object.entries(focusCounts).sort((a,b) => b[1]-a[1]).slice(0, 8);
+  const focusAreas = Object.entries(focusCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
   const collabMap = {};
   entries.forEach(e => {
     (e.collaborators || []).forEach(c => {
@@ -5018,26 +5022,34 @@ function WorkMap() {
       getFocusAreas(e).forEach(f => { collabMap[name].focusMap[f] = (collabMap[name].focusMap[f] || 0) + 1; });
     });
   });
-  const collabs = Object.values(collabMap).sort((a,b) => b.count-a.count).slice(0, 12).map(c => ({
-    ...c, primaryFocus: Object.entries(c.focusMap).sort((a,b) => b[1]-a[1])[0]?.[0] || focusAreas[0]?.[0],
+  const collabs = Object.values(collabMap).sort((a, b) => b.count - a.count).slice(0, 12).map(c => ({
+    ...c, primaryFocus: Object.entries(c.focusMap).sort((a, b) => b[1] - a[1])[0]?.[0] || focusAreas[0]?.[0],
   }));
-  const maxPC = collabs[0]?.count || 1;
 
+  // ── Focus nodes
   const faLen = focusAreas.length;
   const focusNodes = focusAreas.map(([fa, count], i) => {
-    const y = faLen <= 1 ? SVG_H / 2 : 90 + i * (SVG_H - 180) / (faLen - 1);
+    const y = faLen <= 1 ? SVG_H / 2 : 110 + i * (SVG_H - 220) / (faLen - 1);
     return { id: `fa:${fa}`, label: fa, count, x: FA_X, y, color: faPalette[i % faPalette.length], type: "focus" };
   });
 
+  // ── Person nodes — dynamic spacing, never overlap
   const pcLen = Math.min(collabs.length, 12);
+  const colSpacing = Math.min(50, Math.max(36, (SVG_H - 80) / Math.max(pcLen, 1)));
+  const totalColH = (pcLen - 1) * colSpacing;
+  const colStartY = SVG_H / 2 - totalColH / 2;
+
   const personNodes = collabs.slice(0, 12).map((c, i) => {
-    const y = pcLen <= 1 ? SVG_H / 2 : 70 + i * (SVG_H - 140) / (pcLen - 1);
     const fn = focusNodes.find(f => f.label === c.primaryFocus) || focusNodes[0];
     if (!fn) return null;
-    const r = 18 + Math.round((c.count / maxPC) * 8);
-    return { id: `p:${c.name}`, label: c.name, count: c.count, r, x: COL_X, y, primaryFocus: c.primaryFocus, fpColor: fn.color, type: "person" };
+    return {
+      id: `p:${c.name}`, label: c.name, count: c.count, r: NODE_R,
+      x: COL_CX, y: colStartY + i * colSpacing,
+      primaryFocus: c.primaryFocus, fpColor: fn.color, type: "person",
+    };
   }).filter(Boolean);
 
+  // ── Interaction helpers
   const active = selected || hovered;
 
   const isNodeLit = (nid) => {
@@ -5068,42 +5080,44 @@ function WorkMap() {
     return false;
   };
 
+  // ── Stats
   const totalJiras = [...new Set(entries.flatMap(e => e.jira_links || []))].length;
   const topFocus = focusAreas[0]?.[0];
   const topCollab = collabs[0]?.name;
 
-  const getTooltipContent = () => {
+  // ── Tooltip data
+  const getTooltip = () => {
     if (!active) return null;
-    if (active === "me") return { title: "You", sub: `${entries.length} diary entries · ${focusNodes.length} focus areas` };
+    if (active === "me") return { title: "You", sub: `${entries.length} diary entries · ${focusNodes.length} focus areas`, color: T.accent };
     if (active.startsWith("fa:")) {
       const fn = focusNodes.find(n => n.id === active);
       if (!fn) return null;
-      const connected = personNodes.filter(p => p.primaryFocus === fn.label);
-      return { title: fn.label, sub: `${fn.count} day${fn.count !== 1 ? "s" : ""} · ${connected.length} collaborator${connected.length !== 1 ? "s" : ""}`, color: fn.color };
+      const cnt = personNodes.filter(p => p.primaryFocus === fn.label).length;
+      return { title: fn.label, sub: `${fn.count} day${fn.count !== 1 ? "s" : ""} active · ${cnt} collaborator${cnt !== 1 ? "s" : ""}`, color: fn.color };
     }
     if (active.startsWith("p:")) {
       const pn = personNodes.find(n => n.id === active);
       if (!pn) return null;
-      return { title: pn.label, sub: `${pn.count} entr${pn.count !== 1 ? "ies" : "y"} together · via ${pn.primaryFocus}`, color: pn.fpColor };
+      return { title: pn.label, sub: `Collaborated ${pn.count} time${pn.count !== 1 ? "s" : ""} · via ${pn.primaryFocus}`, color: pn.fpColor };
     }
     return null;
   };
-  const tooltip = getTooltipContent();
+  const tooltip = getTooltip();
 
   return (
     <div className="echo-content fade-in">
-      {/* Stats strip */}
+      {/* ── Stats strip */}
       <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
         {[
-          { label: "Focus Areas", value: focusNodes.length, color: T.accent, icon: "🎯" },
-          { label: "Collaborators", value: personNodes.length, color: T.teal, icon: "🤝" },
-          { label: "JIRA Tickets", value: totalJiras, color: T.gold, icon: "🎫" },
-          { label: "Diary Entries", value: entries.length, color: T.text2, icon: "📓" },
+          { label: "Focus Areas",   value: focusNodes.length,  color: T.accent, icon: "🎯" },
+          { label: "Collaborators", value: personNodes.length, color: T.teal,   icon: "🤝" },
+          { label: "JIRA Tickets",  value: totalJiras,         color: T.gold,   icon: "🎫" },
+          { label: "Diary Entries", value: entries.length,     color: T.text2,  icon: "📓" },
         ].map(s => (
           <div key={s.label} className="card" style={{ flex: 1, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 18 }}>{s.icon}</span>
             <div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: s.color, fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{s.value}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: s.color, fontFamily: "'Syne',sans-serif", lineHeight: 1 }}>{s.value}</div>
               <div style={{ fontSize: 10, color: T.text3, marginTop: 3, letterSpacing: 0.5, textTransform: "uppercase" }}>{s.label}</div>
             </div>
           </div>
@@ -5118,169 +5132,247 @@ function WorkMap() {
         </div>
       ) : (
         <>
-          {/* Insight bar */}
+          {/* ── Insight bar */}
           {(topFocus || topCollab) && (
-            <div style={{ background: `${T.accent}0d`, border: `1px solid ${T.accent}20`, borderRadius: 10, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-              {topFocus && <span style={{ fontSize: 12, color: T.text2 }}>Most active in <span style={{ color: T.accent, fontWeight: 600 }}>{topFocus}</span></span>}
-              {topCollab && <span style={{ fontSize: 12, color: T.text2 }}>Top collaborator <span style={{ color: T.teal, fontWeight: 600 }}>{topCollab}</span></span>}
+            <div style={{ background: `${T.accent}0d`, border: `1px solid ${T.accent}1a`, borderRadius: 10, padding: "10px 18px", marginBottom: 14, display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+              {topFocus  && <span style={{ fontSize: 12, color: T.text2 }}>Most active in <strong style={{ color: T.accent }}>{topFocus}</strong></span>}
+              {topCollab && <span style={{ fontSize: 12, color: T.text2 }}>Top collaborator <strong style={{ color: T.teal }}>{topCollab}</strong></span>}
               <span style={{ fontSize: 11, color: T.text3, marginLeft: "auto" }}>Click any node to pin · hover to explore</span>
             </div>
           )}
 
           <div style={{ position: "relative" }}>
-            <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 14 }}
+            <div className="card" style={{ padding: 0, overflow: "hidden", background: T.navy0 }}
               onClick={e => { if (e.target.tagName === "svg" || e.target === e.currentTarget) setSelected(null); }}>
               <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", display: "block" }}>
                 <defs>
-                  <radialGradient id="wm-you-grad" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor={T.accent} stopOpacity="0.35" />
-                    <stop offset="100%" stopColor={T.teal} stopOpacity="0.04" />
+                  <radialGradient id="wm-you-bg" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%"   stopColor={T.accent} stopOpacity="0.22" />
+                    <stop offset="100%" stopColor={T.accent} stopOpacity="0" />
                   </radialGradient>
-                  <filter id="wm-glow" x="-60%" y="-60%" width="220%" height="220%">
-                    <feGaussianBlur stdDeviation="4" result="blur" />
+                  <radialGradient id="wm-you-fill" cx="40%" cy="35%" r="60%">
+                    <stop offset="0%"   stopColor="#1e1b36" />
+                    <stop offset="100%" stopColor={T.navy0} />
+                  </radialGradient>
+                  <filter id="wm-glow" x="-80%" y="-80%" width="260%" height="260%">
+                    <feGaussianBlur stdDeviation="6" result="blur" />
                     <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                   </filter>
-                  <filter id="wm-glow-sm" x="-50%" y="-50%" width="200%" height="200%">
-                    <feGaussianBlur stdDeviation="2.5" result="blur" />
+                  <filter id="wm-glow-sm" x="-60%" y="-60%" width="220%" height="220%">
+                    <feGaussianBlur stdDeviation="3.5" result="blur" />
+                    <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                  </filter>
+                  <filter id="wm-glow-xs" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="2" result="blur" />
                     <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                   </filter>
                 </defs>
 
-                {/* Column headers */}
-                <text x={YOU_X} y={22} textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="7.5" fontFamily="'DM Sans',sans-serif" fontWeight="700" letterSpacing="2">YOU</text>
-                <text x={FA_X} y={22} textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="7.5" fontFamily="'DM Sans',sans-serif" fontWeight="700" letterSpacing="2">FOCUS AREAS</text>
-                {personNodes.length > 0 && <text x={COL_X} y={22} textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="7.5" fontFamily="'DM Sans',sans-serif" fontWeight="700" letterSpacing="2">COLLABORATORS</text>}
+                {/* Subtle grid */}
+                {[1,2,3,4,5,6,7].map(i => (
+                  <line key={`vg${i}`} x1={i*SVG_W/8} y1={0} x2={i*SVG_W/8} y2={SVG_H} stroke="rgba(255,255,255,0.018)" strokeWidth="1" />
+                ))}
+                {[1,2,3,4,5].map(i => (
+                  <line key={`hg${i}`} x1={0} y1={i*SVG_H/6} x2={SVG_W} y2={i*SVG_H/6} stroke="rgba(255,255,255,0.018)" strokeWidth="1" />
+                ))}
 
-                {/* Subtle column dividers */}
-                <line x1={(YOU_X + FA_X) / 2} y1={32} x2={(YOU_X + FA_X) / 2} y2={SVG_H - 8} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
-                {personNodes.length > 0 && <line x1={(FA_X + COL_X) / 2} y1={32} x2={(FA_X + COL_X) / 2} y2={SVG_H - 8} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />}
+                {/* Column labels */}
+                <text x={YOU_X} y={26} textAnchor="middle" fill="rgba(255,255,255,0.14)" fontSize="8" fontFamily="'DM Sans',sans-serif" fontWeight="700" letterSpacing="2.5">YOU</text>
+                <text x={FA_X} y={26} textAnchor="middle" fill="rgba(255,255,255,0.14)" fontSize="8" fontFamily="'DM Sans',sans-serif" fontWeight="700" letterSpacing="2.5">FOCUS AREAS</text>
+                {personNodes.length > 0 && <text x={COL_CX + 86} y={26} textAnchor="middle" fill="rgba(255,255,255,0.14)" fontSize="8" fontFamily="'DM Sans',sans-serif" fontWeight="700" letterSpacing="2.5">COLLABORATORS</text>}
 
-                {/* Bezier paths: You → Focus areas */}
+                {/* Dashed section dividers */}
+                <line x1={(YOU_X + FA_X) / 2} y1={36} x2={(YOU_X + FA_X) / 2} y2={SVG_H - 10} stroke="rgba(255,255,255,0.05)" strokeWidth="1" strokeDasharray="3 7" />
+                {personNodes.length > 0 && (
+                  <line x1={FA_X + FA_HW + 62} y1={36} x2={FA_X + FA_HW + 62} y2={SVG_H - 10} stroke="rgba(255,255,255,0.05)" strokeWidth="1" strokeDasharray="3 7" />
+                )}
+
+                {/* ── Edges: YOU → Focus Areas */}
                 {focusNodes.map(fn => {
-                  const x1 = YOU_X + YOU_R, x2 = FA_X - FA_HW;
+                  const x1 = YOU_X + YOU_R, y1 = YOU_Y;
+                  const x2 = FA_X - FA_HW, y2 = fn.y;
                   const cpx = (x1 + x2) / 2;
                   const lit = isEdgeLit("me", fn.id);
                   return (
                     <path key={`ef-${fn.id}`}
-                      d={`M ${x1} ${YOU_Y} C ${cpx} ${YOU_Y} ${cpx} ${fn.y} ${x2} ${fn.y}`}
+                      d={`M ${x1} ${y1} C ${cpx} ${y1} ${cpx} ${y2} ${x2} ${y2}`}
                       fill="none" stroke={fn.color}
-                      strokeWidth={lit ? 2 : 0.5}
-                      strokeOpacity={lit ? 0.45 : 0.07}
-                      style={{ transition: "all 0.2s", pointerEvents: "none" }} />
+                      strokeWidth={lit ? 2.4 : 0.6}
+                      strokeOpacity={lit ? 0.55 : 0.07}
+                      style={{ transition: "all 0.25s ease", pointerEvents: "none" }} />
                   );
                 })}
 
-                {/* Bezier paths: Focus areas → Person nodes */}
+                {/* ── Edges: Focus Areas → Collaborators */}
                 {personNodes.map(pn => {
                   const fn = focusNodes.find(f => f.label === pn.primaryFocus);
                   if (!fn) return null;
-                  const x1 = FA_X + FA_HW, x2 = COL_X - pn.r;
-                  const cpx = (x1 + x2) / 2;
+                  const x1 = FA_X + FA_HW, y1 = fn.y;
+                  const x2 = COL_CX - pn.r, y2 = pn.y;
+                  const cpx = x1 + (x2 - x1) * 0.58;
                   const lit = isEdgeLit(fn.id, pn.id);
                   return (
                     <path key={`ep-${pn.id}`}
-                      d={`M ${x1} ${fn.y} C ${cpx} ${fn.y} ${cpx} ${pn.y} ${x2} ${pn.y}`}
+                      d={`M ${x1} ${y1} C ${cpx} ${y1} ${cpx} ${y2} ${x2} ${y2}`}
                       fill="none" stroke={fn.color}
-                      strokeWidth={lit ? 1.7 : 0.5}
-                      strokeOpacity={lit ? 0.38 : 0.07}
-                      style={{ transition: "all 0.2s", pointerEvents: "none" }} />
+                      strokeWidth={lit ? 1.8 : 0.5}
+                      strokeOpacity={lit ? 0.45 : 0.06}
+                      style={{ transition: "all 0.25s ease", pointerEvents: "none" }} />
                   );
                 })}
 
-                {/* Focus area nodes (pill shape) */}
-                {focusNodes.map((fn) => {
+                {/* ── Focus area pills */}
+                {focusNodes.map(fn => {
                   const lit = isNodeLit(fn.id);
                   const isAct = active === fn.id;
+                  const lbl = fn.label.length > 19 ? fn.label.slice(0, 18) + "…" : fn.label;
                   return (
                     <g key={fn.id} style={{ cursor: "pointer" }}
                       onMouseEnter={() => { if (!selected) setHovered(fn.id); }}
                       onMouseLeave={() => { if (!selected) setHovered(null); }}
                       onClick={e => { e.stopPropagation(); setSelected(selected === fn.id ? null : fn.id); setHovered(null); }}>
-                      <rect x={FA_X - FA_HW - 10} y={fn.y - FA_HH - 12} width={(FA_HW + 10) * 2} height={(FA_HH + 12) * 2}
-                        rx={FA_HH + 12} fill={fn.color} opacity={lit ? 0.05 : 0} style={{ transition: "opacity 0.2s" }} />
+                      {/* outer glow halo */}
+                      <rect x={FA_X - FA_HW - 16} y={fn.y - FA_HH - 16} width={(FA_HW + 16) * 2} height={(FA_HH + 16) * 2}
+                        rx={FA_HH + 16} fill={fn.color}
+                        opacity={isAct ? 0.1 : lit ? 0.04 : 0}
+                        style={{ transition: "opacity 0.2s" }} />
+                      {/* pill body */}
                       <rect x={FA_X - FA_HW} y={fn.y - FA_HH} width={FA_HW * 2} height={FA_HH * 2}
-                        rx={FA_HH} fill={`${fn.color}18`} stroke={fn.color}
-                        strokeWidth={isAct ? 2.2 : 1.4}
-                        opacity={lit ? 1 : 0.12}
-                        filter={isAct ? "url(#wm-glow-sm)" : "none"}
-                        style={{ transition: "all 0.2s" }} />
-                      <text x={FA_X} y={fn.y - 4} textAnchor="middle"
-                        fill={fn.color} fontSize="10.5" fontWeight="700" fontFamily="'DM Sans',sans-serif"
-                        opacity={lit ? 1 : 0.12} style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
-                        {fn.label.length > 17 ? fn.label.slice(0, 16) + "…" : fn.label}
+                        rx={FA_HH}
+                        fill={`${fn.color}12`}
+                        stroke={fn.color}
+                        strokeWidth={isAct ? 2.5 : 1.6}
+                        opacity={lit ? 1 : 0.13}
+                        filter={isAct ? "url(#wm-glow-xs)" : "none"}
+                        style={{ transition: "all 0.22s" }} />
+                      {/* label */}
+                      <text x={FA_X} y={fn.y - 5} textAnchor="middle"
+                        fill={fn.color} fontSize="12" fontWeight="700" fontFamily="'DM Sans',sans-serif"
+                        opacity={lit ? 1 : 0.13}
+                        style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                        {lbl}
                       </text>
-                      <text x={FA_X} y={fn.y + 11} textAnchor="middle"
-                        fill={fn.color} fontSize="8" fontFamily="'DM Mono',monospace"
-                        opacity={lit ? 0.6 : 0.08} style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                      {/* day count */}
+                      <text x={FA_X} y={fn.y + 12} textAnchor="middle"
+                        fill={fn.color} fontSize="9.5" fontFamily="'DM Mono',monospace"
+                        opacity={lit ? 0.52 : 0.08}
+                        style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
                         {fn.count} day{fn.count !== 1 ? "s" : ""}
                       </text>
                     </g>
                   );
                 })}
 
-                {/* Person nodes (circles + name below) */}
+                {/* ── Collaborator nodes — circle + name label to the right */}
                 {personNodes.map(pn => {
                   const lit = isNodeLit(pn.id);
                   const isAct = active === pn.id;
+                  const nameLbl = pn.label.length > 16 ? pn.label.slice(0, 15) + "…" : pn.label;
                   return (
                     <g key={pn.id} style={{ cursor: "pointer" }}
                       onMouseEnter={() => { if (!selected) setHovered(pn.id); }}
                       onMouseLeave={() => { if (!selected) setHovered(null); }}
                       onClick={e => { e.stopPropagation(); setSelected(selected === pn.id ? null : pn.id); setHovered(null); }}>
-                      <circle cx={pn.x} cy={pn.y} r={pn.r + 12} fill={pn.fpColor} opacity={lit ? 0.04 : 0} style={{ transition: "opacity 0.2s" }} />
+                      {/* halo */}
+                      <circle cx={pn.x} cy={pn.y} r={pn.r + 11} fill={pn.fpColor}
+                        opacity={isAct ? 0.13 : 0} style={{ transition: "opacity 0.2s" }} />
+                      {/* circle */}
                       <circle cx={pn.x} cy={pn.y} r={pn.r}
-                        fill={`${pn.fpColor}20`} stroke={pn.fpColor}
-                        strokeWidth={isAct ? 2.2 : 1.3}
-                        strokeOpacity={lit ? 0.85 : 0.1}
-                        fillOpacity={lit ? 1 : 0.1}
-                        filter={isAct ? "url(#wm-glow-sm)" : "none"}
-                        style={{ transition: "all 0.2s" }} />
+                        fill={`${pn.fpColor}16`} stroke={pn.fpColor}
+                        strokeWidth={isAct ? 2.5 : 1.6}
+                        strokeOpacity={lit ? 1 : 0.13}
+                        fillOpacity={lit ? 1 : 0.08}
+                        filter={isAct ? "url(#wm-glow-xs)" : "none"}
+                        style={{ transition: "all 0.22s" }} />
+                      {/* initials */}
                       <text x={pn.x} y={pn.y + 1} textAnchor="middle" dominantBaseline="middle"
-                        fill={pn.fpColor} fontSize="9.5" fontWeight="700" fontFamily="'DM Sans',sans-serif"
-                        opacity={lit ? 1 : 0.1} style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                        fill={pn.fpColor} fontSize="9.5" fontWeight="800" fontFamily="'DM Sans',sans-serif"
+                        opacity={lit ? 1 : 0.13}
+                        style={{ userSelect: "none", pointerEvents: "none", transition: "opacity 0.2s" }}>
                         {initials(pn.label)}
                       </text>
-                      <text x={pn.x} y={pn.y + pn.r + 13} textAnchor="middle"
-                        fill={T.text2} fontSize="9" fontFamily="'DM Sans',sans-serif"
-                        opacity={lit ? 0.9 : 0.07} style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
-                        {pn.label.length > 11 ? pn.label.slice(0, 10) + "…" : pn.label}
+                      {/* full name — to the right of circle */}
+                      <text x={pn.x + pn.r + 9} y={pn.y - 3} textAnchor="start"
+                        fill={T.text1} fontSize="12" fontWeight={isAct ? "700" : "500"} fontFamily="'DM Sans',sans-serif"
+                        opacity={lit ? (isAct ? 1 : 0.85) : 0.13}
+                        style={{ userSelect: "none", pointerEvents: "none", transition: "all 0.2s" }}>
+                        {nameLbl}
                       </text>
-                      <text x={pn.x} y={pn.y + pn.r + 25} textAnchor="middle"
-                        fill={T.text3} fontSize="7.5" fontFamily="'DM Mono',monospace"
-                        opacity={lit ? 0.55 : 0} style={{ transition: "opacity 0.2s", userSelect: "none", pointerEvents: "none" }}>
+                      {/* interaction count */}
+                      <text x={pn.x + pn.r + 9} y={pn.y + 12} textAnchor="start"
+                        fill={pn.fpColor} fontSize="9" fontFamily="'DM Mono',monospace"
+                        opacity={lit ? 0.6 : 0.07}
+                        style={{ userSelect: "none", pointerEvents: "none", transition: "all 0.2s" }}>
                         {pn.count}×
                       </text>
                     </g>
                   );
                 })}
 
-                {/* You node */}
+                {/* ── YOU node — rendered last so it sits on top */}
                 <g style={{ cursor: "pointer" }}
                   onMouseEnter={() => { if (!selected) setHovered("me"); }}
                   onMouseLeave={() => { if (!selected) setHovered(null); }}
                   onClick={e => { e.stopPropagation(); setSelected(selected === "me" ? null : "me"); setHovered(null); }}>
-                  <circle cx={YOU_X} cy={YOU_Y} r={YOU_R + 22} fill="url(#wm-you-grad)" />
-                  <circle cx={YOU_X} cy={YOU_Y} r={YOU_R} fill={T.navy3} stroke={T.accent}
-                    strokeWidth={active === "me" ? 2.8 : 2}
+                  {/* ambient halo */}
+                  <circle cx={YOU_X} cy={YOU_Y} r={YOU_R + 44} fill="url(#wm-you-bg)" />
+                  {/* concentric pulse rings */}
+                  <circle cx={YOU_X} cy={YOU_Y} r={YOU_R + 20} fill="none" stroke={T.accent} strokeWidth={1} strokeOpacity={0.14} />
+                  <circle cx={YOU_X} cy={YOU_Y} r={YOU_R + 10} fill="none" stroke={T.accent} strokeWidth={1} strokeOpacity={0.26} />
+                  {/* main body */}
+                  <circle cx={YOU_X} cy={YOU_Y} r={YOU_R}
+                    fill="url(#wm-you-fill)" stroke={T.accent}
+                    strokeWidth={active === "me" ? 3 : 2.2}
                     filter={active === "me" ? "url(#wm-glow)" : "none"}
-                    style={{ transition: "all 0.2s" }} />
-                  <text x={YOU_X} y={YOU_Y - 7} textAnchor="middle" dominantBaseline="middle"
-                    fill={T.accent} fontSize="13" fontFamily="'Syne',sans-serif" fontWeight="800"
+                    style={{ transition: "all 0.22s" }} />
+                  <text x={YOU_X} y={YOU_Y - 7} textAnchor="middle"
+                    fill={T.accent} fontSize="14" fontFamily="'Syne',sans-serif" fontWeight="900"
                     style={{ userSelect: "none", pointerEvents: "none" }}>YOU</text>
-                  <text x={YOU_X} y={YOU_Y + 10} textAnchor="middle"
-                    fill={T.text3} fontSize="8" fontFamily="'DM Mono',monospace"
+                  <text x={YOU_X} y={YOU_Y + 11} textAnchor="middle"
+                    fill={T.text3} fontSize="9" fontFamily="'DM Mono',monospace"
                     style={{ userSelect: "none", pointerEvents: "none" }}>{entries.length}d</text>
                 </g>
               </svg>
             </div>
 
+            {/* ── Tooltip panel */}
             {tooltip && (
-              <div style={{ position: "absolute", top: 12, right: 12, background: T.navy2, border: `1px solid ${tooltip.color || T.accent}40`, borderRadius: 10, padding: "10px 14px", minWidth: 160, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", pointerEvents: "none" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: tooltip.color || T.accent, marginBottom: 3 }}>{tooltip.title}</div>
-                <div style={{ fontSize: 11, color: T.text3 }}>{tooltip.sub}</div>
-                {selected && <div style={{ fontSize: 10, color: T.text3, marginTop: 6, opacity: 0.7 }}>Click again to unpin</div>}
+              <div style={{
+                position: "absolute", bottom: 14, right: 14,
+                background: `${T.navy2}f2`, backdropFilter: "blur(12px)",
+                border: `1px solid ${tooltip.color}30`,
+                borderRadius: 12, padding: "12px 16px",
+                minWidth: 210,
+                boxShadow: `0 8px 32px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.04)`,
+                pointerEvents: "none",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: tooltip.color, boxShadow: `0 0 8px ${tooltip.color}` }} />
+                  <div style={{ fontSize: 13, fontWeight: 700, color: tooltip.color }}>{tooltip.title}</div>
+                </div>
+                <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.6 }}>{tooltip.sub}</div>
+                {selected && <div style={{ fontSize: 10, color: T.text3, marginTop: 7, opacity: 0.55, fontStyle: "italic" }}>Click again to deselect</div>}
               </div>
             )}
+          </div>
+
+          {/* ── Focus area legend strip */}
+          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            {focusNodes.map(fn => (
+              <div key={fn.id}
+                onClick={() => setSelected(selected === fn.id ? null : fn.id)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  background: `${fn.color}0e`, border: `1px solid ${fn.color}28`,
+                  borderRadius: 20, padding: "5px 13px",
+                  cursor: "pointer", transition: "all 0.2s",
+                  boxShadow: selected === fn.id ? `0 0 0 2px ${fn.color}55` : "none",
+                }}>
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: fn.color, boxShadow: selected === fn.id ? `0 0 6px ${fn.color}` : "none" }} />
+                <span style={{ fontSize: 11, color: fn.color, fontWeight: 600 }}>{fn.label}</span>
+                <span style={{ fontSize: 10, color: T.text3 }}>{fn.count}d</span>
+              </div>
+            ))}
           </div>
         </>
       )}
