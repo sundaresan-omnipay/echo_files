@@ -2279,7 +2279,7 @@ function MyTeam({ user }) {
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => startEdit(t)}>Edit</button>
-                        {(!t.relationship || t.relationship === "direct") && (
+                        {rt.key === "direct" && (
                           <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.accent, borderColor: `${T.accent}40` }} onClick={() => setOneOnOne(t)}>1:1</button>
                         )}
                         <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px", color: T.coral, borderColor: `${T.coral}40` }} onClick={() => remove(t)}>✕</button>
@@ -2879,6 +2879,26 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const _now = new Date();
+  const _todayStr = _now.toISOString().slice(0, 10);
+  const _hour = _now.getHours();
+  const _isToday = form.date === _todayStr;
+  const _isFuture = form.date > _todayStr;
+  const contentLabel = _isFuture ? "Plans"
+    : _isToday && _hour < 12 ? "Morning Plan"
+    : _isToday && _hour < 17 ? "In Progress"
+    : _isToday ? "Today's Work"
+    : "What Happened";
+  const contentModeTag = _isToday && _hour < 12 ? { text: "planning mode", color: T.accent }
+    : _isToday && _hour < 17 ? { text: "mid-day", color: T.teal }
+    : _isToday ? { text: "end of day", color: T.gold }
+    : null;
+  const contentPlaceholder = _isFuture ? "What are you planning to work on?"
+    : _isToday && _hour < 12 ? "What are you planning to tackle today? (goals, tasks, priorities…)"
+    : _isToday && _hour < 17 ? "What are you working on right now?"
+    : _isToday ? "What did you get done today? Tasks, PRs, decisions, wins…"
+    : "What did you work on? Tasks, PRs, decisions…";
+
   const addJira = () => {
     const t = jiraInput.trim();
     if (t && !form.jira_links.includes(t)) { set("jira_links", [...form.jira_links, t]); setJiraInput(""); }
@@ -3035,7 +3055,14 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
             </div>
 
             <div className="form-group">
-              <label className="form-label">What I Did Today</label>
+              <label className="form-label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {contentLabel}
+                {contentModeTag && (
+                  <span style={{ fontSize: 10, fontWeight: 600, color: contentModeTag.color, background: `${contentModeTag.color}18`, border: `1px solid ${contentModeTag.color}35`, borderRadius: 4, padding: "1px 7px", letterSpacing: 0.4 }}>
+                    {contentModeTag.text}
+                  </span>
+                )}
+              </label>
               {(form.content || "").split("\n").filter(p => p.trim()).length > 0 && (
                 <div style={{ background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
                   {(form.content || "").split("\n").filter(p => p.trim()).map((p, i) => (
@@ -3052,7 +3079,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
                 </div>
               )}
               <div style={{ display: "flex", gap: 8 }}>
-                <input type="text" className="form-input" placeholder="Add task, PR, decision, test… (Enter to add)"
+                <input type="text" className="form-input" placeholder={contentPlaceholder}
                   value={pointInput}
                   onChange={e => setPointInput(e.target.value)}
                   onPaste={e => {
