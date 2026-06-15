@@ -229,27 +229,33 @@ const probeCategories = () => {
   return _catCheck;
 };
 
-const GROQ_KEY_STORAGE = "echo_groq_key";
-async function callGroq(bullets) {
-  const key = localStorage.getItem(GROQ_KEY_STORAGE);
-  if (!key || !bullets.length) return null;
+const GROQ_API_KEY = process.env.REACT_APP_GROQ_API_KEY || "";
+async function callGroq(bullets, knownPeople = []) {
+  if (!bullets.length) return null;
+  const teamCtx = knownPeople.length ? `\nKnown team members (use these exact spellings when they appear): ${knownPeople.join(", ")}.` : "";
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
-    headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "llama3-8b-8192",
+      model: "llama-3.1-8b-instant",
       messages: [
-        { role: "system", content: 'You are a work diary assistant. Categorise each work item into exactly one of four categories. meeting = calls, standups, 1:1s, planning sessions, discussions with people. execution = coding, building, deploying, implementing, fixing, writing, shipping. validation = testing, reviewing PRs, QA, verifying, checking, debugging, exploring. other = everything else (admin, reading, personal, unclear). Return JSON only with shape: {"meeting":[],"execution":[],"validation":[],"other":[]}' },
-        { role: "user", content: `Categorise these work items:\n${bullets.join("\n")}` }
+        { role: "system", content: `You are a professional work diary assistant. For each work item, do TWO things:\n1. Categorise into one of: meeting (calls, standups, 1:1s, planning, discussions with people), execution (coding, building, shipping, fixing, implementing, writing), validation (testing, PR reviews, QA, debugging, verifying, signoff), other (admin, reading, unclear).\n2. Rewrite it in clear, professional English suitable for a performance review or work report. Rules for rewriting: keep ALL names, project names, system names, and ticket IDs exactly as given — do NOT invent or change them. Use past tense. Improve grammar and clarity only. Do not add information not present in the original.\n3. Extract any person names mentioned.${teamCtx}\nReturn JSON only — each category array contains the REWRITTEN (professional) version of the item, not the raw version: {"meeting":[],"execution":[],"validation":[],"other":[],"people":[]}` },
+        { role: "user", content: `Work items to categorise and rewrite:\n${bullets.map((b, i) => `${i + 1}. ${b}`).join("\n")}` }
       ],
       response_format: { type: "json_object" },
-      temperature: 0,
-      max_tokens: 1024,
+      temperature: 0.1,
+      max_tokens: 2048,
     })
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error?.message || `Groq error ${res.status}`);
-  return JSON.parse(json.choices[0].message.content);
+  const parsed = JSON.parse(json.choices[0].message.content);
+  // Normalize: ensure each category array contains only strings (model sometimes returns objects)
+  const toStr = v => typeof v === "string" ? v : (v?.text || v?.item || v?.content || JSON.stringify(v));
+  ["meeting", "execution", "validation", "other", "people"].forEach(k => {
+    if (Array.isArray(parsed[k])) parsed[k] = parsed[k].map(toStr).filter(Boolean);
+  });
+  return parsed;
 }
 
 // ─── SQL Setup hint (run once in Supabase SQL editor) ───────────────────────
@@ -1448,6 +1454,25 @@ function exportEntryPDF(entry) {
   const jiraChips = (entry.jira_links || []).map(l =>
     `<span class="chip">${esc(l)}</span>`).join(" ");
 
+  const cats = entry.categories || {};
+  const hasCats = Object.values(cats).some(a => Array.isArray(a) && a.length > 0);
+  const CAT_PDF = [
+    { key: "meeting",    label: "Meetings",   color: "#5b4bdb", bg: "#f3f1ff" },
+    { key: "execution",  label: "Execution",  color: "#0e8a6e", bg: "#f0fdf8" },
+    { key: "validation", label: "Validation", color: "#2e7d32", bg: "#f1fdf1" },
+    { key: "other",      label: "Other",      color: "#666",    bg: "#f7f7f7" },
+  ];
+  const catSection = hasCats ? CAT_PDF
+    .filter(c => (cats[c.key] || []).length > 0)
+    .map(c => `
+      <div style="margin-bottom:14px;">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:${c.color};margin-bottom:6px;padding:4px 10px;background:${c.bg};border-left:3px solid ${c.color};border-radius:0 4px 4px 0;">${c.label}</div>
+        <ul style="margin:0;padding-left:20px;">
+          ${(cats[c.key] || []).map(item => `<li style="font-size:13px;line-height:1.7;color:#333;margin-bottom:3px;">${esc(item)}</li>`).join("")}
+        </ul>
+      </div>`).join("")
+    : "";
+
   const html = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8">
 <title>Echo Diary — ${fmtDate(entry.date)}</title>
@@ -1481,7 +1506,9 @@ function exportEntryPDF(entry) {
   ${(entry.collaborators||[]).length ? `<span>👥 ${entry.collaborators.map(esc).join(", ")}</span>` : ""}
 </div>
 ${jiraChips ? `<div class="section-title">JIRAs</div><div>${jiraChips}</div>` : ""}
-${section("What I Did", entry.content ? esc(entry.content) : "")}
+${hasCats
+  ? `<div class="section-title">Work Summary</div>${catSection}`
+  : section("What I Did", entry.content ? esc(entry.content) : "")}
 ${entry.blockers ? `<div class="section-title">Blockers</div><div class="blocker">${esc(entry.blockers)}</div>` : ""}
 ${teamRows  ? `<div class="section-title">Team Progress</div>${teamRows}` : ""}
 ${fbRows    ? `<div class="section-title">Feedback Given</div>${fbRows}` : ""}
@@ -2145,9 +2172,11 @@ function MyTeam({ user }) {
   const [editId, setEditId] = useState(null);
   const [oneOnOne, setOneOnOne] = useState(null);
   const [lastSeen, setLastSeen] = useState({});
+  const [relSupported, setRelSupported] = useState(true);
 
   useEffect(() => {
     if (!user?.id) return;
+    probeTeammateRelationship().then(ok => setRelSupported(ok));
     refreshTeammates().then(rows => setTeammates(rows));
     db.from("diary_entries").select("date,collaborators", { order: "date.desc" }).then(rows => {
       const seen = {};
@@ -2216,14 +2245,15 @@ function MyTeam({ user }) {
           </select>
         </div>
         <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-          <select
-            className="form-input"
+          <input
+            type="text" className="form-input" list="team-roles-list"
+            placeholder="Role / title (optional)"
             value={form.role} onChange={e => setF("role", e.target.value)}
-            style={{ flex: 2, color: form.role ? T.text1 : T.text3 }}
-          >
-            <option value="">Role / title (optional)</option>
-            {TEAM_ROLES.map(r => <option key={r.key} value={r.label}>{r.label}</option>)}
-          </select>
+            style={{ flex: 2 }}
+          />
+          <datalist id="team-roles-list">
+            {TEAM_ROLES.map(r => <option key={r.key} value={r.label} />)}
+          </datalist>
           <input
             type="text" className="form-input" placeholder="😊"
             value={form.emoji} onChange={e => setF("emoji", e.target.value)}
@@ -2238,6 +2268,17 @@ function MyTeam({ user }) {
           {editId !== null && <button className="btn btn-ghost btn-sm" onClick={cancel}>Cancel</button>}
         </div>
       </div>
+
+      {/* Migration banner */}
+      {!relSupported && (
+        <div style={{ background: `${T.amber}15`, border: `1px solid ${T.amber}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: T.amber }}>
+          <strong>One-time setup needed:</strong> Run this in your Supabase SQL editor to enable relationship types and fix the 1:1 button:
+          <div style={{ marginTop: 8, background: T.navy0, borderRadius: 6, padding: "8px 12px", fontFamily: "monospace", fontSize: 11, color: T.text2, userSelect: "all" }}>
+            ALTER TABLE teammates ADD COLUMN IF NOT EXISTS relationship text DEFAULT 'direct';
+          </div>
+          After running it, reload the page and edit each person to set their relationship type.
+        </div>
+      )}
 
       {/* Teammates grid */}
       {teammates.length === 0
@@ -2340,17 +2381,22 @@ const RELATIONSHIP_TYPES = [
 ];
 
 const TEAM_ROLES = [
-  { key: "manager",       label: "Manager",       color: "#F5C243", tip: "Upward — focus on alignment, blockers, and strategic goals" },
-  { key: "developer",     label: "Developer",     color: "#7B6EF6", tip: "Peer — focus on delivery, code quality, and collaboration" },
-  { key: "scrum_master",  label: "Scrum Master",  color: "#34D9B3", tip: "Process — focus on sprint health, impediments, and retrospectives" },
-  { key: "product_owner", label: "Product Owner", color: "#A89BF8", tip: "Product — focus on requirements clarity, priorities, and backlog" },
-  { key: "designer",      label: "Designer",      color: "#F07A6E", tip: "Creative — focus on UX outcomes, design reviews, and feedback loops" },
-  { key: "qa",            label: "QA / Tester",   color: "#34D9B3", tip: "Quality — focus on test coverage, bugs, and release readiness" },
-  { key: "tech_lead",     label: "Tech Lead",     color: "#7B6EF6", tip: "Technical — focus on architecture decisions, code reviews, and mentoring" },
-  { key: "data_analyst",  label: "Data Analyst",  color: "#F5C243", tip: "Data — focus on insights, metrics, and analytical deliverables" },
+  { key: "manager",           label: "Manager",           color: "#F5C243", tip: "Upward — focus on alignment, blockers, and strategic goals" },
+  { key: "developer",         label: "Developer",         color: "#7B6EF6", tip: "Peer — focus on delivery, code quality, and collaboration" },
+  { key: "scrum_master",      label: "Scrum Master",      color: "#34D9B3", tip: "Process — focus on sprint health, impediments, and retrospectives" },
+  { key: "product_owner",     label: "Product Owner",     color: "#A89BF8", tip: "Product — focus on requirements clarity, priorities, and backlog" },
+  { key: "designer",          label: "Designer",          color: "#F07A6E", tip: "Creative — focus on UX outcomes, design reviews, and feedback loops" },
+  { key: "qa",                label: "QA / Tester",       color: "#34D9B3", tip: "Quality — focus on test coverage, bugs, and release readiness" },
+  { key: "sdet_i",            label: "SDET I",            color: "#34D9B3", tip: "Junior SDET — automation, test scripting, bug verification" },
+  { key: "sdet_ii",           label: "SDET II",           color: "#34D9B3", tip: "Mid SDET — framework development, CI integration, test design" },
+  { key: "sdet_iii",          label: "SDET III",          color: "#34D9B3", tip: "Senior SDET — architecture, mentoring, strategy" },
+  { key: "associate_sdet",    label: "Associate SDET",    color: "#34D9B3", tip: "Entry SDET — learning automation, manual + scripting" },
+  { key: "tech_lead",         label: "Tech Lead",         color: "#7B6EF6", tip: "Technical — focus on architecture decisions, code reviews, and mentoring" },
+  { key: "data_analyst",      label: "Data Analyst",      color: "#F5C243", tip: "Data — focus on insights, metrics, and analytical deliverables" },
   { key: "devops",            label: "DevOps",             color: "#F07A6E", tip: "Infrastructure — focus on pipelines, reliability, and release process" },
-  { key: "delivery_manager",  label: "Delivery Manager",   color: "#A89BF8", tip: "Delivery — focus on timelines, dependencies, and stakeholder reporting" },
-  { key: "stakeholder",       label: "Stakeholder",        color: "#9A99AD", tip: "External — focus on status updates, risks, and expectations" },
+  { key: "delivery_manager",  label: "Delivery Manager",  color: "#A89BF8", tip: "Delivery — focus on timelines, dependencies, and stakeholder reporting" },
+  { key: "stakeholder",       label: "Stakeholder",       color: "#9A99AD", tip: "External — focus on status updates, risks, and expectations" },
+  { key: "trainee",           label: "Trainee",           color: "#9A99AD", tip: "Entry level — learning the codebase, guided tasks" },
 ];
 
 const SESSION_SENTIMENTS = [
@@ -2865,7 +2911,7 @@ function OneOnOneModal({ teammate, user, onClose }) {
   );
 }
 
-function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes = [] }) {
+function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes = [], onAutoSave }) {
   const initCF = !entry && previousEntry?.carry_forward
     ? previousEntry.carry_forward.filter(i => !i.done).map(i => ({ ...i, done: false }))
     : [];
@@ -2915,25 +2961,43 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
-  const [showGroqSetup, setShowGroqSetup] = useState(false);
-  const [groqKeyDraft, setGroqKeyDraft] = useState("");
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const categorise = async () => {
     const bullets = (form.content || "").split("\n").filter(b => b.trim());
     if (!bullets.length) return;
-    if (!localStorage.getItem(GROQ_KEY_STORAGE)) { setShowGroqSetup(true); return; }
-    setAiLoading(true); setAiError(""); setShowGroqSetup(false);
+    setAiLoading(true); setAiError("");
     try {
-      const cats = await callGroq(bullets);
-      if (cats) set("categories", cats);
+      const knownPeople = (loadTeammates() || []).map(t => t.name);
+      const cats = await callGroq(bullets, knownPeople);
+      if (cats) {
+        const existing = form.collaborators || [];
+        const fresh = (cats.people || []).filter(p => p && !existing.includes(p));
+        const updatedForm = {
+          ...form,
+          categories: cats,
+          collaborators: fresh.length ? [...existing, ...fresh] : existing,
+        };
+        setForm(updatedForm);
+        // Auto-save silently after categorisation
+        if (onAutoSave) {
+          await onAutoSave({ ...updatedForm, title: fmtDate(updatedForm.date), focus_area: (updatedForm.focus_areas || [])[0] || updatedForm.focus_area || "" });
+        }
+      }
     } catch (e) {
-      setAiError(e.message || "AI error — check your Groq API key.");
+      setAiError(e.message || "AI error.");
     } finally {
       setAiLoading(false);
     }
   };
+
+  useEffect(() => {
+    const bullets = (form.content || "").split("\n").filter(b => b.trim());
+    if (!bullets.length) return;
+    const t = setTimeout(() => { categorise(); }, 1500);
+    return () => clearTimeout(t);
+  }, [form.content]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const _now = new Date();
   const _todayStr = _now.toISOString().slice(0, 10);
@@ -3169,52 +3233,19 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
             {/* ── AI Categorise ── */}
             {(form.content || "").split("\n").filter(p => p.trim()).length > 0 && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <button onClick={categorise} disabled={aiLoading} style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    background: aiLoading ? T.navy3 : `${T.accent}15`,
-                    border: `1px solid ${aiLoading ? T.border : `${T.accent}60`}`,
-                    borderRadius: 8, padding: "6px 14px",
-                    cursor: aiLoading ? "default" : "pointer",
-                    fontSize: 12, fontWeight: 600,
-                    color: aiLoading ? T.text3 : T.accent,
-                    fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s",
-                  }}>
-                    <span style={{ fontSize: 13 }}>{aiLoading ? "⏳" : "✨"}</span>
-                    {aiLoading ? "Categorising…" : "Categorise with AI"}
-                  </button>
-                  {Object.keys(form.categories || {}).some(k => (form.categories[k] || []).length > 0) && !aiLoading && (
-                    <span style={{ fontSize: 11, color: T.teal }}>✓ Done · click to refresh</span>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", minHeight: 22 }}>
+                  {aiLoading && (
+                    <span style={{ fontSize: 11, color: T.accent, display: "flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ fontSize: 13 }}>⏳</span> Auto-categorising…
+                    </span>
+                  )}
+                  {!aiLoading && Object.keys(form.categories || {}).some(k => (form.categories[k] || []).length > 0) && (
+                    <span style={{ fontSize: 11, color: T.teal }}>✨ AI categorised
+                      <button onClick={categorise} style={{ background: "none", border: "none", color: T.text3, fontSize: 11, cursor: "pointer", marginLeft: 6, padding: 0 }}>refresh</button>
+                    </span>
                   )}
                   {aiError && <span style={{ fontSize: 11, color: T.coral }}>{aiError}</span>}
                 </div>
-
-                {showGroqSetup && (
-                  <div style={{ marginTop: 10, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text1, marginBottom: 4 }}>Groq API Key</div>
-                    <div style={{ fontSize: 11, color: T.text3, marginBottom: 10 }}>
-                      Free at <span style={{ color: T.accent }}>console.groq.com</span> · uses Llama 3 · key stored locally only, never sent anywhere else.
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input type="password" className="form-input" placeholder="gsk_…" value={groqKeyDraft}
-                        onChange={e => setGroqKeyDraft(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === "Enter" && groqKeyDraft.trim()) {
-                            localStorage.setItem(GROQ_KEY_STORAGE, groqKeyDraft.trim());
-                            setShowGroqSetup(false); setGroqKeyDraft("");
-                            categorise();
-                          }
-                        }} />
-                      <button className="btn btn-primary btn-sm" onClick={() => {
-                        if (!groqKeyDraft.trim()) return;
-                        localStorage.setItem(GROQ_KEY_STORAGE, groqKeyDraft.trim());
-                        setShowGroqSetup(false); setGroqKeyDraft("");
-                        categorise();
-                      }}>Save & Run</button>
-                      <button className="btn btn-ghost btn-sm" onClick={() => setShowGroqSetup(false)}>Cancel</button>
-                    </div>
-                  </div>
-                )}
 
                 {Object.keys(form.categories || {}).some(k => (form.categories[k] || []).length > 0) && (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
@@ -3233,7 +3264,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
                           <span style={{ fontWeight: 400, color: T.text3 }}>· {(form.categories[cat.key] || []).length}</span>
                         </div>
                         {(form.categories[cat.key] || []).map((item, i) => (
-                          <div key={i} style={{ fontSize: 12, color: T.text2, lineHeight: 1.5, marginBottom: 2 }}>• {item}</div>
+                          <div key={i} style={{ fontSize: 12, color: T.text2, lineHeight: 1.5, marginBottom: 2 }}>• {typeof item === "string" ? item : (item?.text || item?.item || item?.content || JSON.stringify(item))}</div>
                         ))}
                       </div>
                     ))}
@@ -3642,6 +3673,21 @@ function WeeklyReportModal({ entries, onClose }) {
   const resolvedCF  = week.reduce((n, e) => n + (e.carry_forward || []).filter(i => i.done).length, 0);
   const blockers    = week.filter(e => e.blockers);
 
+  const catTotals = { meeting: 0, execution: 0, validation: 0, other: 0 };
+  week.forEach(e => {
+    if (!e.categories) return;
+    ["meeting", "execution", "validation", "other"].forEach(k => {
+      catTotals[k] += (e.categories[k] || []).length;
+    });
+  });
+  const hasCatData = Object.values(catTotals).some(v => v > 0);
+  const allCatItems = {
+    meeting: [...new Set(week.flatMap(e => e.categories?.meeting || []))],
+    execution: [...new Set(week.flatMap(e => e.categories?.execution || []))],
+    validation: [...new Set(week.flatMap(e => e.categories?.validation || []))],
+    other: [...new Set(week.flatMap(e => e.categories?.other || []))],
+  };
+
   const focusCounts = {};
   week.forEach(e => { getFocusAreas(e).forEach(f => { focusCounts[f] = (focusCounts[f] || 0) + 1; }); });
   const topFocus = Object.entries(focusCounts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} (${v}d)`).join(", ");
@@ -3657,6 +3703,17 @@ function WeeklyReportModal({ entries, onClose }) {
     allJiras.length ? `JIRAs worked  : ${allJiras.join(", ")}` : "",
     allCollabs.length ? `Collaborated  : ${allCollabs.join(", ")}` : "",
     ``,
+    ...(hasCatData ? [
+      `━━━ WORK BREAKDOWN ━━━`,
+      `🤝 Meetings    : ${catTotals.meeting} items`,
+      `⚡ Execution   : ${catTotals.execution} items`,
+      `✅ Validation  : ${catTotals.validation} items`,
+      `📋 Other       : ${catTotals.other} items`,
+      ...(allCatItems.meeting.length   ? [`   Meetings   → ${allCatItems.meeting.join(" · ")}`]   : []),
+      ...(allCatItems.execution.length ? [`   Execution  → ${allCatItems.execution.join(" · ")}`] : []),
+      ...(allCatItems.validation.length? [`   Validation → ${allCatItems.validation.join(" · ")}`]: []),
+      ``,
+    ] : []),
     `━━━ TEAM ━━━`,
     allTeam.length     ? `Tracked  : ${allTeam.join(", ")}`     : "No team updates logged.",
     allFeedback.length ? `Feedback : ${allFeedback.join("; ")}` : "",
@@ -3717,6 +3774,25 @@ function WeeklyReportModal({ entries, onClose }) {
                 </div>
               ))}
             </div>
+            {hasCatData && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>Work Breakdown</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+                  {[
+                    { key: "meeting",    label: "Meetings",   icon: "🤝", color: T.accent },
+                    { key: "execution",  label: "Execution",  icon: "⚡", color: T.teal },
+                    { key: "validation", label: "Validation", icon: "✅", color: "#4CAF50" },
+                    { key: "other",      label: "Other",      icon: "📋", color: T.text2 },
+                  ].map(c => (
+                    <div key={c.key} style={{ background: `${c.color}12`, border: `1px solid ${c.color}30`, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                      <div style={{ fontSize: 18, marginBottom: 4 }}>{c.icon}</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: c.color, fontFamily: "'DM Mono', monospace" }}>{catTotals[c.key]}</div>
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 2, textTransform: "uppercase", letterSpacing: 0.5 }}>{c.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <pre style={{
               background: T.navy0, border: `1px solid ${T.border}`, borderRadius: 8,
               padding: "14px 16px", fontSize: 12, color: T.text1, lineHeight: 1.8,
@@ -3811,6 +3887,7 @@ function Diary({ onCountChange, user }) {
   const [entries, setEntries]     = useState([]);
   const [prevEntry, setPrevEntry] = useState(null);
   const [loading, setLoading]     = useState(true);
+  const [catColReady, setCatColReady] = useState(true);
   const [search, setSearch]       = useState("");
   const [modal, setModal]         = useState(null);
   const [viewEntry, setViewEntry] = useState(null);
@@ -3839,7 +3916,8 @@ function Diary({ onCountChange, user }) {
   const load = useCallback(async () => {
     setLoading(true);
     if (!isConfigured()) { setLoading(false); return; }
-    probeFocusAreas(); probeIsWin(); probeCategories(); // warm up caches — results ready before user can save
+    probeFocusAreas(); probeIsWin();
+    probeCategories().then(ok => setCatColReady(ok)); // warm up caches — results ready before user can save
     const d = await db.from("diary_entries").select("*", { order: "date.desc" });
     setEntries(d || []);
     setPrevEntry(d?.[0] || null);
@@ -3849,6 +3927,13 @@ function Diary({ onCountChange, user }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Keep viewEntry in sync with fresh DB data after every save/auto-save
+  useEffect(() => {
+    if (!viewEntry?.id) return;
+    const fresh = entries.find(e => e.id === viewEntry.id);
+    if (fresh) setViewEntry(fresh);
+  }, [entries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!user?.id) return;
@@ -3909,6 +3994,15 @@ function Diary({ onCountChange, user }) {
   return (
     <div className="echo-content fade-in">
       <ConfigBanner />
+
+      {!catColReady && (
+        <div style={{ background: `${T.amber}15`, border: `1px solid ${T.amber}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: T.amber }}>
+          <strong>AI categories won't save yet.</strong> Run this in Supabase SQL editor, then reload:
+          <div style={{ marginTop: 6, background: T.navy0, borderRadius: 6, padding: "7px 12px", fontFamily: "monospace", fontSize: 11, color: T.text2, userSelect: "all" }}>
+            ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS categories jsonb DEFAULT {'{}'};
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <div className="search-bar" style={{ flex: 1, minWidth: 200 }}>
@@ -4018,6 +4112,7 @@ function Diary({ onCountChange, user }) {
           previousEntry={modal === "new" ? prevEntry : null}
           onClose={() => setModal(null)}
           onSave={save}
+          onAutoSave={save}
           scratchNotes={scratchNotes}
         />
       )}
@@ -4060,6 +4155,31 @@ function Diary({ onCountChange, user }) {
               <div style={{ marginBottom: 18 }}>
                 <div className="diary-section-heading">What I Did</div>
                 <div style={{ fontSize: 14, color: T.text2, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{viewEntry.content}</div>
+              </div>
+            )}
+
+            {/* AI Categories breakdown */}
+            {viewEntry.categories && Object.values(viewEntry.categories).some(a => (a || []).length > 0) && (
+              <div style={{ marginBottom: 18 }}>
+                <div className="diary-section-heading">✨ AI Breakdown</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {[
+                    { key: "meeting",    label: "Meetings",   icon: "🤝", color: T.accent },
+                    { key: "execution",  label: "Execution",  icon: "⚡", color: T.teal },
+                    { key: "validation", label: "Validation", icon: "✅", color: "#4CAF50" },
+                    { key: "other",      label: "Other",      icon: "📋", color: T.text2 },
+                  ].filter(c => (viewEntry.categories[c.key] || []).length > 0).map(c => (
+                    <div key={c.key} style={{ background: `${c.color}10`, border: `1px solid ${c.color}28`, borderRadius: 8, padding: "10px 12px" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: c.color, marginBottom: 5, display: "flex", alignItems: "center", gap: 5 }}>
+                        {c.icon} {c.label}
+                        <span style={{ fontWeight: 400, color: T.text3 }}>· {(viewEntry.categories[c.key] || []).length}</span>
+                      </div>
+                      {(viewEntry.categories[c.key] || []).map((item, i) => (
+                        <div key={i} style={{ fontSize: 12, color: T.text2, lineHeight: 1.55, marginBottom: 2 }}>• {typeof item === "string" ? item : (item?.text || item?.item || item?.content || JSON.stringify(item))}</div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -5659,6 +5779,14 @@ function BragDoc() {
     tags.forEach(t => { if (byTag[t]) byTag[t].push(e); else byTag.untagged.push(e); });
   });
 
+  const getEntryBullets = (e) => {
+    // Prefer AI-rewritten category items over raw content
+    const cats = e.categories || {};
+    const catItems = ["execution", "validation", "meeting", "other"].flatMap(k => cats[k] || []);
+    if (catItems.length) return catItems;
+    return (e.content || "").split("\n").filter(Boolean);
+  };
+
   const generateEvidence = () => {
     const periodLabel = PERIODS.find(p => p.key === period)?.label || period;
     const lines = [`PERFORMANCE EVIDENCE — ${periodLabel.toUpperCase()}`,
@@ -5669,16 +5797,16 @@ function BragDoc() {
       if (!wins?.length) return;
       lines.push(`${wt.icon} ${wt.label.toUpperCase()} (${wins.length})`);
       wins.forEach(e => {
-        const pts = (e.content || "").split("\n").filter(Boolean);
+        const pts = getEntryBullets(e);
         lines.push(`  • [${e.date}] ${pts[0] || (e.focus_areas || []).join(", ") || "Win logged"}`);
-        pts.slice(1, 4).forEach(p => lines.push(`    ${p}`));
+        pts.slice(1, 4).forEach(p => lines.push(`    − ${p}`));
       });
       lines.push("");
     });
     if (byTag.untagged?.length) {
       lines.push(`📌 GENERAL (${byTag.untagged.length})`);
       byTag.untagged.forEach(e => {
-        const pts = (e.content || "").split("\n").filter(Boolean);
+        const pts = getEntryBullets(e);
         lines.push(`  • [${e.date}] ${pts[0] || "Win logged"}`);
       });
     }
