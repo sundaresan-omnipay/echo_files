@@ -252,9 +252,18 @@ async function callGroq(bullets, knownPeople = []) {
   if (!res.ok) throw new Error(json.error?.message || `Groq error ${res.status}`);
   const parsed = JSON.parse(json.choices[0].message.content);
   // Normalize: ensure each category array contains only strings (model sometimes returns objects)
-  const toStr = v => typeof v === "string" ? v : (v?.text || v?.item || v?.content || JSON.stringify(v));
+  const toStr = v => {
+    if (typeof v === "string") return v;
+    if (v && typeof v === "object") {
+      // Try every common key the model uses, case-insensitive
+      const val = v.text || v.item || v.content || v.name || v.Name || v.value || v.label
+        || Object.values(v).find(x => typeof x === "string");
+      return val || JSON.stringify(v);
+    }
+    return String(v);
+  };
   ["meeting", "execution", "validation", "other", "people"].forEach(k => {
-    if (Array.isArray(parsed[k])) parsed[k] = parsed[k].map(toStr).filter(Boolean);
+    if (Array.isArray(parsed[k])) parsed[k] = [...new Set(parsed[k].map(toStr).filter(Boolean))];
   });
   return parsed;
 }
@@ -2974,11 +2983,15 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
       const cats = await callGroq(bullets, knownPeople);
       if (cats) {
         const existing = form.collaborators || [];
-        const fresh = (cats.people || []).filter(p => p && !existing.includes(p));
+        const existingLower = existing.map(x => x.toLowerCase());
+        const fresh = (cats.people || []).filter(p => p && !existingLower.includes(p.toLowerCase()));
+        const merged = [...existing, ...fresh];
+        // Final dedup preserving order
+        const collaborators = merged.filter((v, i, a) => a.findIndex(x => x.toLowerCase() === v.toLowerCase()) === i);
         const updatedForm = {
           ...form,
           categories: cats,
-          collaborators: fresh.length ? [...existing, ...fresh] : existing,
+          collaborators,
         };
         setForm(updatedForm);
         // Auto-save silently after categorisation
