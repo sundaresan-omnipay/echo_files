@@ -232,6 +232,7 @@ const probeCategories = () => {
 const GROQ_API_KEY = process.env.REACT_APP_GROQ_API_KEY || "";
 async function callGroq(bullets, knownPeople = []) {
   if (!bullets.length) return null;
+  if (!GROQ_API_KEY) throw new Error("AI categorisation is not configured — REACT_APP_GROQ_API_KEY is missing from the build.");
   const teamCtx = knownPeople.length ? `\nKnown team members (use these exact spellings when they appear): ${knownPeople.join(", ")}.` : "";
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
