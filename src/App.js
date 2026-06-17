@@ -3033,6 +3033,9 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [attDbOk, setAttDbOk] = useState(null);
+
+  useEffect(() => { probeAttendance().then(setAttDbOk); }, []);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -3662,11 +3665,19 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
           <div>
             <div className="diary-section-heading">Team Attendance</div>
             <div style={{ fontSize: 12, color: T.text3, marginBottom: 14 }}>Log who's in office, WFH, or on leave today. Click again to clear.</div>
+            {attDbOk === false && (
+              <div style={{ background: `${T.coral}18`, border: `1px solid ${T.coral}40`, borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: T.coral }}>
+                ⚠️ Attendance data won't save until you run this in Supabase SQL editor:
+                <div style={{ fontFamily: "monospace", marginTop: 6, padding: "4px 8px", background: "rgba(0,0,0,0.3)", borderRadius: 4, fontSize: 11, color: T.text2, wordBreak: "break-all" }}>
+                  ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS team_attendance jsonb DEFAULT '[]';
+                </div>
+              </div>
+            )}
             {(() => {
-              const teammates = loadTeammates();
+              const teammates = loadTeammates().filter(t => (t.relationship || "direct") === "direct");
               if (teammates.length === 0) return (
                 <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "28px 0" }}>
-                  No teammates saved yet. Add them in <strong>My Team</strong> first.
+                  No My Team members found. Add teammates with the "My Team" relationship in <strong>My Team</strong>.
                 </div>
               );
               const getAtt = (name) => (form.team_attendance || []).find(a => a.name === name)?.status || null;
