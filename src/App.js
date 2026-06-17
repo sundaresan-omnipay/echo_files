@@ -229,6 +229,18 @@ const probeCategories = () => {
   return _catCheck;
 };
 
+let _attCheck = null;
+let _attSupported = null;
+const probeAttendance = () => {
+  if (_attSupported !== null) return Promise.resolve(_attSupported);
+  if (_attCheck) return _attCheck;
+  _attCheck = fetch(`${_REST()}/diary_entries?select=team_attendance&limit=0`, { headers: h() })
+    .then(r => { _attSupported = r.ok; return r.ok; })
+    .catch(() => { _attSupported = false; return false; })
+    .finally(() => { _attCheck = null; });
+  return _attCheck;
+};
+
 const GROQ_API_KEY = process.env.REACT_APP_GROQ_API_KEY || "";
 async function callGroq(bullets, knownPeople = []) {
   if (!bullets.length) return null;
@@ -330,6 +342,7 @@ const linkify = (text) => {
 // ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS focus_areas jsonb DEFAULT '[]';
 // ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS is_win boolean DEFAULT false;
 // ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS win_tags jsonb DEFAULT '[]';
+// ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS team_attendance jsonb DEFAULT '[]';
 // ALTER TABLE teammates ADD COLUMN IF NOT EXISTS relationship text DEFAULT 'direct';
 // ALTER TABLE teammates ADD COLUMN IF NOT EXISTS agenda_queue jsonb DEFAULT '[]';
 // create table commitments (id uuid primary key default gen_random_uuid(), user_id uuid not null, direction text not null, person text not null, what text not null, source text default 'manual', resolved_at timestamptz, inserted_at timestamptz default now()); alter table commitments enable row level security; create policy "own" on commitments for all using (auth.uid()=user_id);
@@ -394,14 +407,16 @@ const injectStyles = () => {
     /* ── Sidebar ── */
     .echo-sidebar {
       width: 240px;
-      min-height: 100vh;
+      height: 100vh;
       background: ${T.navy1};
       border-right: 1px solid ${T.border};
       display: flex;
       flex-direction: column;
-      position: relative;
+      position: sticky;
+      top: 0;
       z-index: 10;
       flex-shrink: 0;
+      overflow: hidden;
     }
 
     .echo-logo {
@@ -420,6 +435,7 @@ const injectStyles = () => {
     .echo-nav {
       padding: 16px 12px;
       flex: 1;
+      overflow-y: auto;
     }
 
     .echo-nav-section {
@@ -1419,6 +1435,24 @@ const PRIORITIES = [
   { key: "high",  label: "High", color: T.coral },
   { key: "medium",label: "Med",  color: T.gold  },
   { key: "low",   label: "Low",  color: T.teal  },
+];
+
+const ATT_STATUSES = [
+  { key: "office", label: "In Office", icon: "🏢", color: T.teal   },
+  { key: "wfh",    label: "WFH",       icon: "🏠", color: T.accent },
+  { key: "leave",  label: "Leave",     icon: "🏖️", color: T.coral  },
+  { key: "half",   label: "Half Day",  icon: "🕐", color: T.amber  },
+];
+const attColor = (k) => ATT_STATUSES.find(s => s.key === k)?.color || T.text3;
+
+const RELEASE_STATUSES = [
+  { key: "released", label: "Released",   icon: "✅", color: "#4CAF50" },
+  { key: "today",    label: "Today",      icon: "🚀", color: T.teal    },
+  { key: "review",   label: "In Review",  icon: "🔄", color: T.accent  },
+  { key: "eta",      label: "ETA Pending",icon: "⏳", color: T.amber   },
+  { key: "nextweek", label: "Next Week",  icon: "📅", color: T.text2   },
+  { key: "blocked",  label: "Blocked",    icon: "🔴", color: T.coral   },
+  { key: "leave",    label: "On Leave",   icon: "🏖️", color: T.text3   },
 ];
 
 const statusColor   = (s) => TEAM_STATUSES.find(x => x.key === s)?.color   || T.text3;
@@ -2970,9 +3004,10 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
     mood:           entry.mood           || "",
     content:        entry.content        || "",
     linked_note:    entry.linked_note    || null,
-    is_win:         entry.is_win         || false,
-    win_tags:       entry.win_tags       || [],
-    categories:     entry.categories     || {},
+    is_win:         entry.is_win          || false,
+    win_tags:       entry.win_tags        || [],
+    categories:     entry.categories      || {},
+    team_attendance:entry.team_attendance || [],
   } : {
     date: today(), focus_area: "", focus_areas: [], mood: "", content: "", blockers: "",
     jira_links: [], collaborators: [], tags: [], team_updates: [], feedback_given: [],
@@ -2982,6 +3017,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
     is_win: false,
     win_tags: [],
     categories: {},
+    team_attendance: [],
   });
 
   const [tab, setTab] = useState("day");
@@ -3115,9 +3151,10 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
   const pendingR  = form.reminders.filter(i => !i.checked).length;
 
   const TABS = [
-    { key: "day",     label: "My Day" },
-    { key: "team",    label: `Team${form.team_updates.length > 0 ? ` (${form.team_updates.length})` : ""}` },
-    { key: "actions", label: `Actions${pendingCF + pendingR > 0 ? ` · ${pendingCF + pendingR} open` : ""}` },
+    { key: "day",        label: "My Day" },
+    { key: "team",       label: `Team${form.team_updates.length > 0 ? ` (${form.team_updates.length})` : ""}` },
+    { key: "attendance", label: `Attendance${(form.team_attendance || []).length > 0 ? ` ✓` : ""}` },
+    { key: "actions",    label: `Actions${pendingCF + pendingR > 0 ? ` · ${pendingCF + pendingR} open` : ""}` },
   ];
 
   return (
@@ -3620,6 +3657,53 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
           </div>
         )}
 
+        {/* ── Attendance ── */}
+        {tab === "attendance" && (
+          <div>
+            <div className="diary-section-heading">Team Attendance</div>
+            <div style={{ fontSize: 12, color: T.text3, marginBottom: 14 }}>Log who's in office, WFH, or on leave today. Click again to clear.</div>
+            {(() => {
+              const teammates = loadTeammates();
+              if (teammates.length === 0) return (
+                <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "28px 0" }}>
+                  No teammates saved yet. Add them in <strong>My Team</strong> first.
+                </div>
+              );
+              const getAtt = (name) => (form.team_attendance || []).find(a => a.name === name)?.status || null;
+              const setAtt = (name, status) => {
+                const rest = (form.team_attendance || []).filter(a => a.name !== name);
+                set("team_attendance", status ? [...rest, { name, status }] : rest);
+              };
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {teammates.map((t, i) => {
+                    const cur = getAtt(t.name);
+                    return (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.bg3, borderRadius: 8, border: `1px solid ${cur ? attColor(cur) + "40" : T.border}` }}>
+                        <span style={{ fontSize: 15 }}>{t.emoji || "👤"}</span>
+                        <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: T.text1 }}>{t.name}</span>
+                        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          {ATT_STATUSES.map(s => (
+                            <button key={s.key} onClick={() => setAtt(t.name, cur === s.key ? null : s.key)} title={s.label}
+                              style={{
+                                background: cur === s.key ? `${s.color}25` : "transparent",
+                                border: `1px solid ${cur === s.key ? s.color : T.border}`,
+                                borderRadius: 6, padding: "3px 8px", cursor: "pointer",
+                                fontSize: 11, color: cur === s.key ? s.color : T.text3,
+                                fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s",
+                              }}
+                            >{s.icon} {s.label}</button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         {/* ── Actions ── */}
         {tab === "actions" && (
           <div>
@@ -3957,7 +4041,7 @@ function Diary({ onCountChange, user }) {
   const load = useCallback(async () => {
     setLoading(true);
     if (!isConfigured()) { setLoading(false); return; }
-    probeFocusAreas(); probeIsWin();
+    probeFocusAreas(); probeIsWin(); probeAttendance();
     probeCategories().then(ok => setCatColReady(ok)); // warm up caches — results ready before user can save
     const d = await db.from("diary_entries").select("*", { order: "date.desc" });
     setEntries(d || []);
@@ -4003,16 +4087,18 @@ function Diary({ onCountChange, user }) {
       }
       return db.from("diary_entries").insert(data);
     };
-    const [hasFocusAreas, hasWin, hasCats] = await Promise.all([probeFocusAreas(), probeIsWin(), probeCategories()]);
+    const [hasFocusAreas, hasWin, hasCats, hasAtt] = await Promise.all([probeFocusAreas(), probeIsWin(), probeCategories(), probeAttendance()]);
     let saveData = form;
     if (!hasFocusAreas) { const { focus_areas, ...rest } = saveData; saveData = rest; }
     if (!hasWin) { const { is_win, win_tags, ...rest } = saveData; saveData = rest; }
+    if (!hasAtt) { const { team_attendance, ...rest } = saveData; saveData = rest; }
     if (!hasCats) { const { categories, ...rest } = saveData; saveData = rest; }
     const result = await doSave(saveData);
     if (result?.code === "PGRST204") {
       if (result.message?.includes("focus_areas")) { _faSupported = false; const { focus_areas, ...f } = form; await doSave(f); }
       else if (result.message?.includes("is_win") || result.message?.includes("win_tags")) { _winSupported = false; const { is_win, win_tags, ...f } = form; await doSave(f); }
       else if (result.message?.includes("categories")) { _catSupported = false; const { categories, ...f } = form; await doSave(f); }
+      else if (result.message?.includes("team_attendance")) { _attSupported = false; const { team_attendance, ...f } = form; await doSave(f); }
     }
     load();
   };
@@ -4322,6 +4408,23 @@ function Diary({ onCountChange, user }) {
                     <span style={{ flex: 1, fontSize: 13, color: item.checked ? T.text3 : T.text1, textDecoration: item.checked ? "line-through" : "none" }}>{item.text}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Team Attendance */}
+            {viewEntry.team_attendance?.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div className="diary-section-heading">Team Attendance</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {viewEntry.team_attendance.map((a, i) => {
+                    const s = ATT_STATUSES.find(x => x.key === a.status);
+                    return (
+                      <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: `${attColor(a.status)}18`, border: `1px solid ${attColor(a.status)}40`, fontSize: 12, color: attColor(a.status) }}>
+                        {s?.icon} {a.name} · {s?.label}
+                      </span>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
@@ -6601,6 +6704,181 @@ function WeeklyUpdateModal({ user, onClose }) {
   );
 }
 
+// ─── Release Tracker ─────────────────────────────────────────────────────────
+const RELEASE_KEY = "echo_release_logs";
+const getReleaseDay = (date) => {
+  try { return JSON.parse(localStorage.getItem(RELEASE_KEY) || "{}")[date] || []; } catch { return []; }
+};
+const saveReleaseDay = (date, owners) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(RELEASE_KEY) || "{}");
+    all[date] = owners;
+    localStorage.setItem(RELEASE_KEY, JSON.stringify(all));
+  } catch {}
+};
+
+function ReleaseTracker() {
+  const [date, setDate] = useState(today);
+  const [owners, setOwners] = useState(() => getReleaseDay(today()));
+  const [addingOwner, setAddingOwner] = useState(false);
+  const [newOwner, setNewOwner] = useState("");
+  const [editingItem, setEditingItem] = useState(null); // {ownerIdx, itemIdx}
+  const [itemForm, setItemForm] = useState({ ticket: "", note: "", status: "today" });
+  const [addingItemFor, setAddingItemFor] = useState(null); // ownerIdx
+
+  const loadDate = (d) => { setDate(d); setOwners(getReleaseDay(d)); setAddingOwner(false); setAddingItemFor(null); setEditingItem(null); };
+  const persist = (next) => { setOwners(next); saveReleaseDay(date, next); };
+
+  const addOwner = () => {
+    const name = newOwner.trim();
+    if (!name) return;
+    if (owners.some(o => o.name.toLowerCase() === name.toLowerCase())) { setNewOwner(""); setAddingOwner(false); return; }
+    persist([...owners, { name, items: [] }]);
+    setNewOwner(""); setAddingOwner(false);
+  };
+  const removeOwner = (idx) => { if (!window.confirm("Remove this owner's entries?")) return; persist(owners.filter((_, i) => i !== idx)); };
+
+  const startAddItem = (ownerIdx) => { setAddingItemFor(ownerIdx); setEditingItem(null); setItemForm({ ticket: "", note: "", status: "today" }); };
+  const addItem = (ownerIdx) => {
+    const t = itemForm.ticket.trim(), n = itemForm.note.trim();
+    if (!t && !n) return;
+    const next = owners.map((o, i) => i !== ownerIdx ? o : { ...o, items: [...o.items, { ticket: t, note: n, status: itemForm.status }] });
+    persist(next); setAddingItemFor(null); setItemForm({ ticket: "", note: "", status: "today" });
+  };
+  const startEditItem = (ownerIdx, itemIdx) => {
+    setEditingItem({ ownerIdx, itemIdx }); setAddingItemFor(null);
+    const item = owners[ownerIdx].items[itemIdx];
+    setItemForm({ ticket: item.ticket || "", note: item.note || "", status: item.status || "today" });
+  };
+  const saveEditItem = () => {
+    const { ownerIdx, itemIdx } = editingItem;
+    const next = owners.map((o, i) => i !== ownerIdx ? o : { ...o, items: o.items.map((it, j) => j !== itemIdx ? it : { ticket: itemForm.ticket.trim(), note: itemForm.note.trim(), status: itemForm.status }) });
+    persist(next); setEditingItem(null);
+  };
+  const removeItem = (ownerIdx, itemIdx) => {
+    const next = owners.map((o, i) => i !== ownerIdx ? o : { ...o, items: o.items.filter((_, j) => j !== itemIdx) });
+    persist(next);
+  };
+
+  const teammates = loadTeammates();
+
+  return (
+    <div className="echo-content fade-in">
+      {/* Toolbar */}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 20, flexWrap: "wrap" }}>
+        <input type="date" className="form-input" style={{ width: 160 }} value={date} onChange={e => loadDate(e.target.value)} />
+        <button className="btn btn-primary btn-sm" onClick={() => setAddingOwner(true)}>+ Add Owner</button>
+        {teammates.length > 0 && !addingOwner && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {teammates.filter(t => !owners.some(o => o.name.toLowerCase() === t.name.toLowerCase())).map((t, i) => (
+              <button key={i} className="btn btn-ghost btn-sm"
+                style={{ fontSize: 11 }}
+                onClick={() => persist([...owners, { name: t.name, items: [] }])}
+              >{t.emoji || "👤"} {t.name}</button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {addingOwner && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <input autoFocus className="form-input" style={{ maxWidth: 220 }} placeholder="Owner name…" value={newOwner}
+            onChange={e => setNewOwner(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") addOwner(); if (e.key === "Escape") { setAddingOwner(false); setNewOwner(""); } }} />
+          <button className="btn btn-primary btn-sm" onClick={addOwner}>Add</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setAddingOwner(false); setNewOwner(""); }}>Cancel</button>
+        </div>
+      )}
+
+      {owners.length === 0 && (
+        <div style={{ textAlign: "center", color: T.text3, fontSize: 14, padding: "60px 0" }}>
+          No release entries for {date}.<br />
+          <span style={{ fontSize: 12 }}>Click "+ Add Owner" or use the team quick-add above.</span>
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {owners.map((owner, oi) => (
+          <div key={oi} style={{ background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+            {/* Owner header */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: `${T.accent}08`, borderBottom: `1px solid ${T.border}` }}>
+              <span style={{ fontSize: 16 }}>👤</span>
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.text1 }}>{owner.name}</span>
+              <span style={{ fontSize: 12, color: T.text3 }}>{owner.items.length} item{owner.items.length !== 1 ? "s" : ""}</span>
+              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => startAddItem(oi)}>+ Add</button>
+              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: T.coral }} onClick={() => removeOwner(oi)}>✕</button>
+            </div>
+
+            {/* Items */}
+            <div style={{ padding: "8px 0" }}>
+              {owner.items.length === 0 && addingItemFor !== oi && (
+                <div style={{ padding: "12px 16px", fontSize: 12, color: T.text3, fontStyle: "italic" }}>No items yet. Click "+ Add" to log a ticket or note.</div>
+              )}
+              {owner.items.map((item, ii) => {
+                const rs = RELEASE_STATUSES.find(s => s.key === item.status);
+                const isEditing = editingItem?.ownerIdx === oi && editingItem?.itemIdx === ii;
+                if (isEditing) {
+                  return (
+                    <div key={ii} style={{ padding: "10px 16px", borderBottom: `1px solid ${T.border}`, background: `${T.accent}06` }}>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                        <input className="form-input" style={{ flex: 1 }} placeholder="Ticket / task (e.g. DN-1234)" value={itemForm.ticket}
+                          onChange={e => setItemForm(f => ({ ...f, ticket: e.target.value }))} />
+                        <select className="form-select" style={{ width: 140 }} value={itemForm.status} onChange={e => setItemForm(f => ({ ...f, status: e.target.value }))}>
+                          {RELEASE_STATUSES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
+                        </select>
+                      </div>
+                      <textarea className="form-textarea" style={{ minHeight: 56, marginBottom: 8 }} placeholder="Release note / status detail…"
+                        value={itemForm.note} onChange={e => setItemForm(f => ({ ...f, note: e.target.value }))} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="btn btn-primary btn-sm" onClick={saveEditItem}>Save</button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setEditingItem(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={ii} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 16px", borderBottom: `1px solid ${T.border}` }}>
+                    <span style={{ fontSize: 15, marginTop: 1 }}>{rs?.icon || "📌"}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {item.ticket && <div style={{ fontSize: 12, fontWeight: 600, color: T.text1, marginBottom: 2 }}>{item.ticket}</div>}
+                      {item.note && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.5 }}>{item.note}</div>}
+                    </div>
+                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: `${rs?.color || T.text3}18`, color: rs?.color || T.text3, border: `1px solid ${rs?.color || T.text3}40`, whiteSpace: "nowrap", flexShrink: 0 }}>
+                      {rs?.label || item.status}
+                    </span>
+                    <button className="btn btn-ghost btn-sm" style={{ padding: "1px 6px", fontSize: 11, flexShrink: 0 }} onClick={() => startEditItem(oi, ii)}>✏</button>
+                    <button className="btn btn-ghost btn-sm" style={{ padding: "1px 6px", fontSize: 11, flexShrink: 0, color: T.coral }} onClick={() => removeItem(oi, ii)}>✕</button>
+                  </div>
+                );
+              })}
+
+              {/* Inline add item form */}
+              {addingItemFor === oi && (
+                <div style={{ padding: "10px 16px", background: `${T.accent}06` }}>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                    <input autoFocus className="form-input" style={{ flex: 1 }} placeholder="Ticket / task (e.g. DN-1234 or description)" value={itemForm.ticket}
+                      onChange={e => setItemForm(f => ({ ...f, ticket: e.target.value }))}
+                      onKeyDown={e => e.key === "Enter" && addItem(oi)} />
+                    <select className="form-select" style={{ width: 140 }} value={itemForm.status} onChange={e => setItemForm(f => ({ ...f, status: e.target.value }))}>
+                      {RELEASE_STATUSES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
+                    </select>
+                  </div>
+                  <textarea className="form-textarea" style={{ minHeight: 56, marginBottom: 8 }} placeholder="Release note / status detail…"
+                    value={itemForm.note} onChange={e => setItemForm(f => ({ ...f, note: e.target.value }))} />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => addItem(oi)}>Add Item</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setAddingItemFor(null); setItemForm({ ticket: "", note: "", status: "today" }); }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────────────────────
 const NAV = [
   { id: "dashboard",   label: "Dashboard",      icon: "🏠", section: "Overview" },
@@ -6609,6 +6887,7 @@ const NAV = [
   { id: "commitments", label: "Commitments",     icon: "🤝", dot: T.coral,  section: "Modules" },
   { id: "incidents",   label: "Incident Log",    icon: "🐛", dot: T.coral,  section: "Modules" },
   { id: "decisions",   label: "Decision Log",    icon: "🧠", dot: T.teal,   section: "Modules" },
+  { id: "releases",   label: "Release Status",  icon: "🚀", dot: T.teal,   section: "Modules" },
   { id: "team",        label: "My Team",         icon: "👥", section: "Insights" },
   { id: "brag",        label: "Brag Doc",        icon: "🏆", dot: T.gold,   section: "Insights" },
   { id: "resume",      label: "Shadow Resume",   icon: "📋", dot: T.gold,   section: "Insights" },
@@ -6624,6 +6903,7 @@ const PAGE_META = {
   commitments: { title: "Commitments",     sub: "What you owe and what others owe you — nothing leaks" },
   incidents:   { title: "Incident Log",    sub: "Escaped defects and prod issues — patterns over time" },
   decisions:   { title: "Decision Log",    sub: "Dated record of what was decided and why" },
+  releases:    { title: "Release Status",  sub: "Track team ticket and release status by date" },
   team:        { title: "My Team",         sub: "Saved teammates for quick collaborator selection" },
   brag:        { title: "Brag Doc",        sub: "Your wins, tagged by impact — appraisal evidence on demand" },
   resume:      { title: "Shadow Resume",   sub: "Auto-built from your diary — your work in numbers" },
@@ -6860,6 +7140,7 @@ export default function Echo() {
         {view === "commitments" && <Commitments user={user} />}
         {view === "incidents"   && <IncidentLog user={user} />}
         {view === "decisions"   && <DecisionLog user={user} />}
+        {view === "releases"    && <ReleaseTracker />}
         {view === "team"        && <MyTeam user={user} />}
         {view === "brag"        && <BragDoc />}
         {view === "resume"      && <ShadowResume />}
