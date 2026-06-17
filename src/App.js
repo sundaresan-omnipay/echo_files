@@ -268,6 +268,21 @@ async function callGroq(bullets, knownPeople = []) {
   return parsed;
 }
 
+// Cleans a collaborator value — handles cases where Groq returned an object that got
+// JSON.stringify'd and saved as a literal string like '{"Name":"Ramveer"}'
+const cleanCollab = c => {
+  if (!c || typeof c !== "string") return c ? String(c) : "";
+  const t = c.trim();
+  if (t.startsWith("{") && t.endsWith("}")) {
+    try {
+      const obj = JSON.parse(t);
+      return obj.name || obj.Name || obj.text || obj.item || obj.content || obj.value
+        || Object.values(obj).find(x => typeof x === "string") || t;
+    } catch { return t; }
+  }
+  return t;
+};
+
 // ─── SQL Setup hint (run once in Supabase SQL editor) ───────────────────────
 // CREATE TABLE diary_entries (
 //   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -1513,7 +1528,7 @@ function exportEntryPDF(entry) {
 <div class="meta">
   ${mood ? `<span>${mood.emoji} ${mood.label}</span>` : ""}
   ${getFocusAreas(entry).length ? getFocusAreas(entry).map(f => `<span>📌 ${esc(f)}</span>`).join(" ") : ""}
-  ${(entry.collaborators||[]).length ? `<span>👥 ${entry.collaborators.map(esc).join(", ")}</span>` : ""}
+  ${(entry.collaborators||[]).length ? `<span>👥 ${entry.collaborators.map(c => esc(cleanCollab(c))).join(", ")}</span>` : ""}
 </div>
 ${jiraChips ? `<div class="section-title">JIRAs</div><div>${jiraChips}</div>` : ""}
 ${hasCats
@@ -3358,7 +3373,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
                       {form.collaborators.map(c => (
                         <span key={c} className="tag tag-blue" style={{ cursor: "pointer" }} onClick={() => set("collaborators", form.collaborators.filter(x => x !== c))}>
-                          👤 {c} ✕
+                          👤 {cleanCollab(c)} ✕
                         </span>
                       ))}
                     </div>
@@ -4104,7 +4119,7 @@ function Diary({ onCountChange, user }) {
                   )}
                   {e.collaborators?.length > 0 && (
                     <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
-                      {e.collaborators.slice(0, 4).map(c => <span key={c} className="tag tag-blue">👤 {c}</span>)}
+                      {e.collaborators.slice(0, 4).map(c => <span key={c} className="tag tag-blue">👤 {cleanCollab(c)}</span>)}
                       {e.collaborators.length > 4 && <span className="tag tag-blue">+{e.collaborators.length - 4}</span>}
                     </div>
                   )}
@@ -4155,7 +4170,7 @@ function Diary({ onCountChange, user }) {
                         <a key={l} href={l.startsWith("http") ? l : `#`} target="_blank" rel="noreferrer"
                           className="ticket-chip" style={{ textDecoration: "none" }}>{l}</a>
                       ))}
-                      {viewEntry.collaborators?.map(c => <span key={c} className="tag tag-blue">👤 {c}</span>)}
+                      {viewEntry.collaborators?.map(c => <span key={c} className="tag tag-blue">👤 {cleanCollab(c)}</span>)}
                       {viewEntry.tags?.map(t => <span key={t} className="tag tag-teal">{t}</span>)}
                     </div>
                   )}
