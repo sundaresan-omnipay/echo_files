@@ -4114,7 +4114,10 @@ function Diary({ onCountChange, user }) {
                   )}
                   {e.jira_links?.length > 0 && (
                     <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
-                      {e.jira_links.map(l => <span key={l} className="ticket-chip">{l}</span>)}
+                      {e.jira_links.map(l => l.startsWith("http")
+                        ? <a key={l} href={l} target="_blank" rel="noreferrer" className="ticket-chip" style={{ textDecoration: "none" }} onClick={ev => ev.stopPropagation()}>{l.replace(/.*\/browse\//, "")}</a>
+                        : <span key={l} className="ticket-chip">{l}</span>
+                      )}
                     </div>
                   )}
                   {e.collaborators?.length > 0 && (
@@ -4164,12 +4167,21 @@ function Diary({ onCountChange, user }) {
                       {MOODS.find(m => m.key === viewEntry.mood)?.emoji} {MOODS.find(m => m.key === viewEntry.mood)?.label}
                     </span>
                   )}
-                  {(viewEntry.jira_links?.length > 0 || viewEntry.collaborators?.length > 0 || viewEntry.tags?.length > 0) && (
+                  {viewEntry.jira_links?.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, color: T.text3, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 6 }}>🎫 JIRA Tickets</div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {viewEntry.jira_links.map(l => l.startsWith("http")
+                          ? <a key={l} href={l} target="_blank" rel="noreferrer" className="ticket-chip" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}>
+                              <span>🔗</span>{l.replace(/.*\/browse\//, "")}
+                            </a>
+                          : <span key={l} className="ticket-chip">{l}</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {(viewEntry.collaborators?.length > 0 || viewEntry.tags?.length > 0) && (
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {viewEntry.jira_links?.map(l => (
-                        <a key={l} href={l.startsWith("http") ? l : `#`} target="_blank" rel="noreferrer"
-                          className="ticket-chip" style={{ textDecoration: "none" }}>{l}</a>
-                      ))}
                       {viewEntry.collaborators?.map(c => <span key={c} className="tag tag-blue">👤 {cleanCollab(c)}</span>)}
                       {viewEntry.tags?.map(t => <span key={t} className="tag tag-teal">{t}</span>)}
                     </div>
@@ -6594,7 +6606,7 @@ const PAGE_META = {
 
 export default function Echo() {
   useEffect(() => { injectStyles(); }, []);
-  const [view, setView]               = useState("dashboard");
+  const [view, setView]               = useState(() => localStorage.getItem("echo_view") || "dashboard");
   const [diaryCount, setDiaryCount]   = useState(0);
   const [docCount, setDocCount]       = useState(0);
   const [user, setUser]               = useState(null);
@@ -6604,6 +6616,10 @@ export default function Echo() {
   const [padOpen, setPadOpen]                 = useState(false);
   const [showPatternInterrupt, setShowPatternInterrupt] = useState(false);
   const [sidebarOpen, setSidebarOpen]         = useState(false);
+  const [profileOpen, setProfileOpen]         = useState(false);
+  const [displayName, setDisplayName]         = useState(() => localStorage.getItem("echo_display_name") || "");
+  const [avatarData, setAvatarData]           = useState(() => localStorage.getItem("echo_avatar") || "");
+  const [profileDraft, setProfileDraft]       = useState({ name: "", avatar: "" });
 
   useEffect(() => {
     db.auth.getUser().then(u => {
@@ -6611,6 +6627,8 @@ export default function Echo() {
       setAuthLoading(false);
     }).catch(() => setAuthLoading(false));
   }, []);
+
+  useEffect(() => { localStorage.setItem("echo_view", view); }, [view]);
 
   useEffect(() => {
     if (!user) return;
@@ -6662,9 +6680,30 @@ export default function Echo() {
     return () => clearInterval(id);
   }, [reminderEnabled, reminderTime]);
 
+  const openProfile = () => {
+    setProfileDraft({ name: displayName, avatar: avatarData });
+    setProfileOpen(true);
+  };
+  const saveProfile = () => {
+    setDisplayName(profileDraft.name);
+    setAvatarData(profileDraft.avatar);
+    localStorage.setItem("echo_display_name", profileDraft.name);
+    if (profileDraft.avatar) localStorage.setItem("echo_avatar", profileDraft.avatar);
+    else localStorage.removeItem("echo_avatar");
+    setProfileOpen(false);
+  };
+  const handleAvatarFile = e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => setProfileDraft(d => ({ ...d, avatar: ev.target.result }));
+    reader.readAsDataURL(file);
+  };
+
   const logout = async () => {
     await db.auth.signOut();
     setUser(null);
+    localStorage.removeItem("echo_view");
     setView("dashboard");
     setDiaryCount(0);
     setDocCount(0);
@@ -6714,8 +6753,21 @@ export default function Echo() {
         </nav>
 
         <div className="echo-sidebar-footer">
-          <div style={{ fontSize: 11, color: T.text3, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</div>
-          {isOwner && <div style={{ fontSize: 10, color: T.teal, marginBottom: 6 }}>Owner</div>}
+          <div onClick={openProfile} style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", padding: "6px 8px", borderRadius: 8, marginBottom: 4, transition: "background 0.15s" }}
+            onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${T.accent}30`, border: `1.5px solid ${T.accent}50`, flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {avatarData
+                ? <img src={avatarData} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                : <span style={{ fontSize: 13, color: T.accent, fontWeight: 700 }}>{(displayName || user.email || "?")[0].toUpperCase()}</span>
+              }
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName || user.email.split("@")[0]}</div>
+              <div style={{ fontSize: 10, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</div>
+            </div>
+          </div>
+          {isOwner && <div style={{ fontSize: 10, color: T.teal, marginBottom: 4, paddingLeft: 8 }}>Owner</div>}
 
           {/* End-of-day reminder */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 0", borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}`, marginBottom: 8 }}>
@@ -6798,6 +6850,50 @@ export default function Echo() {
 
       {/* ── Floating Scratch Pad ── */}
       {padOpen && <ScratchPad onClose={() => setPadOpen(false)} user={user} />}
+
+      {/* ── Profile Modal ── */}
+      {profileOpen && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setProfileOpen(false)}
+          style={{ zIndex: 10001 }}>
+          <div className="modal-box" style={{ maxWidth: 380, width: "90%" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Edit Profile</div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setProfileOpen(false)}>✕</button>
+            </div>
+            {/* Avatar */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginBottom: 20 }}>
+              <label htmlFor="avatar-upload" style={{ cursor: "pointer", position: "relative" }}>
+                <div style={{ width: 80, height: 80, borderRadius: "50%", background: `${T.accent}25`, border: `2px solid ${T.accent}50`, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {profileDraft.avatar
+                    ? <img src={profileDraft.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    : <span style={{ fontSize: 28, color: T.accent, fontWeight: 700 }}>{(profileDraft.name || user.email || "?")[0].toUpperCase()}</span>
+                  }
+                </div>
+                <div style={{ position: "absolute", bottom: 0, right: 0, width: 24, height: 24, borderRadius: "50%", background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>📷</div>
+              </label>
+              <input id="avatar-upload" type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarFile} />
+              <div style={{ fontSize: 11, color: T.text3 }}>Click to upload photo</div>
+              {profileDraft.avatar && (
+                <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, color: T.coral }} onClick={() => setProfileDraft(d => ({ ...d, avatar: "" }))}>Remove photo</button>
+              )}
+            </div>
+            {/* Display name */}
+            <div style={{ marginBottom: 14 }}>
+              <div className="diary-section-heading" style={{ marginBottom: 6 }}>Display name</div>
+              <input className="form-input" placeholder="Your name (shown in sidebar)"
+                value={profileDraft.name}
+                onChange={e => setProfileDraft(d => ({ ...d, name: e.target.value }))} />
+            </div>
+            {/* Email (read-only) */}
+            <div style={{ marginBottom: 20 }}>
+              <div className="diary-section-heading" style={{ marginBottom: 6 }}>Email</div>
+              <input className="form-input" value={user.email} readOnly style={{ opacity: 0.5, cursor: "not-allowed" }} />
+            </div>
+            <button className="btn btn-primary" style={{ width: "100%" }} onClick={saveProfile}>Save Profile</button>
+          </div>
+        </div>
+      )}
+
       <button
         onClick={() => setPadOpen(o => !o)}
         title="Scratch Pad"
