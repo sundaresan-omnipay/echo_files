@@ -283,6 +283,17 @@ const cleanCollab = c => {
   return t;
 };
 
+// Renders text with URLs as clickable <a> links (used in diary view modal content)
+const linkify = (text) => {
+  if (!text) return null;
+  const parts = text.split(/(https?:\/\/\S+)/g);
+  return parts.map((part, i) =>
+    /^https?:\/\//.test(part)
+      ? <a key={i} href={part} target="_blank" rel="noreferrer" style={{ color: T.accent2, wordBreak: "break-all" }}>{part}</a>
+      : part
+  );
+};
+
 // ─── SQL Setup hint (run once in Supabase SQL editor) ───────────────────────
 // CREATE TABLE diary_entries (
 //   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -3009,8 +3020,9 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
           collaborators,
         };
         setForm(updatedForm);
-        // Auto-save silently after categorisation
-        if (onAutoSave) {
+        // Auto-save silently after categorisation — only for existing entries (form.id exists).
+        // New entries have no id yet; calling onAutoSave without an id does an INSERT each time, creating duplicates.
+        if (onAutoSave && updatedForm.id) {
           await onAutoSave({ ...updatedForm, title: fmtDate(updatedForm.date), focus_area: (updatedForm.focus_areas || [])[0] || updatedForm.focus_area || "" });
         }
       }
@@ -3973,6 +3985,17 @@ function Diary({ onCountChange, user }) {
   }, [user]);
 
   const save = async (form) => {
+    // Auto-extract any JIRA/ticket URLs typed into the content field and merge into jira_links
+    const urlsInContent = ((form.content || "").match(/https?:\/\/\S+\/browse\/[A-Z]+-\d+/gi) || []);
+    if (urlsInContent.length) {
+      const merged = [...new Set([...(form.jira_links || []), ...urlsInContent])];
+      form = { ...form, jira_links: merged };
+    }
+    // Dedup collaborators before saving (case-insensitive, also handles stale JSON-object strings)
+    if (form.collaborators?.length) {
+      const seen = new Set();
+      form = { ...form, collaborators: form.collaborators.map(cleanCollab).filter(v => { const k = v.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }) };
+    }
     const doSave = async (data) => {
       if (data.id) {
         const { id, ...rest } = data;
@@ -4120,12 +4143,15 @@ function Diary({ onCountChange, user }) {
                       )}
                     </div>
                   )}
-                  {e.collaborators?.length > 0 && (
-                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
-                      {e.collaborators.slice(0, 4).map(c => <span key={c} className="tag tag-blue">👤 {cleanCollab(c)}</span>)}
-                      {e.collaborators.length > 4 && <span className="tag tag-blue">+{e.collaborators.length - 4}</span>}
-                    </div>
-                  )}
+                  {e.collaborators?.length > 0 && (() => {
+                    const uniq = [...new Set((e.collaborators || []).map(cleanCollab).filter(Boolean))];
+                    return (
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
+                        {uniq.slice(0, 4).map(c => <span key={c} className="tag tag-blue">👤 {c}</span>)}
+                        {uniq.length > 4 && <span className="tag tag-blue">+{uniq.length - 4}</span>}
+                      </div>
+                    );
+                  })()}
                   {e.tags?.length > 0 && (
                     <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                       {e.tags.map(t => <span key={t} className="tag tag-teal">{t}</span>)}
@@ -4167,22 +4193,9 @@ function Diary({ onCountChange, user }) {
                       {MOODS.find(m => m.key === viewEntry.mood)?.emoji} {MOODS.find(m => m.key === viewEntry.mood)?.label}
                     </span>
                   )}
-                  {viewEntry.jira_links?.length > 0 && (
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ fontSize: 11, color: T.text3, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 6 }}>🎫 JIRA Tickets</div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {viewEntry.jira_links.map(l => l.startsWith("http")
-                          ? <a key={l} href={l} target="_blank" rel="noreferrer" className="ticket-chip" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}>
-                              <span>🔗</span>{l.replace(/.*\/browse\//, "")}
-                            </a>
-                          : <span key={l} className="ticket-chip">{l}</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
                   {(viewEntry.collaborators?.length > 0 || viewEntry.tags?.length > 0) && (
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {viewEntry.collaborators?.map(c => <span key={c} className="tag tag-blue">👤 {cleanCollab(c)}</span>)}
+                      {[...new Set((viewEntry.collaborators || []).map(cleanCollab).filter(Boolean))].map(c => <span key={c} className="tag tag-blue">👤 {c}</span>)}
                       {viewEntry.tags?.map(t => <span key={t} className="tag tag-teal">{t}</span>)}
                     </div>
                   )}
@@ -4191,11 +4204,26 @@ function Diary({ onCountChange, user }) {
               <button className="btn btn-ghost btn-sm" onClick={() => setViewEntry(null)}>✕</button>
             </div>
 
+            {/* JIRA Tickets — dedicated section, separate from header */}
+            {viewEntry.jira_links?.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div className="diary-section-heading">🎫 JIRA Tickets</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {viewEntry.jira_links.map(l => l.startsWith("http")
+                    ? <a key={l} href={l} target="_blank" rel="noreferrer" className="ticket-chip" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        🔗 {l.replace(/.*\/browse\//, "")}
+                      </a>
+                    : <span key={l} className="ticket-chip">{l}</span>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* What I Did */}
             {viewEntry.content && (
               <div style={{ marginBottom: 18 }}>
                 <div className="diary-section-heading">What I Did</div>
-                <div style={{ fontSize: 14, color: T.text2, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{viewEntry.content}</div>
+                <div style={{ fontSize: 14, color: T.text2, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{linkify(viewEntry.content)}</div>
               </div>
             )}
 
