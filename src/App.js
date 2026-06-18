@@ -301,7 +301,7 @@ const linkify = (text) => {
   const parts = text.split(/(https?:\/\/\S+)/g);
   return parts.map((part, i) =>
     /^https?:\/\//.test(part)
-      ? <a key={i} href={part} target="_blank" rel="noreferrer" style={{ color: T.accent2, wordBreak: "break-all" }}>{part}</a>
+      ? <a key={i} href={part} target="_blank" rel="noreferrer" style={{ color: T.accent, wordBreak: "break-all" }}>{part}</a>
       : part
   );
 };
@@ -1446,13 +1446,14 @@ const ATT_STATUSES = [
 const attColor = (k) => ATT_STATUSES.find(s => s.key === k)?.color || T.text3;
 
 const RELEASE_STATUSES = [
-  { key: "released", label: "Released",   icon: "✅", color: "#4CAF50" },
-  { key: "today",    label: "Today",      icon: "🚀", color: T.teal    },
-  { key: "review",   label: "In Review",  icon: "🔄", color: T.accent  },
-  { key: "eta",      label: "ETA Pending",icon: "⏳", color: T.amber   },
-  { key: "nextweek", label: "Next Week",  icon: "📅", color: T.text2   },
-  { key: "blocked",  label: "Blocked",    icon: "🔴", color: T.coral   },
-  { key: "leave",    label: "On Leave",   icon: "🏖️", color: T.text3   },
+  { key: "released", label: "Released",    icon: "✅", color: "#4CAF50" },
+  { key: "today",    label: "Today",       icon: "🚀", color: T.teal    },
+  { key: "tomorrow", label: "Tomorrow",    icon: "🌅", color: "#7B6EF6" },
+  { key: "review",   label: "In Review",   icon: "🔄", color: T.accent  },
+  { key: "eta",      label: "ETA Pending", icon: "⏳", color: T.amber   },
+  { key: "nextweek", label: "Next Week",   icon: "🗓️", color: T.text2   },
+  { key: "blocked",  label: "Blocked",     icon: "🔴", color: T.coral   },
+  { key: "leave",    label: "On Leave",    icon: "🏖️", color: T.text3   },
 ];
 
 const statusColor   = (s) => TEAM_STATUSES.find(x => x.key === s)?.color   || T.text3;
@@ -2603,7 +2604,7 @@ function OneOnOneModal({ teammate, user, onClose }) {
       zIndex: 1000, padding: 20,
     }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{
-        background: T.navy1, border: `1px solid ${T.border2}`,
+        background: T.navy1, border: `1px solid ${T.borderHover}`,
         borderRadius: 16, width: "100%", maxWidth: 980, maxHeight: "90vh",
         display: "flex", flexDirection: "column", overflow: "hidden",
       }}>
@@ -5953,7 +5954,7 @@ function Resolve({ user }) {
         <div style={{ position: "fixed", inset: 0, background: "rgba(5,8,16,0.82)",
           backdropFilter: "blur(8px)", zIndex: 1000,
           display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div style={{ background: T.navy2, border: `1px solid ${T.border2}`,
+          <div style={{ background: T.navy2, border: `1px solid ${T.borderHover}`,
             borderRadius: 20, padding: "36px 36px 32px", width: "100%", maxWidth: 400 }}>
             <div style={{ fontSize: 18, fontFamily: "'Syne', sans-serif",
               fontWeight: 700, color: T.text1, marginBottom: 4 }}>Break a habit</div>
@@ -6733,12 +6734,19 @@ function ReleaseTracker() {
   const [owners, setOwners] = useState(() => getReleaseDay(today()));
   const [addingOwner, setAddingOwner] = useState(false);
   const [newOwner, setNewOwner] = useState("");
-  const [editingItem, setEditingItem] = useState(null); // {ownerIdx, itemIdx}
+  const [editingItem, setEditingItem] = useState(null);
   const [itemForm, setItemForm] = useState({ ticket: "", note: "", status: "today" });
-  const [addingItemFor, setAddingItemFor] = useState(null); // ownerIdx
+  const [addingItemFor, setAddingItemFor] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   const loadDate = (d) => { setDate(d); setOwners(getReleaseDay(d)); setAddingOwner(false); setAddingItemFor(null); setEditingItem(null); };
   const persist = (next) => { setOwners(next); saveReleaseDay(date, next); };
+
+  const shiftDate = (days) => {
+    const d = new Date(date + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    loadDate(d.toISOString().slice(0, 10));
+  };
 
   const addOwner = () => {
     const name = newOwner.trim();
@@ -6747,7 +6755,7 @@ function ReleaseTracker() {
     persist([...owners, { name, items: [] }]);
     setNewOwner(""); setAddingOwner(false);
   };
-  const removeOwner = (idx) => { if (!window.confirm("Remove this owner's entries?")) return; persist(owners.filter((_, i) => i !== idx)); };
+  const removeOwner = (idx) => { if (!window.confirm("Remove this owner?")) return; persist(owners.filter((_, i) => i !== idx)); };
 
   const startAddItem = (ownerIdx) => { setAddingItemFor(ownerIdx); setEditingItem(null); setItemForm({ ticket: "", note: "", status: "today" }); };
   const addItem = (ownerIdx) => {
@@ -6770,30 +6778,131 @@ function ReleaseTracker() {
     const next = owners.map((o, i) => i !== ownerIdx ? o : { ...o, items: o.items.filter((_, j) => j !== itemIdx) });
     persist(next);
   };
+  const cycleStatus = (ownerIdx, itemIdx) => {
+    const keys = RELEASE_STATUSES.map(s => s.key);
+    const cur = owners[ownerIdx].items[itemIdx].status || "today";
+    const nextKey = keys[(keys.indexOf(cur) + 1) % keys.length];
+    const updated = owners.map((o, i) => i !== ownerIdx ? o : { ...o, items: o.items.map((it, j) => j !== itemIdx ? it : { ...it, status: nextKey }) });
+    persist(updated);
+  };
+
+  const allItems = owners.flatMap(o => o.items);
+  const stats = RELEASE_STATUSES.map(s => ({ ...s, count: allItems.filter(i => i.status === s.key).length })).filter(s => s.count > 0);
+
+  const displayDate = (() => {
+    const t = today();
+    const tom = new Date(t + "T00:00:00"); tom.setDate(tom.getDate() + 1);
+    const yest = new Date(t + "T00:00:00"); yest.setDate(yest.getDate() - 1);
+    if (date === t) return "Today";
+    if (date === tom.toISOString().slice(0, 10)) return "Tomorrow";
+    if (date === yest.toISOString().slice(0, 10)) return "Yesterday";
+    return new Date(date + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  })();
+
+  const copyReport = () => {
+    const dateLabel = new Date(date + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    let lines = [`📊 Release Status — ${dateLabel}`, ""];
+    if (owners.length === 0) {
+      lines.push("No entries.");
+    } else {
+      owners.forEach(o => {
+        lines.push(`👤 ${o.name}`);
+        if (o.items.length === 0) { lines.push("   (no items)"); }
+        else { o.items.forEach(it => { const rs = RELEASE_STATUSES.find(s => s.key === it.status); const desc = [it.ticket, it.note].filter(Boolean).join(" — "); lines.push(`   ${rs?.icon || "•"} ${desc}  [${rs?.label || it.status}]`); }); }
+        lines.push("");
+      });
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); });
+  };
 
   const teammates = loadTeammates();
+  const unaddedTeammates = teammates.filter(t => !owners.some(o => o.name.toLowerCase() === t.name.toLowerCase()));
+
+  const ownerAccent = (items) => {
+    if (items.some(i => i.status === "blocked")) return T.coral;
+    if (items.some(i => i.status === "eta")) return T.amber;
+    if (items.some(i => i.status === "review" || i.status === "today" || i.status === "tomorrow")) return T.accent;
+    if (items.every(i => i.status === "released")) return "#4CAF50";
+    if (items.length === 0) return T.borderHover;
+    return T.text3;
+  };
 
   return (
     <div className="echo-content fade-in">
-      {/* Toolbar */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 20, flexWrap: "wrap" }}>
-        <input type="date" className="form-input" style={{ width: 160 }} value={date} onChange={e => loadDate(e.target.value)} />
-        <button className="btn btn-primary btn-sm" onClick={() => setAddingOwner(true)}>+ Add Owner</button>
-        {teammates.length > 0 && !addingOwner && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {teammates.filter(t => !owners.some(o => o.name.toLowerCase() === t.name.toLowerCase())).map((t, i) => (
-              <button key={i} className="btn btn-ghost btn-sm"
-                style={{ fontSize: 11 }}
-                onClick={() => persist([...owners, { name: t.name, items: [] }])}
-              >{t.emoji || "👤"} {t.name}</button>
-            ))}
+
+      {/* ── Top bar: date nav + copy button ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
+        {/* Date navigator */}
+        <div style={{ display: "flex", alignItems: "center", background: T.bg3, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+          <button onClick={() => shiftDate(-1)}
+            style={{ padding: "8px 13px", background: "none", border: "none", borderRight: `1px solid ${T.border}`, color: T.text2, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>‹</button>
+          <div style={{ position: "relative" }}>
+            <input type="date" value={date} onChange={e => loadDate(e.target.value)}
+              style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
+            <div style={{ padding: "8px 18px", fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif", minWidth: 130, textAlign: "center", userSelect: "none" }}>
+              {(displayDate === "Today" || displayDate === "Tomorrow" || displayDate === "Yesterday")
+                ? <><span style={{ color: T.accent }}>{displayDate}</span><span style={{ color: T.text3, fontWeight: 400, fontSize: 11, marginLeft: 6 }}>{new Date(date + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span></>
+                : displayDate}
+            </div>
           </div>
-        )}
+          <button onClick={() => shiftDate(1)}
+            style={{ padding: "8px 13px", background: "none", border: "none", borderLeft: `1px solid ${T.border}`, color: T.text2, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>›</button>
+        </div>
+
+        {/* Quick date chips */}
+        {[["Yesterday", -1], ["Today", 0], ["Tomorrow", 1]].map(([label, offset]) => {
+          const d = new Date(today() + "T00:00:00"); d.setDate(d.getDate() + offset);
+          const ds = d.toISOString().slice(0, 10);
+          const active = date === ds;
+          return (
+            <button key={label} onClick={() => loadDate(ds)} style={{ padding: "6px 13px", fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: "pointer", transition: "all 0.15s", fontFamily: "'DM Sans', sans-serif", background: active ? T.accent : "transparent", color: active ? "#fff" : T.text3, border: `1px solid ${active ? T.accent : T.border}` }}>
+              {label}
+            </button>
+          );
+        })}
+
+        <div style={{ flex: 1 }} />
+
+        {/* Copy report */}
+        <button onClick={copyReport} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s", background: copied ? "#4CAF5018" : T.bg3, color: copied ? "#4CAF50" : T.text1, border: `1px solid ${copied ? "#4CAF5050" : T.borderHover}` }}>
+          <span style={{ fontSize: 14 }}>{copied ? "✓" : "📋"}</span>
+          {copied ? "Copied to clipboard!" : "Copy Report"}
+        </button>
       </div>
 
+      {/* ── Summary stats strip ── */}
+      {stats.length > 0 && (
+        <div style={{ display: "flex", gap: 7, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+          {stats.map(s => (
+            <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 11px", borderRadius: 20, background: `${s.color}14`, border: `1px solid ${s.color}28`, fontSize: 11, color: s.color, fontWeight: 600 }}>
+              {s.icon} {s.label} <span style={{ opacity: 0.65 }}>· {s.count}</span>
+            </div>
+          ))}
+          <span style={{ marginLeft: "auto", fontSize: 11, color: T.text3 }}>{allItems.length} item{allItems.length !== 1 ? "s" : ""} · {owners.length} owner{owners.length !== 1 ? "s" : ""}</span>
+        </div>
+      )}
+
+      {/* ── Teammate quick-add bar ── */}
+      {(unaddedTeammates.length > 0 || owners.length === 0) && (
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 18, alignItems: "center", padding: "10px 14px", background: T.bg2, borderRadius: 10, border: `1px solid ${T.border}` }}>
+          <span style={{ fontSize: 11, color: T.text3, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>Add owner</span>
+          {unaddedTeammates.map((t, i) => (
+            <button key={i} onClick={() => persist([...owners, { name: t.name, items: [] }])}
+              style={{ padding: "4px 11px", fontSize: 12, borderRadius: 16, cursor: "pointer", background: "transparent", color: T.text2, border: `1px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s" }}>
+              {t.emoji || "👤"} {t.name}
+            </button>
+          ))}
+          <button onClick={() => setAddingOwner(v => !v)}
+            style={{ padding: "4px 11px", fontSize: 12, borderRadius: 16, cursor: "pointer", background: addingOwner ? T.bg3 : T.accent, color: addingOwner ? T.text2 : "#fff", border: "none", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>
+            {addingOwner ? "Cancel" : "+ Custom"}
+          </button>
+        </div>
+      )}
+
+      {/* Custom owner input */}
       {addingOwner && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          <input autoFocus className="form-input" style={{ maxWidth: 220 }} placeholder="Owner name…" value={newOwner}
+          <input autoFocus className="form-input" style={{ maxWidth: 240 }} placeholder="Enter owner name…" value={newOwner}
             onChange={e => setNewOwner(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") addOwner(); if (e.key === "Escape") { setAddingOwner(false); setNewOwner(""); } }} />
           <button className="btn btn-primary btn-sm" onClick={addOwner}>Add</button>
@@ -6801,44 +6910,61 @@ function ReleaseTracker() {
         </div>
       )}
 
-      {owners.length === 0 && (
-        <div style={{ textAlign: "center", color: T.text3, fontSize: 14, padding: "60px 0" }}>
-          No release entries for {date}.<br />
-          <span style={{ fontSize: 12 }}>Click "+ Add Owner" or use the team quick-add above.</span>
+      {/* Empty state */}
+      {owners.length === 0 && !addingOwner && (
+        <div style={{ textAlign: "center", color: T.text3, fontSize: 14, padding: "56px 24px", background: T.bg2, borderRadius: 12, border: `1px dashed ${T.borderHover}` }}>
+          <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
+          <div style={{ fontWeight: 600, color: T.text2, marginBottom: 4 }}>No entries for {displayDate}</div>
+          <div style={{ fontSize: 12 }}>Add owners above to start logging release status.</div>
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {owners.map((owner, oi) => (
-          <div key={oi} style={{ background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
-            {/* Owner header */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: `${T.accent}08`, borderBottom: `1px solid ${T.border}` }}>
-              <span style={{ fontSize: 16 }}>👤</span>
-              <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.text1 }}>{owner.name}</span>
-              <span style={{ fontSize: 12, color: T.text3 }}>{owner.items.length} item{owner.items.length !== 1 ? "s" : ""}</span>
-              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => startAddItem(oi)}>+ Add</button>
-              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: T.coral }} onClick={() => removeOwner(oi)}>✕</button>
-            </div>
+      {/* ── Owner cards ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {owners.map((owner, oi) => {
+          const accent = ownerAccent(owner.items);
+          const tmMeta = teammates.find(t => t.name === owner.name);
+          return (
+            <div key={oi} style={{ background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", borderLeft: `3px solid ${accent}` }}>
 
-            {/* Items */}
-            <div style={{ padding: "8px 0" }}>
-              {owner.items.length === 0 && addingItemFor !== oi && (
-                <div style={{ padding: "12px 16px", fontSize: 12, color: T.text3, fontStyle: "italic" }}>No items yet. Click "+ Add" to log a ticket or note.</div>
-              )}
+              {/* Owner header */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderBottom: (owner.items.length > 0 || addingItemFor === oi) ? `1px solid ${T.border}` : "none" }}>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: `${accent}1a`, border: `1.5px solid ${accent}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>
+                  {tmMeta?.emoji || "👤"}
+                </div>
+                <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>{owner.name}</span>
+                {/* Status mini-pills */}
+                <div style={{ display: "flex", gap: 4 }}>
+                  {RELEASE_STATUSES.filter(s => owner.items.some(i => i.status === s.key)).map(s => (
+                    <span key={s.key} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: `${s.color}18`, color: s.color, border: `1px solid ${s.color}28`, fontWeight: 700 }}>
+                      {s.icon} {owner.items.filter(i => i.status === s.key).length}
+                    </span>
+                  ))}
+                </div>
+                <button onClick={() => startAddItem(oi)}
+                  style={{ padding: "5px 11px", fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: "pointer", background: T.bg3, color: T.accent, border: `1px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif" }}>
+                  + Add
+                </button>
+                <button onClick={() => removeOwner(oi)}
+                  style={{ padding: "5px 8px", fontSize: 12, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text3, border: "none" }}>✕</button>
+              </div>
+
+              {/* Items list */}
               {owner.items.map((item, ii) => {
                 const rs = RELEASE_STATUSES.find(s => s.key === item.status);
                 const isEditing = editingItem?.ownerIdx === oi && editingItem?.itemIdx === ii;
                 if (isEditing) {
                   return (
-                    <div key={ii} style={{ padding: "10px 16px", borderBottom: `1px solid ${T.border}`, background: `${T.accent}06` }}>
+                    <div key={ii} style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, background: `${T.accent}07` }}>
                       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                        <input className="form-input" style={{ flex: 1 }} placeholder="Ticket / task (e.g. DN-1234)" value={itemForm.ticket}
-                          onChange={e => setItemForm(f => ({ ...f, ticket: e.target.value }))} />
-                        <select className="form-select" style={{ width: 140 }} value={itemForm.status} onChange={e => setItemForm(f => ({ ...f, status: e.target.value }))}>
+                        <input className="form-input" style={{ flex: 1 }} placeholder="Ticket / task name" value={itemForm.ticket}
+                          onChange={e => setItemForm(f => ({ ...f, ticket: e.target.value }))}
+                          onKeyDown={e => e.key === "Enter" && saveEditItem()} />
+                        <select className="form-select" style={{ width: 150 }} value={itemForm.status} onChange={e => setItemForm(f => ({ ...f, status: e.target.value }))}>
                           {RELEASE_STATUSES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
                         </select>
                       </div>
-                      <textarea className="form-textarea" style={{ minHeight: 56, marginBottom: 8 }} placeholder="Release note / status detail…"
+                      <textarea className="form-textarea" style={{ minHeight: 50, marginBottom: 8 }} placeholder="Release note / detail… (optional)"
                         value={itemForm.note} onChange={e => setItemForm(f => ({ ...f, note: e.target.value }))} />
                       <div style={{ display: "flex", gap: 8 }}>
                         <button className="btn btn-primary btn-sm" onClick={saveEditItem}>Save</button>
@@ -6848,33 +6974,51 @@ function ReleaseTracker() {
                   );
                 }
                 return (
-                  <div key={ii} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 16px", borderBottom: `1px solid ${T.border}` }}>
-                    <span style={{ fontSize: 15, marginTop: 1 }}>{rs?.icon || "📌"}</span>
+                  <div key={ii}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderBottom: `1px solid ${T.border}`, transition: "background 0.12s" }}
+                    onMouseEnter={e => e.currentTarget.style.background = `${T.accent}06`}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    {/* Clickable status badge to cycle */}
+                    <button onClick={() => cycleStatus(oi, ii)} title="Click to change status"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", background: `${rs?.color || T.text3}18`, color: rs?.color || T.text3, border: `1px solid ${rs?.color || T.text3}30` }}>
+                      {rs?.icon} {rs?.label || item.status}
+                    </button>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      {item.ticket && <div style={{ fontSize: 12, fontWeight: 600, color: T.text1, marginBottom: 2 }}>{item.ticket}</div>}
-                      {item.note && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.5 }}>{item.note}</div>}
+                      {item.ticket && <div style={{ fontSize: 13, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.ticket}</div>}
+                      {item.note && <div style={{ fontSize: 11, color: T.text3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.note}</div>}
                     </div>
-                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: `${rs?.color || T.text3}18`, color: rs?.color || T.text3, border: `1px solid ${rs?.color || T.text3}40`, whiteSpace: "nowrap", flexShrink: 0 }}>
-                      {rs?.label || item.status}
-                    </span>
-                    <button className="btn btn-ghost btn-sm" style={{ padding: "1px 6px", fontSize: 11, flexShrink: 0 }} onClick={() => startEditItem(oi, ii)}>✏</button>
-                    <button className="btn btn-ghost btn-sm" style={{ padding: "1px 6px", fontSize: 11, flexShrink: 0, color: T.coral }} onClick={() => removeItem(oi, ii)}>✕</button>
+                    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                      <button onClick={() => startEditItem(oi, ii)}
+                        style={{ padding: "3px 8px", fontSize: 11, borderRadius: 5, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>✏</button>
+                      <button onClick={() => removeItem(oi, ii)}
+                        style={{ padding: "3px 8px", fontSize: 11, borderRadius: 5, cursor: "pointer", background: "transparent", color: T.coral, border: `1px solid ${T.border}` }}>✕</button>
+                    </div>
                   </div>
                 );
               })}
 
-              {/* Inline add item form */}
+              {/* Empty card state */}
+              {owner.items.length === 0 && addingItemFor !== oi && (
+                <div onClick={() => startAddItem(oi)}
+                  style={{ padding: "14px 16px", fontSize: 12, color: T.text3, cursor: "pointer", textAlign: "center", fontStyle: "italic", transition: "color 0.15s" }}
+                  onMouseEnter={e => e.currentTarget.style.color = T.accent}
+                  onMouseLeave={e => e.currentTarget.style.color = T.text3}>
+                  Click to add first item
+                </div>
+              )}
+
+              {/* Inline add form */}
               {addingItemFor === oi && (
-                <div style={{ padding: "10px 16px", background: `${T.accent}06` }}>
+                <div style={{ padding: "12px 16px", background: `${T.accent}07`, borderTop: `1px solid ${T.border}` }}>
                   <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                    <input autoFocus className="form-input" style={{ flex: 1 }} placeholder="Ticket / task (e.g. DN-1234 or description)" value={itemForm.ticket}
-                      onChange={e => setItemForm(f => ({ ...f, ticket: e.target.value }))}
+                    <input autoFocus className="form-input" style={{ flex: 1 }} placeholder="Ticket / task (e.g. DN-1234)"
+                      value={itemForm.ticket} onChange={e => setItemForm(f => ({ ...f, ticket: e.target.value }))}
                       onKeyDown={e => e.key === "Enter" && addItem(oi)} />
-                    <select className="form-select" style={{ width: 140 }} value={itemForm.status} onChange={e => setItemForm(f => ({ ...f, status: e.target.value }))}>
+                    <select className="form-select" style={{ width: 150 }} value={itemForm.status} onChange={e => setItemForm(f => ({ ...f, status: e.target.value }))}>
                       {RELEASE_STATUSES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
                     </select>
                   </div>
-                  <textarea className="form-textarea" style={{ minHeight: 56, marginBottom: 8 }} placeholder="Release note / status detail…"
+                  <textarea className="form-textarea" style={{ minHeight: 50, marginBottom: 8 }} placeholder="Release note / detail… (optional)"
                     value={itemForm.note} onChange={e => setItemForm(f => ({ ...f, note: e.target.value }))} />
                   <div style={{ display: "flex", gap: 8 }}>
                     <button className="btn btn-primary btn-sm" onClick={() => addItem(oi)}>Add Item</button>
@@ -6883,8 +7027,8 @@ function ReleaseTracker() {
                 </div>
               )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
