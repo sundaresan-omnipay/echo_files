@@ -1742,27 +1742,39 @@ function Dashboard({ setView, diaryCount, docCount, user }) {
               })}
             </div>
             {calSelected && (
-              <div style={{ marginTop: 14, padding: "12px 16px", background: T.navy3, borderRadius: 8, border: `1px solid ${T.border}`, animation: "fadeIn 0.15s ease" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ marginTop: 14, background: T.navy3, borderRadius: 8, border: `1px solid ${T.border}`, animation: "fadeIn 0.15s ease", overflow: "hidden" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: `1px solid ${T.border}` }}>
                   <div style={{ fontSize: 11, color: T.text3, textTransform: "uppercase", letterSpacing: 1 }}>
                     {new Date(calSelected + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
                   </div>
-                  <button onClick={() => { setCalSelected(null); setCalEntry(null); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {calEntry && (
+                      <button onClick={() => { localStorage.setItem("echo_diary_jump", calSelected); setView("diary"); }}
+                        style={{ background: `${T.accent}18`, border: `1px solid ${T.accent}40`, borderRadius: 6, color: T.accent, cursor: "pointer", fontSize: 11, fontWeight: 600, padding: "4px 12px", fontFamily: "'DM Sans', sans-serif" }}>
+                        Open full entry →
+                      </button>
+                    )}
+                    <button onClick={() => { setCalSelected(null); setCalEntry(null); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>×</button>
+                  </div>
                 </div>
-                {calEntry ? (
-                  <>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-                      {getFocusAreas(calEntry).map(f => <span key={f} className="focus-badge" style={{ fontSize: 10 }}>{f}</span>)}
-                      {calEntry.mood && <span style={{ fontSize: 12 }}>{MOODS.find(m => m.key === calEntry.mood)?.emoji} <span style={{ fontSize: 11, color: T.text3 }}>{MOODS.find(m => m.key === calEntry.mood)?.label}</span></span>}
-                      {calEntry.is_win && <span style={{ fontSize: 11, background: `${T.gold}14`, color: T.gold, padding: "2px 8px", borderRadius: 10 }}>🏆 Win</span>}
-                    </div>
-                    {calEntry.content && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.6, marginBottom: 6 }}>{calEntry.content.slice(0, 220)}{calEntry.content.length > 220 ? "…" : ""}</div>}
-                    {(calEntry.collaborators || []).length > 0 && <div style={{ fontSize: 11, color: T.text3 }}>👥 {calEntry.collaborators.map(c => cleanCollab(c)).filter(Boolean).join(", ")}</div>}
-                    {calEntry.blockers && <div style={{ fontSize: 11, color: T.coral, marginTop: 4 }}>⚠ {calEntry.blockers.slice(0, 100)}</div>}
-                  </>
-                ) : (
-                  <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: "10px 0" }}>No diary entry for this day</div>
-                )}
+                <div style={{ padding: "12px 16px", cursor: calEntry ? "pointer" : "default" }}
+                  onClick={() => { if (calEntry) { localStorage.setItem("echo_diary_jump", calSelected); setView("diary"); } }}>
+                  {calEntry ? (
+                    <>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                        {getFocusAreas(calEntry).map(f => <span key={f} className="focus-badge" style={{ fontSize: 10 }}>{f}</span>)}
+                        {calEntry.mood && <span style={{ fontSize: 12 }}>{MOODS.find(m => m.key === calEntry.mood)?.emoji} <span style={{ fontSize: 11, color: T.text3 }}>{MOODS.find(m => m.key === calEntry.mood)?.label}</span></span>}
+                        {calEntry.is_win && <span style={{ fontSize: 11, background: `${T.gold}14`, color: T.gold, padding: "2px 8px", borderRadius: 10 }}>🏆 Win</span>}
+                      </div>
+                      {calEntry.content && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.65, marginBottom: 8 }}>{calEntry.content}</div>}
+                      {(calEntry.collaborators || []).length > 0 && <div style={{ fontSize: 11, color: T.text3, marginBottom: calEntry.blockers ? 4 : 0 }}>👥 {calEntry.collaborators.map(c => cleanCollab(c)).filter(Boolean).join(", ")}</div>}
+                      {calEntry.blockers && <div style={{ fontSize: 11, color: T.coral }}>⚠ {calEntry.blockers}</div>}
+                      <div style={{ fontSize: 11, color: T.accent, marginTop: 10, opacity: 0.7 }}>Click anywhere to open full entry →</div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: "10px 0" }}>No diary entry for this day</div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -4168,6 +4180,16 @@ function Diary({ onCountChange, user }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-open entry when navigated from Dashboard calendar
+  useEffect(() => {
+    if (!entries.length) return;
+    const jumpDate = localStorage.getItem("echo_diary_jump");
+    if (!jumpDate) return;
+    localStorage.removeItem("echo_diary_jump");
+    const target = entries.find(e => e.date === jumpDate);
+    if (target) setViewEntry(target);
+  }, [entries]);
 
   // Keep viewEntry in sync with fresh DB data after every save/auto-save
   useEffect(() => {
