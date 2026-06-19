@@ -280,6 +280,37 @@ async function callGroq(bullets, knownPeople = []) {
   return parsed;
 }
 
+// AI insight — generates a work reflection from recent diary entries
+async function callGroqInsight(entries) {
+  if (!GROQ_API_KEY || !entries.length) return null;
+  const summary = entries.slice(0, 7).map(e => {
+    const parts = [];
+    if (e.content) parts.push(e.content.split("\n").filter(Boolean).slice(0, 3).join("; "));
+    if (e.mood) parts.push(`mood: ${e.mood}`);
+    if (e.is_win) parts.push("marked as a win");
+    if (e.blockers) parts.push(`blocker: ${e.blockers}`);
+    return `${e.date}: ${parts.join(" | ")}`;
+  }).join("\n");
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: "You are a professional work coach. Given a person's recent diary entries, write 2-3 sentences of insightful reflection. Focus on patterns, strengths, and one forward-looking suggestion. Be specific and encouraging. Do not use generic platitudes. Write in second person (you). Max 80 words." },
+          { role: "user", content: `Recent work diary entries:\n${summary}` }
+        ],
+        temperature: 0.7,
+        max_tokens: 150,
+      })
+    });
+    const json = await res.json();
+    if (!res.ok) return null;
+    return json.choices?.[0]?.message?.content?.trim() || null;
+  } catch { return null; }
+}
+
 // Cleans a collaborator value — handles cases where Groq returned an object that got
 // JSON.stringify'd and saved as a literal string like '{"Name":"Ramveer"}'
 const cleanCollab = c => {
@@ -1605,12 +1636,18 @@ ${(entry.tags||[]).length ? `<div class="section-title">Tags</div><div>${entry.t
 }
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
-function Dashboard({ setView, diaryCount, docCount, user }) {
+function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
   const [recentEntries, setRecentEntries] = useState([]);
   const [heatEntries, setHeatEntries]     = useState([]);
   const [recentDocs, setRecentDocs]       = useState([]);
   const [onThisDay, setOnThisDay]         = useState({ week: null, month: null });
   const [openCommitCount, setOpenCommitCount] = useState(null);
+  const [allCommits, setAllCommits]       = useState([]);
+  const [teamPulse, setTeamPulse]         = useState(null);
+  const [aiInsight, setAiInsight]         = useState(() => {
+    try { const c = JSON.parse(localStorage.getItem("echo_ai_insight") || "null"); return c?.date === new Date().toISOString().slice(0, 10) ? c.text : null; } catch { return null; }
+  });
+  const [aiLoading, setAiLoading]         = useState(false);
   const [weeklyModal, setWeeklyModal]     = useState(false);
   const [calMonth, setCalMonth]           = useState(() => new Date().toISOString().slice(0, 7));
   const [calSelected, setCalSelected]     = useState(null);
@@ -1623,8 +1660,10 @@ function Dashboard({ setView, diaryCount, docCount, user }) {
       setHeatEntries(d || []);
     });
     db.from("documents").select("*", { order: "created_at.desc" }).then(d => setRecentDocs((d || []).slice(0, 4)));
-    db.from("commitments").select("id,resolved_at", { order: "inserted_at.asc" }).then(rows => {
-      if (Array.isArray(rows)) setOpenCommitCount(rows.filter(r => !r.resolved_at).length);
+    db.from("commitments").select("*", { order: "inserted_at.asc" }).then(rows => {
+      const arr = rows || [];
+      setAllCommits(arr);
+      setOpenCommitCount(arr.filter(r => !r.resolved_at).length);
     });
 
     const weekAgo  = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
@@ -1637,6 +1676,17 @@ function Dashboard({ setView, diaryCount, docCount, user }) {
     db.from("diary_entries").select("*", { eq: ["date", mStr] }).then(d => {
       if (d?.[0]) setOnThisDay(prev => ({ ...prev, month: d[0] }));
     });
+
+    const members = (loadTeammates() || []).filter(t => (t.relationship || "direct") === "direct");
+    if (members.length) {
+      const monthStart = new Date().toISOString().slice(0, 7) + "-01";
+      fetch(`${_REST()}/one_on_one_sessions?select=teammate_id&session_date=gte.${monthStart}`, { headers: h() })
+        .then(r => r.ok ? r.json() : [])
+        .then(rows => {
+          const done = new Set((rows || []).map(s => s.teammate_id));
+          setTeamPulse({ total: members.length, done: members.filter(m => done.has(m.id)).length });
+        }).catch(() => {});
+    }
   }, []);
 
   const hour = new Date().getHours();
@@ -1673,29 +1723,120 @@ function Dashboard({ setView, diaryCount, docCount, user }) {
     <div className="echo-content fade-in">
       <ConfigBanner />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28, flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 24, fontWeight: 600, color: T.text1 }}>{greeting}</div>
-            {diaryStreak >= 2 && (
-              <div style={{
-                display: "flex", alignItems: "center", gap: 5,
-                background: `${T.coral}15`, border: `1px solid ${T.coral}40`,
-                borderRadius: 20, padding: "3px 12px", fontSize: 13, fontWeight: 700, color: T.coral,
-              }} title="Consecutive days with a diary entry">
-                🔥 {diaryStreak} day streak
-              </div>
-            )}
-          </div>
-          <div style={{ fontSize: 14, color: T.text3, marginTop: 4 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</div>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
+          <div style={{ fontSize: 24, fontWeight: 600, color: T.text1 }}>{greeting}{displayName ? `, ${displayName.split(" ")[0]}` : ""}</div>
+          {diaryStreak >= 2 && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 5,
+              background: `${T.coral}15`, border: `1px solid ${T.coral}40`,
+              borderRadius: 20, padding: "3px 12px", fontSize: 13, fontWeight: 700, color: T.coral,
+            }} title="Consecutive days with a diary entry">
+              🔥 {diaryStreak} day streak
+            </div>
+          )}
         </div>
-        <button onClick={() => setWeeklyModal(true)} style={{
-          display: "flex", alignItems: "center", gap: 8,
-          background: `${T.accent}18`, border: `1px solid ${T.accent}40`,
-          borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 500,
-          color: T.accent, cursor: "pointer",
-        }}>📋 Weekly Update</button>
+        <div style={{ fontSize: 14, color: T.text3, marginBottom: 16 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</div>
+        {/* Quick Actions */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {[
+            { label: "+ Log Today", color: T.accent, bg: `${T.accent}18`, border: `${T.accent}40`, action: () => { setView("diary"); localStorage.setItem("echo_diary_new", "1"); } },
+            { label: "+ Commitment", color: T.teal, bg: `${T.teal}12`, border: `${T.teal}35`, action: () => setView("commitments") },
+            { label: "+ Decision", color: T.violet, bg: `${T.violet}12`, border: `${T.violet}35`, action: () => setView("decisions") },
+            { label: "📋 Weekly Update", color: T.gold, bg: `${T.gold}12`, border: `${T.gold}35`, action: () => setWeeklyModal(true) },
+          ].map(q => (
+            <button key={q.label} onClick={q.action} style={{
+              flex: "1 1 120px", padding: "9px 14px", borderRadius: 10,
+              background: q.bg, border: `1px solid ${q.border}`, color: q.color,
+              fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+              transition: "opacity 0.15s",
+            }}
+              onMouseEnter={e => e.currentTarget.style.opacity = "0.8"}
+              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+            >{q.label}</button>
+          ))}
+        </div>
       </div>
+
+      {/* ── Productivity Pulse ── */}
+      {(() => {
+        const todayMonth = new Date().toISOString().slice(0, 7);
+        const entriesThisMonth = heatEntries.filter(e => e.date?.startsWith(todayMonth));
+        const winsThisMonth = entriesThisMonth.filter(e => e.is_win).length;
+        const totalCommits = allCommits.length;
+        const resolvedCommits = allCommits.filter(c => !!c.resolved_at).length;
+        const richEntries = entriesThisMonth.filter(e => e.mood && e.content?.trim()).length;
+
+        // Working days this month so far
+        const now = new Date();
+        let workingDays = 0;
+        for (let d = 1; d <= now.getDate(); d++) {
+          const dow = new Date(now.getFullYear(), now.getMonth(), d).getDay();
+          if (dow !== 0 && dow !== 6) workingDays++;
+        }
+
+        const streakPts    = Math.min(diaryStreak * 3, 30);
+        const winPts       = entriesThisMonth.length > 0 ? Math.round((winsThisMonth / entriesThisMonth.length) * 20) : 0;
+        const commitPts    = totalCommits > 0 ? Math.round((resolvedCommits / totalCommits) * 25) : 15;
+        const qualityPts   = entriesThisMonth.length > 0 ? Math.round((richEntries / entriesThisMonth.length) * 15) : 0;
+        const consistencyPts = workingDays > 0 ? Math.round(Math.min(entriesThisMonth.length / workingDays, 1) * 10) : 0;
+        const score = Math.min(streakPts + winPts + commitPts + qualityPts + consistencyPts, 100);
+
+        const scoreColor = score >= 80 ? T.teal : score >= 60 ? T.gold : T.coral;
+        const scoreLabel = score >= 90 ? "Peak Performance" : score >= 75 ? "Strong momentum" : score >= 60 ? "Building well" : score >= 40 ? "Developing" : "Getting started";
+        const circumference = 2 * Math.PI * 28;
+        const dashOffset = circumference * (1 - score / 100);
+
+        return (
+          <div className="card mb-16" style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+              <div style={{ position: "relative", width: 72, height: 72, flexShrink: 0 }}>
+                <svg width="72" height="72" viewBox="0 0 72 72" style={{ transform: "rotate(-90deg)" }}>
+                  <circle cx="36" cy="36" r="28" fill="none" stroke={`${scoreColor}20`} strokeWidth="6" />
+                  <circle cx="36" cy="36" r="28" fill="none" stroke={scoreColor} strokeWidth="6"
+                    strokeDasharray={circumference} strokeDashoffset={dashOffset}
+                    strokeLinecap="round" style={{ transition: "stroke-dashoffset 1s ease" }} />
+                </svg>
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: scoreColor, lineHeight: 1 }}>{score}</div>
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: T.text1 }}>Productivity Pulse</div>
+                <div style={{ fontSize: 13, color: scoreColor, fontWeight: 600, marginTop: 2 }}>{scoreLabel}</div>
+                <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+                  {[
+                    { label: "Streak", val: streakPts, max: 30, color: T.coral },
+                    { label: "Quality", val: qualityPts + consistencyPts, max: 25, color: T.teal },
+                    { label: "Wins", val: winPts, max: 20, color: T.gold },
+                    { label: "Commitments", val: commitPts, max: 25, color: T.accent },
+                  ].map(bar => (
+                    <div key={bar.label} style={{ minWidth: 80 }}>
+                      <div style={{ fontSize: 9, color: T.text3, marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>{bar.label}</div>
+                      <div style={{ height: 4, background: `${bar.color}20`, borderRadius: 2, position: "relative" }}>
+                        <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${(bar.val / bar.max) * 100}%`, background: bar.color, borderRadius: 2, transition: "width 0.8s ease" }} />
+                      </div>
+                      <div style={{ fontSize: 9, color: bar.color, marginTop: 2 }}>{bar.val}/{bar.max}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {teamPulse && (
+                <div style={{ flexShrink: 0, textAlign: "center", borderLeft: `1px solid ${T.border}`, paddingLeft: 20 }}>
+                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Team Pulse</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: teamPulse.done === teamPulse.total ? T.teal : teamPulse.done > 0 ? T.gold : T.coral }}>
+                    {teamPulse.done}/{teamPulse.total}
+                  </div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>1:1s this month</div>
+                  <div style={{ marginTop: 4, fontSize: 10, color: teamPulse.done === teamPulse.total ? T.teal : T.text3 }}>
+                    {teamPulse.done === teamPulse.total ? "✓ All done" : `${teamPulse.total - teamPulse.done} pending`}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="grid-4 mb-16">
         {[
@@ -1947,6 +2088,40 @@ function Dashboard({ setView, diaryCount, docCount, user }) {
             })}
         </div>
       </div>
+
+      {/* ── AI Insight ── */}
+      {GROQ_API_KEY && (
+        <div className="card" style={{ marginTop: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>✨ AI Work Reflection</div>
+            <button
+              onClick={async () => {
+                if (aiLoading) return;
+                setAiLoading(true);
+                const insight = await callGroqInsight(heatEntries.slice(0, 7));
+                setAiLoading(false);
+                if (insight) {
+                  setAiInsight(insight);
+                  try { localStorage.setItem("echo_ai_insight", JSON.stringify({ date: new Date().toISOString().slice(0, 10), text: insight })); } catch {}
+                }
+              }}
+              disabled={aiLoading}
+              style={{
+                background: `${T.violet}18`, border: `1px solid ${T.violet}40`, borderRadius: 8,
+                color: aiLoading ? T.text3 : T.violet, fontSize: 11, fontWeight: 600,
+                padding: "4px 12px", cursor: aiLoading ? "default" : "pointer", fontFamily: "'DM Sans', sans-serif",
+              }}>
+              {aiLoading ? "Thinking…" : aiInsight ? "↺ Refresh" : "Generate"}
+            </button>
+          </div>
+          {aiInsight
+            ? <div style={{ fontSize: 14, color: T.text2, lineHeight: 1.8, fontStyle: "italic" }}>"{aiInsight}"</div>
+            : <div style={{ fontSize: 13, color: T.text3, textAlign: "center", padding: "12px 0" }}>
+                Click <strong style={{ color: T.violet }}>Generate</strong> to get an AI reflection on your recent work patterns
+              </div>
+          }
+        </div>
+      )}
 
       {/* ── On This Day ── */}
       {(onThisDay.week || onThisDay.month) && (
@@ -3553,7 +3728,18 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
                   setPointInput("");
                 }}>+ Add</button>
               </div>
-              <div style={{ fontSize: 11, color: T.text3, marginTop: 5 }}>Press Enter to add · Paste multiple lines to bulk-add</div>
+              {(() => {
+                const items = (form.content || "").split("\n").filter(p => p.trim());
+                const words = items.join(" ").split(/\s+/).filter(Boolean).length;
+                const readMin = Math.ceil(words / 200);
+                if (!words) return null;
+                return (
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 5, display: "flex", gap: 10 }}>
+                    <span>Press Enter to add · Paste multiple lines to bulk-add</span>
+                    <span style={{ marginLeft: "auto", color: T.text3 }}>{words} words · ~{readMin} min read</span>
+                  </div>
+                );
+              })() || <div style={{ fontSize: 11, color: T.text3, marginTop: 5 }}>Press Enter to add · Paste multiple lines to bulk-add</div>}
             </div>
 
             {/* ── AI Categorise ── */}
@@ -6540,19 +6726,25 @@ create policy "own" on commitments for all using (auth.uid()=user_id);`}
 
   const CommitCard = ({ item }) => {
     const days = daysSince(item.inserted_at);
-    const urgentColor = item.direction === "waiting_on" && days >= 5 ? T.coral : days >= 3 ? T.gold : T.text3;
+    const isOverdue = item.direction === "i_owe" && days >= 7;
+    const isUrgent  = item.direction === "waiting_on" && days >= 5;
+    const urgentColor = isOverdue ? T.coral : isUrgent ? T.coral : days >= 3 ? T.gold : T.text3;
+    const leftBorder = isOverdue ? T.coral : item.direction === "i_owe" ? T.accent : T.coral;
     return (
-      <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 8, borderLeft: `3px solid ${item.direction === "i_owe" ? T.accent : T.coral}` }}>
+      <div style={{ background: isOverdue ? `${T.coral}08` : T.navy2, border: `1px solid ${isOverdue ? T.coral + "40" : T.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 8, borderLeft: `3px solid ${leftBorder}` }}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, color: T.text1, fontWeight: 500, lineHeight: 1.4, marginBottom: 4 }}>{item.what}</div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 13, color: T.text1, fontWeight: 500, lineHeight: 1.4 }}>{item.what}</div>
+              {isOverdue && <span style={{ fontSize: 10, background: `${T.coral}22`, color: T.coral, padding: "1px 6px", borderRadius: 4, fontWeight: 700, flexShrink: 0 }}>OVERDUE</span>}
+            </div>
             <div style={{ fontSize: 11, color: T.text3 }}>
               {item.direction === "i_owe" ? "→ " : "← "}<span style={{ color: T.text2, fontWeight: 500 }}>{item.person}</span>
               <span style={{ color: urgentColor, marginLeft: 8 }}>· {days === 0 ? "today" : `${days}d ago`}</span>
             </div>
           </div>
           <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
-            <button onClick={() => resolve(item.id)} title="Mark done" style={{ background: `${T.teal}18`, color: T.teal, border: `1px solid ${T.teal}40`, borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>✓</button>
+            <button onClick={() => resolve(item.id)} title="Mark done" style={{ background: `${T.teal}18`, color: T.teal, border: `1px solid ${T.teal}40`, borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>✓ Done</button>
             <button onClick={() => remove(item.id)} style={{ background: "none", color: T.text3, border: `1px solid ${T.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>✕</button>
           </div>
         </div>
@@ -7372,6 +7564,56 @@ const PAGE_META = {
   resolve:     { title: "Resolve",         sub: "Days you stayed strong — track habits you're breaking" },
 };
 
+// ─── Keyboard Shortcuts Modal (Cmd+?) ────────────────────────────────────────
+function KeyboardShortcuts({ onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const sections = [
+    { heading: "Global", items: [
+      { key: "⌘ K", desc: "Open command palette / search everything" },
+      { key: "N", desc: "New diary entry (when no input focused)" },
+      { key: "⌘ ?", desc: "Show this keyboard shortcuts panel" },
+      { key: "Esc", desc: "Close any modal or palette" },
+    ]},
+    { heading: "Navigation", items: [
+      { key: "⌘ K → type", desc: "Navigate to any section by name" },
+      { key: "⌘ K → @name", desc: "Find a team member" },
+      { key: "⌘ K → diary text", desc: "Search diary entries" },
+    ]},
+    { heading: "Diary", items: [
+      { key: "Enter", desc: "Add item to list (in input fields)" },
+      { key: "Tab", desc: "Switch between diary tabs (My Day / Team / Actions)" },
+    ]},
+  ];
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 10002 }}>
+      <div className="modal-box" style={{ maxWidth: 440, width: "90%" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: T.text1 }}>Keyboard Shortcuts</div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        {sections.map(sec => (
+          <div key={sec.heading} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>{sec.heading}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {sec.items.map(s => (
+                <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 14, padding: "7px 12px", background: T.navy3, borderRadius: 8 }}>
+                  <kbd style={{ background: T.navy4, border: `1px solid ${T.border}`, borderRadius: 6, padding: "2px 9px", fontSize: 12, color: T.accent, fontFamily: "monospace", whiteSpace: "nowrap", minWidth: 60, textAlign: "center" }}>{s.key}</kbd>
+                  <span style={{ fontSize: 13, color: T.text2 }}>{s.desc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <div style={{ marginTop: 4, fontSize: 11, color: T.text3, textAlign: "center" }}>Press Esc to close</div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Command Palette (Cmd+K / Ctrl+K) ────────────────────────────────────────
 function CommandPalette({ onClose, setView }) {
   const [q, setQ] = useState("");
@@ -7560,6 +7802,9 @@ export default function Echo() {
   const [avatarData, setAvatarData]           = useState(() => localStorage.getItem("echo_avatar") || "");
   const [profileDraft, setProfileDraft]       = useState({ name: "", avatar: "" });
   const [paletteOpen, setPaletteOpen]         = useState(false);
+  const [shortcutsOpen, setShortcutsOpen]     = useState(false);
+  const [overdueCount, setOverdueCount]       = useState(0);
+  const [teamDueBadge, setTeamDueBadge]       = useState(false);
 
   useEffect(() => {
     db.auth.getUser().then(u => {
@@ -7580,13 +7825,38 @@ export default function Echo() {
     if (!user || !isConfigured()) return;
     db.from("diary_entries").select("id").then(rows => setDiaryCount((rows || []).length));
     db.from("documents").select("id").then(rows => setDocCount((rows || []).length));
+    // Overdue "I owe" commitments (>7 days)
+    db.from("commitments").select("direction,inserted_at,resolved_at").then(rows => {
+      const overdue = (rows || []).filter(r =>
+        !r.resolved_at && r.direction === "i_owe" &&
+        (Date.now() - new Date(r.inserted_at).getTime()) > 7 * 86400000
+      );
+      setOverdueCount(overdue.length);
+    });
+    // Team 1:1 due badge — last week of month + direct reports without session
+    const now = new Date();
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    if (lastDay - now.getDate() < 7) {
+      const monthStart = now.toISOString().slice(0, 7) + "-01";
+      const members = (loadTeammates() || []).filter(t => (t.relationship || "direct") === "direct");
+      if (members.length) {
+        fetch(`${_REST()}/one_on_one_sessions?select=teammate_id&session_date=gte.${monthStart}`, { headers: h() })
+          .then(r => r.ok ? r.json() : [])
+          .then(rows => {
+            const done = new Set((rows || []).map(s => s.teammate_id));
+            setTeamDueBadge(members.some(m => !done.has(m.id)));
+          }).catch(() => {});
+      }
+    }
   }, [user]);
 
-  // Global keyboard shortcuts: Cmd+K → palette, N → new diary entry
+  // Global keyboard shortcuts: Cmd+K → palette, N → new diary entry, Cmd+? → shortcuts
   useEffect(() => {
     if (!user) return;
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setPaletteOpen(p => !p); }
+      if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setShortcutsOpen(p => !p); }
+      if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey && document.activeElement.tagName === "BODY") { setShortcutsOpen(p => !p); }
       if (e.key === "n" && !e.metaKey && !e.ctrlKey && !e.altKey && document.activeElement.tagName === "BODY") {
         setView("diary"); localStorage.setItem("echo_diary_new", "1");
       }
@@ -7699,6 +7969,12 @@ export default function Echo() {
                   {n.id === "locker" && docCount > 0 && (
                     <span style={{ marginLeft: "auto", fontSize: 11, background: "rgba(63,207,180,0.15)", color: T.teal, padding: "1px 7px", borderRadius: 10 }}>{docCount}</span>
                   )}
+                  {n.id === "commitments" && overdueCount > 0 && (
+                    <span style={{ marginLeft: "auto", fontSize: 10, background: `${T.coral}22`, color: T.coral, padding: "1px 7px", borderRadius: 10, fontWeight: 700 }} title="Overdue commitments">{overdueCount} late</span>
+                  )}
+                  {n.id === "team" && teamDueBadge && (
+                    <span style={{ marginLeft: "auto", width: 7, height: 7, borderRadius: "50%", background: T.amber, flexShrink: 0 }} title="1:1s due this month" />
+                  )}
                 </div>
               ))}
             </div>
@@ -7716,7 +7992,7 @@ export default function Echo() {
               }
             </div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName || user.email.split("@")[0]}</div>
+              <div style={{ fontSize: 12, color: T.text1, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName || user.email.split("@")[0]}</div>
               <div style={{ fontSize: 10, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</div>
             </div>
           </div>
@@ -7792,7 +8068,7 @@ export default function Echo() {
               <div className="echo-page-sub">{PAGE_META[view]?.sub}</div>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={() => setPaletteOpen(true)} style={{
               display: "flex", alignItems: "center", gap: 7,
               background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 8,
@@ -7805,11 +8081,19 @@ export default function Echo() {
               🔍
               <span style={{ fontSize: 10, background: T.navy3, padding: "1px 6px", borderRadius: 4 }}>⌘K</span>
             </button>
+            <button onClick={() => setShortcutsOpen(true)} style={{
+              background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 8,
+              color: T.text3, cursor: "pointer", fontSize: 13, padding: "5px 10px",
+              fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", lineHeight: 1,
+            }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.borderHover; e.currentTarget.style.color = T.text2; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}
+              title="Keyboard shortcuts (?)">?</button>
             <div style={{ fontSize: 13, color: T.text3 }}>{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
           </div>
         </div>
 
-        {view === "dashboard"   && <Dashboard setView={setView} diaryCount={diaryCount} docCount={docCount} user={user} />}
+        {view === "dashboard"   && <Dashboard setView={setView} diaryCount={diaryCount} docCount={docCount} user={user} displayName={displayName} />}
         {view === "diary"       && <Diary onCountChange={setDiaryCount} user={user} />}
         {view === "locker"      && isOwner && <DigiLocker onCountChange={setDocCount} />}
         {view === "locker"      && !isOwner && (
@@ -7832,6 +8116,9 @@ export default function Echo() {
 
       {/* ── Command Palette ── */}
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} setView={setView} user={user} />}
+
+      {/* ── Keyboard Shortcuts ── */}
+      {shortcutsOpen && <KeyboardShortcuts onClose={() => setShortcutsOpen(false)} />}
 
       {/* ── Pattern Interrupt overlay ── */}
       {showPatternInterrupt && (
