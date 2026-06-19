@@ -2360,6 +2360,7 @@ function MyTeam({ user }) {
   const [oneOnOne, setOneOnOne] = useState(null);
   const [lastSeen, setLastSeen] = useState({});
   const [relSupported, setRelSupported] = useState(true);
+  const [hadSessionThisMonth, setHadSessionThisMonth] = useState(new Set());
 
   useEffect(() => {
     if (!user?.id) return;
@@ -2375,6 +2376,10 @@ function MyTeam({ user }) {
       });
       setLastSeen(seen);
     });
+    const monthStart = new Date().toISOString().slice(0, 7) + "-01";
+    fetch(`${_REST()}/one_on_one_sessions?select=teammate_id&session_date=gte.${monthStart}`, { headers: h() })
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => setHadSessionThisMonth(new Set((rows || []).map(s => s.teammate_id))));
   }, [user]);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -2409,8 +2414,49 @@ function MyTeam({ user }) {
 
   const cancel = () => { setForm({ name: "", role: "", emoji: "", relationship: "direct" }); setEditId(null); };
 
+  const isLastWeekOfMonth = (() => {
+    const now = new Date();
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    return lastDay - now.getDate() < 7;
+  })();
+  const overdueDirects = teammates.filter(t =>
+    (t.relationship || "direct") === "direct" && !hadSessionThisMonth.has(t.id)
+  );
+
   return (
     <div style={{ maxWidth: 600, margin: "0 auto" }}>
+      {/* Monthly 1:1 reminder banner */}
+      {isLastWeekOfMonth && overdueDirects.length > 0 && (
+        <div style={{
+          background: `${"#F5C243"}0f`, border: `1px solid ${"#F5C243"}50`,
+          borderRadius: 12, padding: "14px 18px", marginBottom: 20,
+          display: "flex", alignItems: "flex-start", gap: 12,
+        }}>
+          <div style={{ fontSize: 22, flexShrink: 0, lineHeight: 1 }}>🔔</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#F5C243", marginBottom: 4 }}>
+              Monthly 1:1 reminder — it's the last week of the month
+            </div>
+            <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.7 }}>
+              No 1:1 logged this month with:{" "}
+              {overdueDirects.map((t, i) => (
+                <span key={t.id}>
+                  <button onClick={() => setOneOnOne(t)} style={{
+                    background: "none", border: "none", padding: 0,
+                    color: "#F5C243", cursor: "pointer", fontWeight: 600,
+                    fontSize: 12, fontFamily: "inherit", textDecoration: "underline",
+                  }}>{t.name}</button>
+                  {i < overdueDirects.length - 1 ? ", " : ""}
+                </span>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>
+              Click a name to open their 1:1 session now.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add / edit form */}
       <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, marginBottom: 28 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: T.text2, marginBottom: 14, letterSpacing: 0.5 }}>
@@ -2615,6 +2661,7 @@ function OneOnOneModal({ teammate, user, onClose }) {
   const [fbForm, setFbForm] = useState({ type: "constructive", note: "" });
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState(null);
+  const [feedbackPreloaded, setFeedbackPreloaded] = useState(0);
 
   useEffect(() => {
     if (!user?.id || !teammate?.id) return;
@@ -2641,6 +2688,16 @@ function OneOnOneModal({ teammate, user, onClose }) {
         ).slice(0, 6),
       });
       setSessions(past || []);
+      // Pre-populate feedback given since the last 1:1 session
+      const lastSessionDate = (past || [])[0]?.session_date || null;
+      const prefillFeedback = rel
+        .flatMap(e => (e.feedback_given || []).filter(f => f.to === name).map(f => ({ type: f.type, note: f.note, _date: e.date })))
+        .filter(f => !lastSessionDate || f._date > lastSessionDate)
+        .map(({ type, note }) => ({ type, note }));
+      if (prefillFeedback.length > 0) {
+        setForm(prev => ({ ...prev, feedback_given: prefillFeedback }));
+        setFeedbackPreloaded(prefillFeedback.length);
+      }
       // commitments involving this person (ignore DB errors if table missing)
       if (Array.isArray(commits)) {
         setOpenCommitments(commits.filter(c => !c.resolved_at && c.person?.toLowerCase() === name.toLowerCase()));
@@ -2976,6 +3033,11 @@ function OneOnOneModal({ teammate, user, onClose }) {
                   {/* Feedback */}
                   <div>
                     <div className="diary-section-heading" style={{ marginBottom: 5 }}>Feedback given</div>
+                    {feedbackPreloaded > 0 && (
+                      <div style={{ fontSize: 11, color: T.teal, padding: "5px 10px", background: `${T.teal}12`, border: `1px solid ${T.teal}25`, borderRadius: 6, marginBottom: 8 }}>
+                        ✓ {feedbackPreloaded} feedback item{feedbackPreloaded !== 1 ? "s" : ""} pre-loaded from your diary since last 1:1 — remove any that aren't relevant
+                      </div>
+                    )}
                     <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                       <select className="form-select" value={fbForm.type}
                         onChange={e => setFbForm(f => ({ ...f, type: e.target.value }))} style={{ width: 140 }}>
