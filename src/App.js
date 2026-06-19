@@ -1441,7 +1441,7 @@ const ATT_STATUSES = [
   { key: "office", label: "In Office", icon: "🏢", color: T.teal   },
   { key: "wfh",    label: "WFH",       icon: "🏠", color: T.accent },
   { key: "leave",  label: "Leave",     icon: "🏖️", color: T.coral  },
-  { key: "half",   label: "Half Day",  icon: "🕐", color: T.amber  },
+  { key: "half",   label: "Half Day",  icon: "🕐", color: "#F5C243"  },
 ];
 const attColor = (k) => ATT_STATUSES.find(s => s.key === k)?.color || T.text3;
 
@@ -1450,7 +1450,7 @@ const RELEASE_STATUSES = [
   { key: "today",    label: "Today",       icon: "🚀", color: T.teal    },
   { key: "tomorrow", label: "Tomorrow",    icon: "🌅", color: "#7B6EF6" },
   { key: "review",   label: "In Review",   icon: "🔄", color: T.accent  },
-  { key: "eta",      label: "ETA Pending", icon: "⏳", color: T.amber   },
+  { key: "eta",      label: "ETA Pending", icon: "⏳", color: "#F5C243"   },
   { key: "nextweek", label: "Next Week",   icon: "🗓️", color: T.text2   },
   { key: "blocked",  label: "Blocked",     icon: "🔴", color: T.coral   },
   { key: "leave",    label: "On Leave",    icon: "🏖️", color: T.text3   },
@@ -1605,6 +1605,9 @@ function Dashboard({ setView, diaryCount, docCount, user }) {
   const [onThisDay, setOnThisDay]         = useState({ week: null, month: null });
   const [openCommitCount, setOpenCommitCount] = useState(null);
   const [weeklyModal, setWeeklyModal]     = useState(false);
+  const [calMonth, setCalMonth]           = useState(() => new Date().toISOString().slice(0, 7));
+  const [calSelected, setCalSelected]     = useState(null);
+  const [calEntry, setCalEntry]           = useState(null);
 
   useEffect(() => {
     if (!isConfigured()) return;
@@ -1664,6 +1667,107 @@ function Dashboard({ setView, diaryCount, docCount, user }) {
         ))}
       </div>
       {weeklyModal && <WeeklyUpdateModal user={user} onClose={() => setWeeklyModal(false)} />}
+
+      {/* ── Monthly Diary Calendar ── */}
+      {(() => {
+        const [yr, mo] = calMonth.split("-").map(Number);
+        const firstDow = new Date(yr, mo - 1, 1).getDay();
+        const totalDays = new Date(yr, mo, 0).getDate();
+        const monthLabel = new Date(yr, mo - 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+        const todayStr = new Date().toISOString().split("T")[0];
+        const shiftMo = (n) => {
+          const d = new Date(yr, mo - 1 + n, 1);
+          setCalMonth(d.toISOString().slice(0, 7));
+        };
+        const cells = [];
+        for (let i = 0; i < firstDow; i++) cells.push(null);
+        for (let d = 1; d <= totalDays; d++) cells.push(`${calMonth}-${String(d).padStart(2, "0")}`);
+        const moodColor = { productive: T.green, resolved: T.teal, collaborative: T.accent, challenged: T.gold, frustrated: T.coral };
+        const entriesThisMonth = heatEntries.filter(e => e.date?.startsWith(calMonth));
+        const winsThisMonth = entriesThisMonth.filter(e => e.is_win).length;
+        return (
+          <div className="card mb-16" style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>📅 Diary Calendar</div>
+                {entriesThisMonth.length > 0 && (
+                  <span style={{ fontSize: 11, color: T.text3 }}>
+                    {entriesThisMonth.length} entr{entriesThisMonth.length !== 1 ? "ies" : "y"}
+                    {winsThisMonth > 0 && <span style={{ color: T.gold, marginLeft: 6 }}>· 🏆 {winsThisMonth} win{winsThisMonth !== 1 ? "s" : ""}</span>}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button onClick={() => shiftMo(-1)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer", padding: "3px 10px", fontSize: 14 }}>‹</button>
+                <span style={{ fontSize: 12, fontWeight: 600, color: T.text1, minWidth: 120, textAlign: "center" }}>{monthLabel}</span>
+                <button onClick={() => shiftMo(1)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.text2, cursor: "pointer", padding: "3px 10px", fontSize: 14 }}>›</button>
+                {calMonth !== new Date().toISOString().slice(0, 7) && (
+                  <button onClick={() => { setCalMonth(new Date().toISOString().slice(0, 7)); setCalSelected(null); setCalEntry(null); }}
+                    style={{ background: `${T.accent}14`, border: `1px solid ${T.accent}30`, borderRadius: 6, color: T.accent, cursor: "pointer", padding: "3px 9px", fontSize: 11, fontWeight: 600 }}>Today</button>
+                )}
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, marginBottom: 4 }}>
+              {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d, i) => (
+                <div key={i} style={{ textAlign: "center", fontSize: 9, color: T.text3, fontWeight: 600, padding: "2px 0", letterSpacing: 0.5, textTransform: "uppercase" }}>{d}</div>
+              ))}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+              {cells.map((dateStr, i) => {
+                if (!dateStr) return <div key={i} />;
+                const entry = heatEntries.find(e => e.date === dateStr);
+                const isToday = dateStr === todayStr;
+                const isSelected = dateStr === calSelected;
+                const mood = entry ? MOODS.find(m => m.key === entry.mood) : null;
+                const col = mood ? (moodColor[mood.key] || T.accent) : null;
+                const day = parseInt(dateStr.split("-")[2]);
+                return (
+                  <div key={dateStr} onClick={() => {
+                    const wasSelected = calSelected === dateStr;
+                    setCalSelected(wasSelected ? null : dateStr);
+                    setCalEntry(wasSelected ? null : (entry || null));
+                  }}
+                    style={{
+                      height: 38, borderRadius: 7, cursor: "pointer", display: "flex", flexDirection: "column",
+                      alignItems: "center", justifyContent: "center", gap: 1,
+                      background: isSelected ? `${T.accent}28` : entry ? `${col || T.accent}14` : "rgba(255,255,255,0.02)",
+                      border: `1px solid ${isSelected ? T.accent : entry ? `${col || T.accent}35` : T.border}`,
+                      outline: isToday ? `2px solid ${T.accent}60` : "none", outlineOffset: 1,
+                      transition: "all 0.12s",
+                    }}>
+                    <span style={{ fontSize: 11, lineHeight: 1, fontWeight: isToday ? 700 : 400, color: isSelected ? T.text1 : entry ? T.text1 : T.text3 }}>{day}</span>
+                    {entry?.is_win ? <span style={{ fontSize: 8 }}>🏆</span> : mood ? <span style={{ fontSize: 9, opacity: 0.8 }}>{mood.emoji}</span> : null}
+                  </div>
+                );
+              })}
+            </div>
+            {calSelected && (
+              <div style={{ marginTop: 14, padding: "12px 16px", background: T.navy3, borderRadius: 8, border: `1px solid ${T.border}`, animation: "fadeIn 0.15s ease" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, color: T.text3, textTransform: "uppercase", letterSpacing: 1 }}>
+                    {new Date(calSelected + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                  </div>
+                  <button onClick={() => { setCalSelected(null); setCalEntry(null); }} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+                </div>
+                {calEntry ? (
+                  <>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                      {getFocusAreas(calEntry).map(f => <span key={f} className="focus-badge" style={{ fontSize: 10 }}>{f}</span>)}
+                      {calEntry.mood && <span style={{ fontSize: 12 }}>{MOODS.find(m => m.key === calEntry.mood)?.emoji} <span style={{ fontSize: 11, color: T.text3 }}>{MOODS.find(m => m.key === calEntry.mood)?.label}</span></span>}
+                      {calEntry.is_win && <span style={{ fontSize: 11, background: `${T.gold}14`, color: T.gold, padding: "2px 8px", borderRadius: 10 }}>🏆 Win</span>}
+                    </div>
+                    {calEntry.content && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.6, marginBottom: 6 }}>{calEntry.content.slice(0, 220)}{calEntry.content.length > 220 ? "…" : ""}</div>}
+                    {(calEntry.collaborators || []).length > 0 && <div style={{ fontSize: 11, color: T.text3 }}>👥 {calEntry.collaborators.map(c => cleanCollab(c)).filter(Boolean).join(", ")}</div>}
+                    {calEntry.blockers && <div style={{ fontSize: 11, color: T.coral, marginTop: 4 }}>⚠ {calEntry.blockers.slice(0, 100)}</div>}
+                  </>
+                ) : (
+                  <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: "10px 0" }}>No diary entry for this day</div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Working-Day Mood Heatmap ── */}
       {(() => {
@@ -2342,7 +2446,7 @@ function MyTeam({ user }) {
 
       {/* Migration banner */}
       {!relSupported && (
-        <div style={{ background: `${T.amber}15`, border: `1px solid ${T.amber}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: T.amber }}>
+        <div style={{ background: `${"#F5C243"}15`, border: `1px solid ${"#F5C243"}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: "#F5C243" }}>
           <strong>One-time setup needed:</strong> Run this in your Supabase SQL editor to enable relationship types and fix the 1:1 button:
           <div style={{ marginTop: 8, background: T.navy0, borderRadius: 6, padding: "8px 12px", fontFamily: "monospace", fontSize: 11, color: T.text2, userSelect: "all" }}>
             ALTER TABLE teammates ADD COLUMN IF NOT EXISTS relationship text DEFAULT 'direct';
@@ -2764,7 +2868,7 @@ function OneOnOneModal({ teammate, user, onClose }) {
                 )}
                 {context.feedback.length > 0 && (
                   <div style={{ marginBottom: 18 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: T.amber, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#F5C243", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
                       💬 Feedback given
                     </div>
                     {context.feedback.map((f, i) => (
@@ -3691,7 +3795,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
                   {teammates.map((t, i) => {
                     const cur = getAtt(t.name);
                     return (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.bg3, borderRadius: 8, border: `1px solid ${cur ? attColor(cur) + "40" : T.border}` }}>
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.navy3, borderRadius: 8, border: `1px solid ${cur ? attColor(cur) + "40" : T.border}` }}>
                         <span style={{ fontSize: 15 }}>{t.emoji || "👤"}</span>
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: T.text1 }}>{t.name}</span>
                         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -4146,7 +4250,7 @@ function Diary({ onCountChange, user }) {
       <ConfigBanner />
 
       {!catColReady && (
-        <div style={{ background: `${T.amber}15`, border: `1px solid ${T.amber}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: T.amber }}>
+        <div style={{ background: `${"#F5C243"}15`, border: `1px solid ${"#F5C243"}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: "#F5C243" }}>
           <strong>AI categories won't save yet.</strong> Run this in Supabase SQL editor, then reload:
           <div style={{ marginTop: 6, background: T.navy0, borderRadius: 6, padding: "7px 12px", fontFamily: "monospace", fontSize: 11, color: T.text2, userSelect: "all" }}>
             ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS categories jsonb DEFAULT {'{}'};
@@ -4967,8 +5071,8 @@ function ShadowResume() {
   entries.forEach(e => {
     getFocusAreas(e).forEach(f => { allFocusAreas[f] = (allFocusAreas[f] || 0) + 1; });
     (e.tags || []).forEach(t => { if (t.trim()) allTags[t.trim()] = (allTags[t.trim()] || 0) + 1; });
-    (e.collaborators || []).forEach(c => { if (c.trim()) allCollabs[c.trim()] = (allCollabs[c.trim()] || 0) + 1; });
-    (e.jira_links || []).forEach(j => { if (j.trim()) allJiras.add(j.trim()); });
+    (e.collaborators || []).forEach(c => { const n = cleanCollab(c); if (n && n.trim()) allCollabs[n.trim()] = (allCollabs[n.trim()] || 0) + 1; });
+    (e.jira_links || []).forEach(j => { if (j && j.trim()) allJiras.add(j.trim()); });
   });
 
   const topFocus   = Object.entries(allFocusAreas).sort((a,b) => b[1]-a[1]);
@@ -4976,189 +5080,225 @@ function ShadowResume() {
   const topTags    = Object.entries(allTags).sort((a,b) => b[1]-a[1]).slice(0, 24);
   const maxFA      = topFocus[0]?.[1] || 1;
   const faPalette  = [T.accent, T.teal, T.gold, T.coral, T.green, "#a78bfa", "#fb923c", "#38bdf8"];
-  const moodPal    = { productive: T.green, resolved: T.teal, collaborative: T.accent, challenged: T.gold, frustrated: T.coral };
-
   const byMonth = {};
   entries.forEach(e => {
     const m = e.date.slice(0, 7);
     if (!byMonth[m]) byMonth[m] = { count: 0, focuses: new Set(), collabs: new Set(), moods: {} };
     byMonth[m].count++;
     getFocusAreas(e).forEach(f => byMonth[m].focuses.add(f));
-    (e.collaborators || []).forEach(c => { if (c.trim()) byMonth[m].collabs.add(c.trim()); });
+    (e.collaborators || []).forEach(c => { const n = cleanCollab(c); if (n && n.trim()) byMonth[m].collabs.add(n.trim()); });
     if (e.mood) byMonth[m].moods[e.mood] = (byMonth[m].moods[e.mood] || 0) + 1;
   });
   const months = Object.entries(byMonth).sort((a,b) => a[0].localeCompare(b[0]));
   const dateRange = `${fmtDate(entries[0].date)} — ${fmtDate(entries[entries.length-1].date)}`;
   const numMonths = months.length;
 
-  // Auto-generate a headline summary
-  const top3Focus = topFocus.slice(0, 3).map(([f]) => f);
-  const topCollab = topCollabs[0]?.[0];
-  const summary = [
-    `${entries.length} diary entries across ${numMonths} month${numMonths !== 1 ? "s" : ""}`,
-    top3Focus.length ? `primarily focused on ${top3Focus.join(", ")}` : null,
-    topCollab ? `most frequently collaborated with ${topCollab}` : null,
-    allJiras.size ? `${allJiras.size} JIRA tickets referenced` : null,
-  ].filter(Boolean).join(" · ");
+  const top3Focus   = topFocus.slice(0, 3).map(([f]) => f);
+  const topCollab   = topCollabs[0]?.[0];
+  const winEntries  = entries.filter(e => e.is_win);
+  const myName      = localStorage.getItem("echo_display_name") || "";
+  const avgPerMonth = numMonths > 0 ? Math.round(entries.length / numMonths) : 0;
+  const maxMonthCount = Math.max(...months.map(([, d]) => d.count), 1);
 
   return (
     <div className="echo-content fade-in">
-      {/* ── Profile Header ── */}
-      <div className="card" style={{ marginBottom: 16, background: `linear-gradient(135deg, ${T.navy2} 0%, ${T.navy3} 100%)`, border: `1px solid ${T.borderHover}`, position: "relative", overflow: "hidden" }}>
-        {/* Decorative accent bar */}
+
+      {/* ── Hero Header ── */}
+      <div style={{ marginBottom: 16, background: `linear-gradient(135deg, ${T.navy2} 0%, ${T.navy3} 60%, ${T.navy4} 100%)`, border: `1px solid ${T.borderHover}`, borderRadius: 14, padding: "24px 28px", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${T.accent}, ${T.teal}, ${T.gold})` }} />
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingTop: 8 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <div style={{ width: 38, height: 38, borderRadius: "50%", background: `linear-gradient(135deg, ${T.accent}, ${T.teal})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>👤</div>
+        <div style={{ position: "absolute", top: -40, right: -40, width: 180, height: 180, borderRadius: "50%", background: `radial-gradient(circle, ${T.accent}08, transparent 70%)`, pointerEvents: "none" }} />
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
+              <div style={{ width: 52, height: 52, borderRadius: "50%", background: `linear-gradient(135deg, ${T.accent}40, ${T.teal}30)`, border: `2px solid ${T.accent}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
+                {myName ? <span style={{ fontWeight: 800, fontSize: 18, color: T.accent, fontFamily: "'Syne', sans-serif" }}>{myName[0].toUpperCase()}</span> : "👤"}
+              </div>
               <div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif", lineHeight: 1.1 }}>Work Activity Profile</div>
-                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{dateRange}</div>
+                {myName && <div style={{ fontSize: 22, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{myName}</div>}
+                <div style={{ fontSize: 12, color: T.text3, marginTop: myName ? 3 : 0, fontFamily: "'DM Mono', monospace" }}>{dateRange}</div>
               </div>
             </div>
-            <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.6, padding: "8px 12px", background: `rgba(255,255,255,0.03)`, borderRadius: 8, border: `1px solid ${T.border}` }}>
-              {summary}
+
+            {/* Narrative summary */}
+            <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.7, marginBottom: 0 }}>
+              {top3Focus.length > 0 && <><span style={{ color: T.text1, fontWeight: 500 }}>Primary focus:</span> {top3Focus.join(", ")}. </>}
+              {topCollab && <><span style={{ color: T.text1, fontWeight: 500 }}>Most frequent collaborator:</span> {topCollab}. </>}
+              {winEntries.length > 0 && <><span style={{ color: T.gold }}>🏆 {winEntries.length} win{winEntries.length !== 1 ? "s" : ""} logged</span> this period. </>}
+              {allJiras.size > 0 && <><span style={{ color: T.text3 }}>{allJiras.size} JIRA tickets referenced.</span></>}
             </div>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={() => window.print()} style={{ marginLeft: 14, flexShrink: 0 }}>⬇ Export PDF</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => window.print()} style={{ flexShrink: 0 }}>⬇ PDF</button>
         </div>
 
         {/* Stats strip */}
-        <div style={{ display: "flex", gap: 0, marginTop: 18, borderTop: `1px solid ${T.border}`, paddingTop: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 0, marginTop: 20, paddingTop: 18, borderTop: `1px solid ${T.border}`, flexWrap: "wrap" }}>
           {[
-            { l: "Entries", v: entries.length, c: T.accent },
-            { l: "Focus Areas", v: topFocus.length, c: T.teal },
-            { l: "Collaborators", v: Object.keys(allCollabs).length, c: T.gold },
-            { l: "JIRA Tickets", v: allJiras.size, c: T.coral },
-            { l: "Skills Tagged", v: Object.keys(allTags).length, c: T.green },
+            { l: "Total Entries",  v: entries.length,                   c: T.accent, icon: "📓" },
+            { l: "Avg / Month",    v: avgPerMonth,                       c: T.teal,   icon: "📈" },
+            { l: "Wins Logged",    v: winEntries.length,                 c: T.gold,   icon: "🏆" },
+            { l: "Collaborators",  v: Object.keys(allCollabs).length,    c: "#a78bfa", icon: "🤝" },
+            { l: "JIRA Tickets",   v: allJiras.size,                     c: T.coral,  icon: "🎫" },
+            { l: "Skills Tagged",  v: Object.keys(allTags).length,       c: T.green,  icon: "🏷️" },
           ].map((s, i, arr) => (
-            <div key={s.l} style={{ flex: 1, minWidth: 70, paddingRight: 16, borderRight: i < arr.length-1 ? `1px solid ${T.border}` : "none", marginRight: i < arr.length-1 ? 16 : 0 }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: s.c, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{s.v}</div>
-              <div style={{ fontSize: 9, color: T.text3, marginTop: 5, letterSpacing: 1, textTransform: "uppercase" }}>{s.l}</div>
+            <div key={s.l} style={{ flex: 1, minWidth: 80, paddingRight: 16, borderRight: i < arr.length - 1 ? `1px solid ${T.border}` : "none", marginRight: i < arr.length - 1 ? 16 : 0, marginBottom: 4 }}>
+              <div style={{ fontSize: 24, fontWeight: 800, color: s.c, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{s.v}</div>
+              <div style={{ fontSize: 9, color: T.text3, marginTop: 4, letterSpacing: 0.8, textTransform: "uppercase" }}>{s.l}</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ── Focus Areas ── */}
-      {topFocus.length > 0 && (
-        <div className="card resume-section" style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 14 }}>🎯 Where I Spent My Time</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 20px" }}>
-            {topFocus.map(([fa, count], i) => {
-              const col = faPalette[i % faPalette.length];
-              const pct = Math.round((count / maxFA) * 100);
-              return (
-                <div key={fa}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: T.text1, fontWeight: i < 3 ? 600 : 400 }}>{fa}</span>
-                    <span style={{ fontSize: 10, color: col, fontFamily: "'DM Mono', monospace" }}>{count}d</span>
-                  </div>
-                  <div style={{ height: 5, background: T.navy3, borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ height: "100%", borderRadius: 3, width: `${pct}%`, background: `linear-gradient(90deg, ${col}80, ${col})`, transition: "width 0.6s ease" }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* ── Two-column: Focus + Top Collaborators ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
 
-      {/* ── Collaborators ── */}
-      {topCollabs.length > 0 && (
-        <div className="card resume-section" style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 14 }}>🤝 Collaboration Network</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8 }}>
-            {topCollabs.map(([name, count], i) => {
-              const col = faPalette[i % faPalette.length];
-              const barW = Math.max(20, Math.round((count / (topCollabs[0]?.[1] || 1)) * 100));
-              return (
-                <div key={name} style={{ background: T.navy3, borderRadius: 10, padding: "10px 12px", border: `1px solid ${T.border}`, position: "relative", overflow: "hidden" }}>
-                  <div style={{ position: "absolute", bottom: 0, left: 0, width: `${barW}%`, height: 2, background: col, opacity: 0.5 }} />
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <div style={{ width: 26, height: 26, borderRadius: "50%", background: `${col}18`, border: `1px solid ${col}35`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: col, flexShrink: 0 }}>
-                      {initials(name)}
-                    </div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
-                  </div>
-                  <div style={{ fontSize: 10, color: T.text3 }}>{count} entr{count === 1 ? "y" : "ies"} together</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Timeline ── */}
-      {months.length > 0 && (
-        <div className="card resume-section" style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 16 }}>📅 Monthly Timeline</div>
-          <div style={{ position: "relative" }}>
-            {/* Vertical spine */}
-            <div style={{ position: "absolute", left: 52, top: 0, bottom: 0, width: 2, background: `linear-gradient(180deg, ${T.accent}40, ${T.teal}20)`, borderRadius: 2 }} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-              {months.map(([m, data], i) => {
-                const [yr, mo] = m.split("-");
-                const label = new Date(Number(yr), Number(mo)-1).toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
-                const topMood = Object.entries(data.moods).sort((a,b) => b[1]-a[1])[0]?.[0];
-                const isLast = i === months.length - 1;
+        {/* Focus Areas */}
+        {topFocus.length > 0 && (
+          <div className="card" style={{ padding: "18px 20px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 14 }}>🎯 Time Allocation</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {topFocus.map(([fa, count], i) => {
+                const col = faPalette[i % faPalette.length];
+                const pct = Math.round((count / maxFA) * 100);
                 return (
-                  <div key={m} style={{ display: "flex", gap: 0, paddingBottom: isLast ? 0 : 16, position: "relative" }}>
-                    {/* Month label */}
-                    <div style={{ width: 52, flexShrink: 0, textAlign: "right", paddingRight: 14, paddingTop: 2 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: T.text2, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{label}</div>
-                      <div style={{ fontSize: 9, color: T.text3, marginTop: 3 }}>{data.count}d</div>
-                    </div>
-                    {/* Dot on spine */}
-                    <div style={{ position: "absolute", left: 48, top: 4, width: 8, height: 8, borderRadius: "50%", background: i === months.length - 1 ? T.teal : T.accent, border: `2px solid ${T.navy2}`, zIndex: 1 }} />
-                    {/* Content */}
-                    <div style={{ flex: 1, paddingLeft: 20 }}>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: (data.collabs.size > 0 || topMood) ? 5 : 0 }}>
-                        {[...data.focuses].slice(0, 4).map(fa => (
-                          <span key={fa} style={{ fontSize: 10, padding: "2px 8px", background: `${T.accent}14`, color: T.accent, borderRadius: 20, border: `1px solid ${T.accent}22` }}>{fa}</span>
-                        ))}
-                        {[...data.focuses].length > 4 && <span style={{ fontSize: 10, color: T.text3, padding: "2px 6px" }}>+{[...data.focuses].length - 4}</span>}
-                        {topMood && <span style={{ fontSize: 10, padding: "2px 8px", background: `${moodPal[topMood] || T.text3}14`, color: moodPal[topMood] || T.text3, borderRadius: 20, border: `1px solid ${(moodPal[topMood] || T.text3)}22` }}>{topMood}</span>}
+                  <div key={fa}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                      <span style={{ fontSize: 12, color: i < 3 ? T.text1 : T.text2, fontWeight: i < 3 ? 600 : 400 }}>{fa}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 10, color: col, fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>{count}d</span>
+                        <span style={{ fontSize: 9, color: T.text3 }}>{pct}%</span>
                       </div>
-                      {data.collabs.size > 0 && <div style={{ fontSize: 10, color: T.text3 }}>w/ {[...data.collabs].slice(0, 3).join(", ")}{data.collabs.size > 3 ? ` +${data.collabs.size - 3}` : ""}</div>}
+                    </div>
+                    <div style={{ height: 4, background: `${T.navy0}80`, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", borderRadius: 3, width: `${pct}%`, background: `linear-gradient(90deg, ${col}70, ${col})`, transition: "width 0.7s ease" }} />
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
+        )}
+
+        {/* Top Collaborators */}
+        {topCollabs.length > 0 && (
+          <div className="card" style={{ padding: "18px 20px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 14 }}>🤝 Most Worked With</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {topCollabs.slice(0, 8).map(([name, count], i) => {
+                const col = faPalette[i % faPalette.length];
+                const barW = Math.round((count / (topCollabs[0]?.[1] || 1)) * 100);
+                return (
+                  <div key={name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: `${col}18`, border: `1.5px solid ${col}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: col, flexShrink: 0 }}>
+                      {initials(name)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                        <span style={{ fontSize: 12, color: T.text1, fontWeight: i === 0 ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+                        <span style={{ fontSize: 10, color: T.text3, marginLeft: 6, flexShrink: 0 }}>{count}×</span>
+                      </div>
+                      <div style={{ height: 3, background: `${T.navy0}80`, borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{ height: "100%", borderRadius: 2, width: `${barW}%`, background: col, opacity: 0.5 }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {topCollabs.length > 8 && <div style={{ fontSize: 10, color: T.text3, paddingLeft: 38 }}>+{topCollabs.length - 8} more collaborators</div>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Wins Gallery ── */}
+      {winEntries.length > 0 && (
+        <div className="card" style={{ marginBottom: 12, padding: "18px 20px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 14 }}>🏆 Wins & Highlights</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 8 }}>
+            {winEntries.slice(0, 6).map((e, i) => (
+              <div key={e.id || i} style={{ background: `${T.gold}08`, border: `1px solid ${T.gold}22`, borderRadius: 10, padding: "10px 14px", borderLeft: `3px solid ${T.gold}60` }}>
+                <div style={{ fontSize: 10, color: T.gold, fontFamily: "'DM Mono', monospace", marginBottom: 4 }}>{fmtDate(e.date)}</div>
+                <div style={{ fontSize: 12, color: T.text1, lineHeight: 1.5 }}>
+                  {(e.content || "").slice(0, 100)}{(e.content || "").length > 100 ? "…" : ""}
+                </div>
+                {getFocusAreas(e).length > 0 && (
+                  <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+                    {getFocusAreas(e).map(f => <span key={f} style={{ fontSize: 9, padding: "1px 6px", background: `${T.gold}14`, color: T.gold, borderRadius: 8 }}>{f}</span>)}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {winEntries.length > 6 && <div style={{ fontSize: 11, color: T.text3, marginTop: 8 }}>+{winEntries.length - 6} more wins — see Brag Doc for full list</div>}
         </div>
       )}
 
-      {/* ── Skills & Tickets ── */}
+      {/* ── Monthly Activity Timeline ── */}
+      {months.length > 0 && (
+        <div className="card" style={{ marginBottom: 12, padding: "18px 20px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 16 }}>📅 Monthly Activity</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {months.map(([m, data], i) => {
+              const [yr, mo] = m.split("-");
+              const label = new Date(Number(yr), Number(mo) - 1).toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+              const topMood = Object.entries(data.moods).sort((a, b) => b[1] - a[1])[0]?.[0];
+              const moodEmoji = { productive: "💚", resolved: "🔵", collaborative: "💜", challenged: "🟡", frustrated: "🔴" };
+              const barPct = Math.round((data.count / maxMonthCount) * 100);
+              const isLatest = i === months.length - 1;
+              return (
+                <div key={m} style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 0", borderBottom: i < months.length - 1 ? `1px solid ${T.border}30` : "none" }}>
+                  <div style={{ width: 44, flexShrink: 0, textAlign: "right" }}>
+                    <div style={{ fontSize: 11, fontWeight: isLatest ? 700 : 500, color: isLatest ? T.accent : T.text2, fontFamily: "'DM Mono', monospace" }}>{label}</div>
+                  </div>
+                  <div style={{ flex: 1, position: "relative", height: 18, background: `${T.navy0}60`, borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${barPct}%`, background: isLatest ? `linear-gradient(90deg, ${T.accent}50, ${T.accent}80)` : `linear-gradient(90deg, ${T.teal}30, ${T.teal}50)`, borderRadius: 4, transition: "width 0.7s ease" }} />
+                    <div style={{ position: "absolute", left: 8, top: 0, bottom: 0, display: "flex", alignItems: "center", gap: 4 }}>
+                      {[...data.focuses].slice(0, 3).map(fa => (
+                        <span key={fa} style={{ fontSize: 9, color: isLatest ? T.accent : T.teal, fontWeight: 600, whiteSpace: "nowrap" }}>{fa}</span>
+                      ))}
+                      {data.collabs.size > 0 && <span style={{ fontSize: 9, color: T.text3 }}>· {[...data.collabs].slice(0, 2).join(", ")}</span>}
+                    </div>
+                  </div>
+                  <div style={{ width: 46, flexShrink: 0, display: "flex", alignItems: "center", gap: 4, justifyContent: "flex-end" }}>
+                    {topMood && <span style={{ fontSize: 12 }}>{moodEmoji[topMood] || ""}</span>}
+                    <span style={{ fontSize: 11, color: T.text3, fontFamily: "'DM Mono', monospace" }}>{data.count}d</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Skills & JIRA Tickets ── */}
       {(topTags.length > 0 || allJiras.size > 0) && (
-        <div className="card resume-section">
+        <div style={{ display: "grid", gridTemplateColumns: topTags.length > 0 && allJiras.size > 0 ? "1fr 1fr" : "1fr", gap: 12 }}>
           {topTags.length > 0 && (
-            <>
-              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 12 }}>🏷️ Skills & Domains</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: allJiras.size > 0 ? 20 : 0 }}>
+            <div className="card" style={{ padding: "18px 20px" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>🏷️ Skills & Domains</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {topTags.map(([tag, count], i) => {
                   const col = faPalette[i % faPalette.length];
-                  const sz = i < 3 ? 14 : i < 8 ? 12.5 : 11.5;
+                  const sz = i < 3 ? 13 : i < 8 ? 12 : 11;
                   return (
                     <span key={tag} style={{ fontSize: sz, padding: "4px 11px", background: `${col}10`, color: col, borderRadius: 20, border: `1px solid ${col}25`, fontWeight: count > 2 ? 600 : 400 }}>
-                      {tag}{count > 1 ? <span style={{ fontSize: 9, opacity: 0.55, marginLeft: 4 }}>×{count}</span> : null}
+                      {tag}{count > 1 ? <span style={{ fontSize: 9, opacity: 0.5, marginLeft: 4 }}>×{count}</span> : null}
                     </span>
                   );
                 })}
               </div>
-            </>
+            </div>
           )}
           {allJiras.size > 0 && (
-            <>
-              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 10, paddingTop: topTags.length > 0 ? 16 : 0, borderTop: topTags.length > 0 ? `1px solid ${T.border}` : "none" }}>🎫 JIRA Tickets Referenced ({allJiras.size})</div>
+            <div className="card" style={{ padding: "18px 20px" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>🎫 JIRA Tickets <span style={{ color: T.text3, fontWeight: 400 }}>({allJiras.size})</span></div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                 {[...allJiras].slice(0, 30).map(j => (
-                  <span key={j} style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", padding: "3px 8px", background: `${T.gold}0d`, color: T.gold, borderRadius: 6, border: `1px solid ${T.gold}22` }}>{j}</span>
+                  <span key={j} style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", padding: "3px 9px", background: `${T.gold}0c`, color: T.gold, borderRadius: 6, border: `1px solid ${T.gold}20` }}>{j}</span>
                 ))}
                 {allJiras.size > 30 && <span style={{ fontSize: 11, color: T.text3, padding: "3px 6px" }}>+{allJiras.size - 30} more</span>}
               </div>
-            </>
+            </div>
           )}
         </div>
       )}
@@ -6816,11 +6956,14 @@ function ReleaseTracker() {
   };
 
   const teammates = loadTeammates();
-  const unaddedTeammates = teammates.filter(t => !owners.some(o => o.name.toLowerCase() === t.name.toLowerCase()));
+  const myName = localStorage.getItem("echo_display_name") || "";
+  const selfNotAdded = myName && !owners.some(o => o.name.toLowerCase() === myName.toLowerCase());
+  const selfChip = selfNotAdded ? [{ name: myName, emoji: "🙋" }] : [];
+  const unaddedTeammates = [...selfChip, ...teammates.filter(t => !owners.some(o => o.name.toLowerCase() === t.name.toLowerCase()))];
 
   const ownerAccent = (items) => {
     if (items.some(i => i.status === "blocked")) return T.coral;
-    if (items.some(i => i.status === "eta")) return T.amber;
+    if (items.some(i => i.status === "eta")) return "#F5C243";
     if (items.some(i => i.status === "review" || i.status === "today" || i.status === "tomorrow")) return T.accent;
     if (items.every(i => i.status === "released")) return "#4CAF50";
     if (items.length === 0) return T.borderHover;
@@ -6833,7 +6976,7 @@ function ReleaseTracker() {
       {/* ── Top bar: date nav + copy button ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
         {/* Date navigator */}
-        <div style={{ display: "flex", alignItems: "center", background: T.bg3, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
           <button onClick={() => shiftDate(-1)}
             style={{ padding: "8px 13px", background: "none", border: "none", borderRight: `1px solid ${T.border}`, color: T.text2, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>‹</button>
           <div style={{ position: "relative" }}>
@@ -6864,7 +7007,7 @@ function ReleaseTracker() {
         <div style={{ flex: 1 }} />
 
         {/* Copy report */}
-        <button onClick={copyReport} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s", background: copied ? "#4CAF5018" : T.bg3, color: copied ? "#4CAF50" : T.text1, border: `1px solid ${copied ? "#4CAF5050" : T.borderHover}` }}>
+        <button onClick={copyReport} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s", background: copied ? "#4CAF5018" : T.navy3, color: copied ? "#4CAF50" : T.text1, border: `1px solid ${copied ? "#4CAF5050" : T.borderHover}` }}>
           <span style={{ fontSize: 14 }}>{copied ? "✓" : "📋"}</span>
           {copied ? "Copied to clipboard!" : "Copy Report"}
         </button>
@@ -6884,7 +7027,7 @@ function ReleaseTracker() {
 
       {/* ── Teammate quick-add bar ── */}
       {(unaddedTeammates.length > 0 || owners.length === 0) && (
-        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 18, alignItems: "center", padding: "10px 14px", background: T.bg2, borderRadius: 10, border: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 18, alignItems: "center", padding: "10px 14px", background: T.navy2, borderRadius: 10, border: `1px solid ${T.border}` }}>
           <span style={{ fontSize: 11, color: T.text3, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>Add owner</span>
           {unaddedTeammates.map((t, i) => (
             <button key={i} onClick={() => persist([...owners, { name: t.name, items: [] }])}
@@ -6893,7 +7036,7 @@ function ReleaseTracker() {
             </button>
           ))}
           <button onClick={() => setAddingOwner(v => !v)}
-            style={{ padding: "4px 11px", fontSize: 12, borderRadius: 16, cursor: "pointer", background: addingOwner ? T.bg3 : T.accent, color: addingOwner ? T.text2 : "#fff", border: "none", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>
+            style={{ padding: "4px 11px", fontSize: 12, borderRadius: 16, cursor: "pointer", background: addingOwner ? T.navy3 : T.accent, color: addingOwner ? T.text2 : "#fff", border: "none", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>
             {addingOwner ? "Cancel" : "+ Custom"}
           </button>
         </div>
@@ -6912,7 +7055,7 @@ function ReleaseTracker() {
 
       {/* Empty state */}
       {owners.length === 0 && !addingOwner && (
-        <div style={{ textAlign: "center", color: T.text3, fontSize: 14, padding: "56px 24px", background: T.bg2, borderRadius: 12, border: `1px dashed ${T.borderHover}` }}>
+        <div style={{ textAlign: "center", color: T.text3, fontSize: 14, padding: "56px 24px", background: T.navy2, borderRadius: 12, border: `1px dashed ${T.borderHover}` }}>
           <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
           <div style={{ fontWeight: 600, color: T.text2, marginBottom: 4 }}>No entries for {displayDate}</div>
           <div style={{ fontSize: 12 }}>Add owners above to start logging release status.</div>
@@ -6925,7 +7068,7 @@ function ReleaseTracker() {
           const accent = ownerAccent(owner.items);
           const tmMeta = teammates.find(t => t.name === owner.name);
           return (
-            <div key={oi} style={{ background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", borderLeft: `3px solid ${accent}` }}>
+            <div key={oi} style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", borderLeft: `3px solid ${accent}` }}>
 
               {/* Owner header */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderBottom: (owner.items.length > 0 || addingItemFor === oi) ? `1px solid ${T.border}` : "none" }}>
@@ -6942,7 +7085,7 @@ function ReleaseTracker() {
                   ))}
                 </div>
                 <button onClick={() => startAddItem(oi)}
-                  style={{ padding: "5px 11px", fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: "pointer", background: T.bg3, color: T.accent, border: `1px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif" }}>
+                  style={{ padding: "5px 11px", fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: "pointer", background: T.navy3, color: T.accent, border: `1px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif" }}>
                   + Add
                 </button>
                 <button onClick={() => removeOwner(oi)}
