@@ -370,6 +370,7 @@ const T = {
   red: "#FF3B30",
   emerald: "#4CAF50",
   muted: "#9A99AD",
+  accent2: "#A89BF8",
   white: "#ffffff",
   text1: "#e8eef8",
   text2: "#9bacc8",
@@ -1452,9 +1453,9 @@ const ATT_STATUSES = [
 const attColor = (k) => ATT_STATUSES.find(s => s.key === k)?.color || T.text3;
 
 const RELEASE_STATUSES = [
-  { key: "released", label: "Released",    icon: "✅", color: "#4CAF50" },
+  { key: "released", label: "Released",    icon: "✅", color: T.emerald },
   { key: "today",    label: "Today",       icon: "🚀", color: T.teal    },
-  { key: "tomorrow", label: "Tomorrow",    icon: "🌅", color: "#7B6EF6" },
+  { key: "tomorrow", label: "Tomorrow",    icon: "🌅", color: T.violet  },
   { key: "review",   label: "In Review",   icon: "🔄", color: T.accent  },
   { key: "eta",      label: "ETA Pending", icon: "⏳", color: T.amber   },
   { key: "nextweek", label: "Next Week",   icon: "🗓️", color: T.text2   },
@@ -1644,15 +1645,26 @@ function Dashboard({ setView, diaryCount, docCount, user }) {
   const diaryStreak = (() => {
     if (!heatEntries.length) return 0;
     const dates = new Set(heatEntries.map(e => e.date));
-    const today = new Date().toISOString().slice(0, 10);
-    let d = new Date(today + "T00:00:00");
-    if (!dates.has(today)) d = new Date(d.getTime() - 86400000);
+    const isWeekend = (date) => { const d = date.getDay(); return d === 0 || d === 6; };
+    const prevDay = (date) => new Date(date.getTime() - 86400000);
+
+    // Start from today; if today is weekend skip back to last weekday
+    let d = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00");
+    while (isWeekend(d)) d = prevDay(d);
+
+    // If the most recent weekday has no entry yet, allow it (still mid-day) — go to previous weekday
+    if (!dates.has(d.toISOString().slice(0, 10))) {
+      d = prevDay(d);
+      while (isWeekend(d)) d = prevDay(d);
+    }
+
+    // Count consecutive weekdays with entries going backward (weekends are transparent)
     let count = 0;
     while (true) {
-      const ds = d.toISOString().slice(0, 10);
-      if (!dates.has(ds)) break;
+      while (isWeekend(d)) d = prevDay(d);
+      if (!dates.has(d.toISOString().slice(0, 10))) break;
       count++;
-      d = new Date(d.getTime() - 86400000);
+      d = prevDay(d);
     }
     return count;
   })();
@@ -2664,33 +2676,33 @@ const RELATIONSHIP_TYPES = [
   { key: "direct",   label: "My Team",    color: T.teal  },
   { key: "peer",     label: "Peer",       color: T.accent },
   { key: "manager",  label: "Manager",    color: T.gold  },
-  { key: "external", label: "External",   color: "#9A99AD" },
+  { key: "external", label: "External",   color: T.muted  },
 ];
 
 const TEAM_ROLES = [
-  { key: "manager",           label: "Manager",           color: T.amber, tip: "Upward — focus on alignment, blockers, and strategic goals" },
-  { key: "developer",         label: "Developer",         color: "#7B6EF6", tip: "Peer — focus on delivery, code quality, and collaboration" },
-  { key: "scrum_master",      label: "Scrum Master",      color: "#34D9B3", tip: "Process — focus on sprint health, impediments, and retrospectives" },
-  { key: "product_owner",     label: "Product Owner",     color: "#A89BF8", tip: "Product — focus on requirements clarity, priorities, and backlog" },
-  { key: "designer",          label: "Designer",          color: "#F07A6E", tip: "Creative — focus on UX outcomes, design reviews, and feedback loops" },
-  { key: "qa",                label: "QA / Tester",       color: "#34D9B3", tip: "Quality — focus on test coverage, bugs, and release readiness" },
-  { key: "sdet_i",            label: "SDET I",            color: "#34D9B3", tip: "Junior SDET — automation, test scripting, bug verification" },
-  { key: "sdet_ii",           label: "SDET II",           color: "#34D9B3", tip: "Mid SDET — framework development, CI integration, test design" },
-  { key: "sdet_iii",          label: "SDET III",          color: "#34D9B3", tip: "Senior SDET — architecture, mentoring, strategy" },
-  { key: "associate_sdet",    label: "Associate SDET",    color: "#34D9B3", tip: "Entry SDET — learning automation, manual + scripting" },
-  { key: "tech_lead",         label: "Tech Lead",         color: "#7B6EF6", tip: "Technical — focus on architecture decisions, code reviews, and mentoring" },
-  { key: "data_analyst",      label: "Data Analyst",      color: T.amber, tip: "Data — focus on insights, metrics, and analytical deliverables" },
-  { key: "devops",            label: "DevOps",             color: "#F07A6E", tip: "Infrastructure — focus on pipelines, reliability, and release process" },
-  { key: "delivery_manager",  label: "Delivery Manager",  color: "#A89BF8", tip: "Delivery — focus on timelines, dependencies, and stakeholder reporting" },
-  { key: "stakeholder",       label: "Stakeholder",       color: "#9A99AD", tip: "External — focus on status updates, risks, and expectations" },
-  { key: "trainee",           label: "Trainee",           color: "#9A99AD", tip: "Entry level — learning the codebase, guided tasks" },
+  { key: "manager",           label: "Manager",           color: T.amber,   tip: "Upward — focus on alignment, blockers, and strategic goals" },
+  { key: "developer",         label: "Developer",         color: T.violet,  tip: "Peer — focus on delivery, code quality, and collaboration" },
+  { key: "scrum_master",      label: "Scrum Master",      color: T.teal,    tip: "Process — focus on sprint health, impediments, and retrospectives" },
+  { key: "product_owner",     label: "Product Owner",     color: T.accent2, tip: "Product — focus on requirements clarity, priorities, and backlog" },
+  { key: "designer",          label: "Designer",          color: T.coral,   tip: "Creative — focus on UX outcomes, design reviews, and feedback loops" },
+  { key: "qa",                label: "QA / Tester",       color: T.teal,    tip: "Quality — focus on test coverage, bugs, and release readiness" },
+  { key: "sdet_i",            label: "SDET I",            color: T.teal,    tip: "Junior SDET — automation, test scripting, bug verification" },
+  { key: "sdet_ii",           label: "SDET II",           color: T.teal,    tip: "Mid SDET — framework development, CI integration, test design" },
+  { key: "sdet_iii",          label: "SDET III",          color: T.teal,    tip: "Senior SDET — architecture, mentoring, strategy" },
+  { key: "associate_sdet",    label: "Associate SDET",    color: T.teal,    tip: "Entry SDET — learning automation, manual + scripting" },
+  { key: "tech_lead",         label: "Tech Lead",         color: T.violet,  tip: "Technical — focus on architecture decisions, code reviews, and mentoring" },
+  { key: "data_analyst",      label: "Data Analyst",      color: T.amber,   tip: "Data — focus on insights, metrics, and analytical deliverables" },
+  { key: "devops",            label: "DevOps",             color: T.coral,   tip: "Infrastructure — focus on pipelines, reliability, and release process" },
+  { key: "delivery_manager",  label: "Delivery Manager",  color: T.accent2, tip: "Delivery — focus on timelines, dependencies, and stakeholder reporting" },
+  { key: "stakeholder",       label: "Stakeholder",       color: T.muted,   tip: "External — focus on status updates, risks, and expectations" },
+  { key: "trainee",           label: "Trainee",           color: T.muted,   tip: "Entry level — learning the codebase, guided tasks" },
 ];
 
 const SESSION_SENTIMENTS = [
-  { key: "excellent",       label: "Excellent",       color: "#34D9B3" },
-  { key: "positive",        label: "Good",            color: "#7B6EF6" },
-  { key: "neutral",         label: "Neutral",         color: T.amber },
-  { key: "needs_attention", label: "Needs Attention", color: "#F07A6E" },
+  { key: "excellent",       label: "Excellent",       color: T.teal   },
+  { key: "positive",        label: "Good",            color: T.violet },
+  { key: "neutral",         label: "Neutral",         color: T.amber  },
+  { key: "needs_attention", label: "Needs Attention", color: T.coral  },
 ];
 
 function OneOnOneModal({ teammate, user, onClose }) {
@@ -4306,6 +4318,15 @@ function Diary({ onCountChange, user }) {
     const target = entries.find(e => e.date === jumpDate);
     if (target) setViewEntry(target);
   }, [entries]);
+
+  // Auto-open new entry form when triggered by N keyboard shortcut
+  useEffect(() => {
+    if (loading) return;
+    const flag = localStorage.getItem("echo_diary_new");
+    if (!flag) return;
+    localStorage.removeItem("echo_diary_new");
+    setModal("new");
+  }, [loading]);
 
   // Keep viewEntry in sync with fresh DB data after every save/auto-save
   useEffect(() => {
@@ -7781,7 +7802,7 @@ export default function Echo() {
               onMouseEnter={e => { e.currentTarget.style.borderColor = T.borderHover; e.currentTarget.style.color = T.text2; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}
               title="Search everything (Cmd+K)">
-              🔍 <span style={{ display: "none", "@media (min-width: 600px)": { display: "inline" } }}>Search</span>
+              🔍
               <span style={{ fontSize: 10, background: T.navy3, padding: "1px 6px", borderRadius: 4 }}>⌘K</span>
             </button>
             <div style={{ fontSize: 13, color: T.text3 }}>{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
@@ -7829,7 +7850,7 @@ export default function Echo() {
           style={{ zIndex: 10001 }}>
           <div className="modal-box" style={{ maxWidth: 380, width: "90%" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Edit Profile</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text1 }}>Edit Profile</div>
               <button className="btn btn-ghost btn-sm" onClick={() => setProfileOpen(false)}>✕</button>
             </div>
             {/* Avatar */}
