@@ -365,6 +365,12 @@ const T = {
   teal: "#3fcfb4",
   coral: "#f07562",
   green: "#4ecb8d",
+  amber: "#F5C243",
+  violet: "#7B6EF6",
+  red: "#FF3B30",
+  emerald: "#4CAF50",
+  muted: "#9A99AD",
+  white: "#ffffff",
   text1: "#e8eef8",
   text2: "#9bacc8",
   text3: "#5c6e90",
@@ -1441,7 +1447,7 @@ const ATT_STATUSES = [
   { key: "office", label: "In Office", icon: "🏢", color: T.teal   },
   { key: "wfh",    label: "WFH",       icon: "🏠", color: T.accent },
   { key: "leave",  label: "Leave",     icon: "🏖️", color: T.coral  },
-  { key: "half",   label: "Half Day",  icon: "🕐", color: "#F5C243"  },
+  { key: "half",   label: "Half Day",  icon: "🕐", color: T.amber  },
 ];
 const attColor = (k) => ATT_STATUSES.find(s => s.key === k)?.color || T.text3;
 
@@ -1450,7 +1456,7 @@ const RELEASE_STATUSES = [
   { key: "today",    label: "Today",       icon: "🚀", color: T.teal    },
   { key: "tomorrow", label: "Tomorrow",    icon: "🌅", color: "#7B6EF6" },
   { key: "review",   label: "In Review",   icon: "🔄", color: T.accent  },
-  { key: "eta",      label: "ETA Pending", icon: "⏳", color: "#F5C243"   },
+  { key: "eta",      label: "ETA Pending", icon: "⏳", color: T.amber   },
   { key: "nextweek", label: "Next Week",   icon: "🗓️", color: T.text2   },
   { key: "blocked",  label: "Blocked",     icon: "🔴", color: T.coral   },
   { key: "leave",    label: "On Leave",    icon: "🏖️", color: T.text3   },
@@ -1635,13 +1641,40 @@ function Dashboard({ setView, diaryCount, docCount, user }) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
+  const diaryStreak = (() => {
+    if (!heatEntries.length) return 0;
+    const dates = new Set(heatEntries.map(e => e.date));
+    const today = new Date().toISOString().slice(0, 10);
+    let d = new Date(today + "T00:00:00");
+    if (!dates.has(today)) d = new Date(d.getTime() - 86400000);
+    let count = 0;
+    while (true) {
+      const ds = d.toISOString().slice(0, 10);
+      if (!dates.has(ds)) break;
+      count++;
+      d = new Date(d.getTime() - 86400000);
+    }
+    return count;
+  })();
+
   return (
     <div className="echo-content fade-in">
       <ConfigBanner />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <div style={{ fontSize: 24, fontWeight: 600, color: T.text1 }}>{greeting}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 24, fontWeight: 600, color: T.text1 }}>{greeting}</div>
+            {diaryStreak >= 2 && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 5,
+                background: `${T.coral}15`, border: `1px solid ${T.coral}40`,
+                borderRadius: 20, padding: "3px 12px", fontSize: 13, fontWeight: 700, color: T.coral,
+              }} title="Consecutive days with a diary entry">
+                🔥 {diaryStreak} day streak
+              </div>
+            )}
+          </div>
           <div style={{ fontSize: 14, color: T.text3, marginTop: 4 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</div>
         </div>
         <button onClick={() => setWeeklyModal(true)} style={{
@@ -2361,6 +2394,7 @@ function MyTeam({ user }) {
   const [lastSeen, setLastSeen] = useState({});
   const [relSupported, setRelSupported] = useState(true);
   const [hadSessionThisMonth, setHadSessionThisMonth] = useState(new Set());
+  const [nextSessionMap, setNextSessionMap] = useState({});
 
   useEffect(() => {
     if (!user?.id) return;
@@ -2380,6 +2414,13 @@ function MyTeam({ user }) {
     fetch(`${_REST()}/one_on_one_sessions?select=teammate_id&session_date=gte.${monthStart}`, { headers: h() })
       .then(r => r.ok ? r.json() : [])
       .then(rows => setHadSessionThisMonth(new Set((rows || []).map(s => s.teammate_id))));
+    db.from("one_on_one_sessions").select("teammate_id,next_session_date", { order: "session_date.desc" }).then(rows => {
+      const map = {};
+      (rows || []).forEach(s => {
+        if (s.next_session_date && !map[s.teammate_id]) map[s.teammate_id] = s.next_session_date;
+      });
+      setNextSessionMap(map);
+    });
   }, [user]);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -2428,13 +2469,13 @@ function MyTeam({ user }) {
       {/* Monthly 1:1 reminder banner */}
       {isLastWeekOfMonth && overdueDirects.length > 0 && (
         <div style={{
-          background: `${"#F5C243"}0f`, border: `1px solid ${"#F5C243"}50`,
+          background: `${T.amber}0f`, border: `1px solid ${T.amber}50`,
           borderRadius: 12, padding: "14px 18px", marginBottom: 20,
           display: "flex", alignItems: "flex-start", gap: 12,
         }}>
           <div style={{ fontSize: 22, flexShrink: 0, lineHeight: 1 }}>🔔</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#F5C243", marginBottom: 4 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.amber, marginBottom: 4 }}>
               Monthly 1:1 reminder — it's the last week of the month
             </div>
             <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.7 }}>
@@ -2443,7 +2484,7 @@ function MyTeam({ user }) {
                 <span key={t.id}>
                   <button onClick={() => setOneOnOne(t)} style={{
                     background: "none", border: "none", padding: 0,
-                    color: "#F5C243", cursor: "pointer", fontWeight: 600,
+                    color: T.amber, cursor: "pointer", fontWeight: 600,
                     fontSize: 12, fontFamily: "inherit", textDecoration: "underline",
                   }}>{t.name}</button>
                   {i < overdueDirects.length - 1 ? ", " : ""}
@@ -2504,7 +2545,7 @@ function MyTeam({ user }) {
 
       {/* Migration banner */}
       {!relSupported && (
-        <div style={{ background: `${"#F5C243"}15`, border: `1px solid ${"#F5C243"}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: "#F5C243" }}>
+        <div style={{ background: `${T.amber}15`, border: `1px solid ${T.amber}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: T.amber }}>
           <strong>One-time setup needed:</strong> Run this in your Supabase SQL editor to enable relationship types and fix the 1:1 button:
           <div style={{ marginTop: 8, background: T.navy0, borderRadius: 6, padding: "8px 12px", fontFamily: "monospace", fontSize: 11, color: T.text2, userSelect: "all" }}>
             ALTER TABLE teammates ADD COLUMN IF NOT EXISTS relationship text DEFAULT 'direct';
@@ -2585,6 +2626,19 @@ function MyTeam({ user }) {
                           const days = Math.floor((Date.now() - new Date(d + "T00:00:00").getTime()) / 86400000);
                           return <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>{days === 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`}</div>;
                         })()}
+                        {rt.key === "direct" && (() => {
+                          const ns = nextSessionMap[t.id];
+                          if (!ns) return null;
+                          const daysLeft = Math.ceil((new Date(ns + "T00:00:00").getTime() - Date.now()) / 86400000);
+                          if (daysLeft < -3 || daysLeft > 30) return null;
+                          const overdue = daysLeft < 0;
+                          const col = overdue ? T.coral : daysLeft <= 3 ? T.amber : T.teal;
+                          return (
+                            <div style={{ fontSize: 10, color: col, marginTop: 3, fontWeight: 600 }}>
+                              {overdue ? `1:1 overdue ${Math.abs(daysLeft)}d` : daysLeft === 0 ? "1:1 today!" : `1:1 in ${daysLeft}d`}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => startEdit(t)}>Edit</button>
@@ -2614,7 +2668,7 @@ const RELATIONSHIP_TYPES = [
 ];
 
 const TEAM_ROLES = [
-  { key: "manager",           label: "Manager",           color: "#F5C243", tip: "Upward — focus on alignment, blockers, and strategic goals" },
+  { key: "manager",           label: "Manager",           color: T.amber, tip: "Upward — focus on alignment, blockers, and strategic goals" },
   { key: "developer",         label: "Developer",         color: "#7B6EF6", tip: "Peer — focus on delivery, code quality, and collaboration" },
   { key: "scrum_master",      label: "Scrum Master",      color: "#34D9B3", tip: "Process — focus on sprint health, impediments, and retrospectives" },
   { key: "product_owner",     label: "Product Owner",     color: "#A89BF8", tip: "Product — focus on requirements clarity, priorities, and backlog" },
@@ -2625,7 +2679,7 @@ const TEAM_ROLES = [
   { key: "sdet_iii",          label: "SDET III",          color: "#34D9B3", tip: "Senior SDET — architecture, mentoring, strategy" },
   { key: "associate_sdet",    label: "Associate SDET",    color: "#34D9B3", tip: "Entry SDET — learning automation, manual + scripting" },
   { key: "tech_lead",         label: "Tech Lead",         color: "#7B6EF6", tip: "Technical — focus on architecture decisions, code reviews, and mentoring" },
-  { key: "data_analyst",      label: "Data Analyst",      color: "#F5C243", tip: "Data — focus on insights, metrics, and analytical deliverables" },
+  { key: "data_analyst",      label: "Data Analyst",      color: T.amber, tip: "Data — focus on insights, metrics, and analytical deliverables" },
   { key: "devops",            label: "DevOps",             color: "#F07A6E", tip: "Infrastructure — focus on pipelines, reliability, and release process" },
   { key: "delivery_manager",  label: "Delivery Manager",  color: "#A89BF8", tip: "Delivery — focus on timelines, dependencies, and stakeholder reporting" },
   { key: "stakeholder",       label: "Stakeholder",       color: "#9A99AD", tip: "External — focus on status updates, risks, and expectations" },
@@ -2635,7 +2689,7 @@ const TEAM_ROLES = [
 const SESSION_SENTIMENTS = [
   { key: "excellent",       label: "Excellent",       color: "#34D9B3" },
   { key: "positive",        label: "Good",            color: "#7B6EF6" },
-  { key: "neutral",         label: "Neutral",         color: "#F5C243" },
+  { key: "neutral",         label: "Neutral",         color: T.amber },
   { key: "needs_attention", label: "Needs Attention", color: "#F07A6E" },
 ];
 
@@ -2937,7 +2991,7 @@ function OneOnOneModal({ teammate, user, onClose }) {
                 )}
                 {context.feedback.length > 0 && (
                   <div style={{ marginBottom: 18 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "#F5C243", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.amber, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
                       💬 Feedback given
                     </div>
                     {context.feedback.map((f, i) => (
@@ -4334,7 +4388,7 @@ function Diary({ onCountChange, user }) {
       <ConfigBanner />
 
       {!catColReady && (
-        <div style={{ background: `${"#F5C243"}15`, border: `1px solid ${"#F5C243"}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: "#F5C243" }}>
+        <div style={{ background: `${T.amber}15`, border: `1px solid ${T.amber}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: T.amber }}>
           <strong>AI categories won't save yet.</strong> Run this in Supabase SQL editor, then reload:
           <div style={{ marginTop: 6, background: T.navy0, borderRadius: 6, padding: "7px 12px", fontFamily: "monospace", fontSize: 11, color: T.text2, userSelect: "all" }}>
             ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS categories jsonb DEFAULT {'{}'};
@@ -5898,12 +5952,13 @@ function CreditTracker({ user }) {
       )}
 
       {filtered.length === 0 ? (
-        <div className="card" style={{ textAlign: "center", padding: "50px 0" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>{tab === "received" ? "⭐" : "🤝"}</div>
-          <div style={{ fontSize: 14, color: T.text2, marginBottom: 6 }}>No {tab} credits yet</div>
-          <div style={{ fontSize: 12, color: T.text3 }}>
-            {tab === "received" ? "When someone praises or credits your work, log it here. Invaluable at review time." : "Log credits you give to colleagues — track whether the balance is fair."}
+        <div className="card" style={{ textAlign: "center", padding: "40px 32px" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>{tab === "received" ? "⭐" : "🤝"}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: T.text2, marginBottom: 8 }}>No {tab} credits yet</div>
+          <div style={{ fontSize: 13, color: T.text3, lineHeight: 1.7, maxWidth: 360, margin: "0 auto 20px" }}>
+            {tab === "received" ? "When someone praises your work, says thanks, or credits you publicly — log it here. It becomes powerful evidence at appraisal time." : "Give credit where it's due. Logging what you acknowledge in others builds a fairer team culture and shows leadership qualities."}
           </div>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>Log {tab === "received" ? "Received" : "Given"} Credit</button>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -6691,10 +6746,11 @@ create policy "own" on incidents for all using (auth.uid()=user_id);`}
       {loading ? (
         <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>Loading…</div>
       ) : incidents.length === 0 ? (
-        <div className="card" style={{ textAlign: "center", padding: 40 }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🐛</div>
-          <div style={{ fontSize: 15, color: T.text1, marginBottom: 6 }}>No incidents logged</div>
-          <div style={{ fontSize: 13, color: T.text3 }}>Log every escaped defect and prod issue. Patterns emerge after 3–4 entries.</div>
+        <div className="card" style={{ textAlign: "center", padding: "40px 32px" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🐛</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: T.text1, marginBottom: 8 }}>No incidents logged yet</div>
+          <div style={{ fontSize: 13, color: T.text3, lineHeight: 1.7, maxWidth: 360, margin: "0 auto 20px" }}>Log every escaped defect and prod issue. Patterns across root causes, modules, and severity emerge after just 3–4 entries — invaluable evidence for retrospectives.</div>
+          <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>Log First Incident</button>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -6815,12 +6871,13 @@ create policy "own" on decisions for all using (auth.uid()=user_id);`}
       {loading ? (
         <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>Loading…</div>
       ) : filtered.length === 0 ? (
-        <div className="card" style={{ textAlign: "center", padding: 40 }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🧠</div>
-          <div style={{ fontSize: 15, color: T.text1, marginBottom: 6 }}>{search ? "No matching decisions" : "No decisions logged yet"}</div>
-          <div style={{ fontSize: 13, color: T.text3, lineHeight: 1.7, maxWidth: 380, margin: "0 auto" }}>
-            Log architectural choices, process calls, and key decisions. Boring now; invaluable when someone asks why in six months.
+        <div className="card" style={{ textAlign: "center", padding: "40px 32px" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🧠</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: T.text1, marginBottom: 8 }}>{search ? "No matching decisions" : "No decisions logged yet"}</div>
+          <div style={{ fontSize: 13, color: T.text3, lineHeight: 1.7, maxWidth: 380, margin: "0 auto 20px" }}>
+            Log architectural choices, process calls, and team decisions. Boring now — invaluable when someone asks "why did we do it this way?" in six months.
           </div>
+          {!search && <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>Log First Decision</button>}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -7047,7 +7104,7 @@ function ReleaseTracker() {
 
   const ownerAccent = (items) => {
     if (items.some(i => i.status === "blocked")) return T.coral;
-    if (items.some(i => i.status === "eta")) return "#F5C243";
+    if (items.some(i => i.status === "eta")) return T.amber;
     if (items.some(i => i.status === "review" || i.status === "today" || i.status === "tomorrow")) return T.accent;
     if (items.every(i => i.status === "released")) return "#4CAF50";
     if (items.length === 0) return T.borderHover;
@@ -7294,6 +7351,177 @@ const PAGE_META = {
   resolve:     { title: "Resolve",         sub: "Days you stayed strong — track habits you're breaking" },
 };
 
+// ─── Command Palette (Cmd+K / Ctrl+K) ────────────────────────────────────────
+function CommandPalette({ onClose, setView }) {
+  const [q, setQ] = useState("");
+  const [diary, setDiary] = useState(null);
+  const [sel, setSel] = useState(0);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    db.from("diary_entries").select("id,date,content,mood,focus_areas", { order: "date.desc" })
+      .then(rows => setDiary((rows || []).slice(0, 60)));
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const teammates = loadTeammates();
+  const qL = q.toLowerCase();
+
+  const QUICK = [
+    { icon: "📓", label: "New diary entry",  desc: "Open diary and start today's log", act: () => { setView("diary"); onClose(); } },
+    { icon: "🏠", label: "Dashboard",        desc: "Go to overview & calendar",         act: () => { setView("dashboard"); onClose(); } },
+    { icon: "👥", label: "My Team",          desc: "Teammates + 1:1 sessions",          act: () => { setView("team"); onClose(); } },
+    { icon: "🚀", label: "Release Status",   desc: "Team ticket and release tracking",  act: () => { setView("releases"); onClose(); } },
+    { icon: "🤝", label: "Commitments",      desc: "Things you owe / are waiting on",   act: () => { setView("commitments"); onClose(); } },
+    { icon: "🏆", label: "Brag Doc",         desc: "Wins and appraisal evidence",       act: () => { setView("brag"); onClose(); } },
+    { icon: "📋", label: "Shadow Resume",    desc: "Auto-built career profile",         act: () => { setView("resume"); onClose(); } },
+    { icon: "🧠", label: "Decision Log",     desc: "Architectural and process choices", act: () => { setView("decisions"); onClose(); } },
+    { icon: "🐛", label: "Incident Log",     desc: "Escaped defects and prod issues",   act: () => { setView("incidents"); onClose(); } },
+    { icon: "⭐", label: "Credit Tracker",   desc: "Given and received recognition",    act: () => { setView("credits"); onClose(); } },
+  ];
+
+  const filteredQuick = QUICK.filter(a => !q || a.label.toLowerCase().includes(qL) || a.desc.toLowerCase().includes(qL));
+  const filteredTeam = teammates.filter(t => q && t.name.toLowerCase().includes(qL)).slice(0, 4);
+  const filteredDiary = !diary ? [] : diary.filter(e =>
+    q && (
+      (e.content || "").toLowerCase().includes(qL) ||
+      (e.date || "").includes(qL) ||
+      (Array.isArray(e.focus_areas) ? e.focus_areas : e.focus_areas ? [e.focus_areas] : []).some(f => f.toLowerCase().includes(qL))
+    )
+  ).slice(0, 5);
+
+  const groups = [
+    ...(filteredQuick.length ? [{ type: "header", label: q ? "Navigation" : "Quick actions" }] : []),
+    ...filteredQuick.map(a => ({ type: "action", data: a })),
+    ...(filteredTeam.length ? [{ type: "header", label: "Team members" }] : []),
+    ...filteredTeam.map(t => ({ type: "teammate", data: t })),
+    ...(filteredDiary.length ? [{ type: "header", label: "Diary entries" }] : []),
+    ...filteredDiary.map(e => ({ type: "diary", data: e })),
+  ];
+  const clickables = groups.filter(g => g.type !== "header");
+
+  const activate = (item) => {
+    if (item.type === "action") item.data.act();
+    else if (item.type === "teammate") { setView("team"); onClose(); }
+    else if (item.type === "diary") { localStorage.setItem("echo_diary_jump", item.data.date); setView("diary"); onClose(); }
+  };
+
+  const handleKey = (e) => {
+    if (e.key === "ArrowDown") { setSel(s => Math.min(s + 1, clickables.length - 1)); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { setSel(s => Math.max(s - 1, 0)); e.preventDefault(); }
+    else if (e.key === "Enter" && clickables[sel]) { activate(clickables[sel]); }
+  };
+
+  let clickIdx = -1;
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)",
+      zIndex: 99999, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh",
+    }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{
+        background: T.navy1, border: `1px solid ${T.borderHover}`,
+        borderRadius: 16, width: "100%", maxWidth: 620, boxShadow: `0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px ${T.border}`,
+        overflow: "hidden", maxHeight: "70vh", display: "flex", flexDirection: "column",
+      }}>
+        {/* Search input */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${T.border}` }}>
+          <span style={{ fontSize: 18, color: T.text3, flexShrink: 0 }}>🔍</span>
+          <input
+            ref={inputRef} value={q}
+            onChange={e => { setQ(e.target.value); setSel(0); }}
+            onKeyDown={handleKey}
+            placeholder="Search diary, teammates, navigate…"
+            style={{
+              flex: 1, background: "none", border: "none", outline: "none",
+              fontSize: 16, color: T.text1, fontFamily: "'DM Sans', sans-serif",
+            }}
+          />
+          <span style={{ fontSize: 11, color: T.text3, background: T.navy3, padding: "2px 7px", borderRadius: 5, flexShrink: 0 }}>Esc</span>
+        </div>
+        {/* Results */}
+        <div style={{ overflowY: "auto", padding: "8px 0" }}>
+          {diary === null && q === "" && (
+            <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: "8px 0" }}>Loading diary…</div>
+          )}
+          {groups.map((item, gi) => {
+            if (item.type === "header") {
+              return (
+                <div key={gi} style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1, textTransform: "uppercase", padding: "10px 18px 4px" }}>
+                  {item.label}
+                </div>
+              );
+            }
+            clickIdx++;
+            const ci = clickIdx;
+            const isSelected = sel === ci;
+            if (item.type === "action") {
+              return (
+                <div key={gi} onClick={() => activate(item)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 12, padding: "9px 18px", cursor: "pointer",
+                    background: isSelected ? `${T.accent}15` : "transparent",
+                    borderLeft: isSelected ? `2px solid ${T.accent}` : "2px solid transparent",
+                    transition: "background 0.1s",
+                  }}>
+                  <span style={{ fontSize: 17, flexShrink: 0 }}>{item.data.icon}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: isSelected ? T.text1 : T.text2 }}>{item.data.label}</div>
+                    <div style={{ fontSize: 11, color: T.text3 }}>{item.data.desc}</div>
+                  </div>
+                </div>
+              );
+            }
+            if (item.type === "teammate") {
+              return (
+                <div key={gi} onClick={() => activate(item)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 12, padding: "9px 18px", cursor: "pointer",
+                    background: isSelected ? `${T.teal}12` : "transparent",
+                    borderLeft: isSelected ? `2px solid ${T.teal}` : "2px solid transparent",
+                  }}>
+                  <span style={{ fontSize: 17, flexShrink: 0 }}>{item.data.emoji || "👤"}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: T.text2 }}>{item.data.name}</div>
+                    {item.data.role && <div style={{ fontSize: 11, color: T.text3 }}>{item.data.role}</div>}
+                  </div>
+                  <span style={{ fontSize: 10, color: T.text3, background: T.navy3, padding: "2px 6px", borderRadius: 4 }}>Team</span>
+                </div>
+              );
+            }
+            if (item.type === "diary") {
+              const preview = (item.data.content || "").split("\n").find(l => l.trim())?.trim().slice(0, 80) || "No content";
+              return (
+                <div key={gi} onClick={() => activate(item)}
+                  style={{
+                    display: "flex", alignItems: "flex-start", gap: 12, padding: "9px 18px", cursor: "pointer",
+                    background: isSelected ? `${T.gold}10` : "transparent",
+                    borderLeft: isSelected ? `2px solid ${T.gold}` : "2px solid transparent",
+                  }}>
+                  <span style={{ fontSize: 14, flexShrink: 0, marginTop: 2 }}>📓</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview}</div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{item.data.date}</div>
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })}
+          {q && filteredQuick.length === 0 && filteredTeam.length === 0 && filteredDiary.length === 0 && (
+            <div style={{ textAlign: "center", padding: "24px 0", color: T.text3, fontSize: 13 }}>No results for "{q}"</div>
+          )}
+        </div>
+        <div style={{ padding: "8px 18px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 16, fontSize: 11, color: T.text3 }}>
+          <span>↑↓ navigate</span><span>↵ open</span><span>Esc close</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Echo() {
   useEffect(() => { injectStyles(); }, []);
   const [view, setView]               = useState(() => localStorage.getItem("echo_view") || "dashboard");
@@ -7310,6 +7538,7 @@ export default function Echo() {
   const [displayName, setDisplayName]         = useState(() => localStorage.getItem("echo_display_name") || "");
   const [avatarData, setAvatarData]           = useState(() => localStorage.getItem("echo_avatar") || "");
   const [profileDraft, setProfileDraft]       = useState({ name: "", avatar: "" });
+  const [paletteOpen, setPaletteOpen]         = useState(false);
 
   useEffect(() => {
     db.auth.getUser().then(u => {
@@ -7330,6 +7559,19 @@ export default function Echo() {
     if (!user || !isConfigured()) return;
     db.from("diary_entries").select("id").then(rows => setDiaryCount((rows || []).length));
     db.from("documents").select("id").then(rows => setDocCount((rows || []).length));
+  }, [user]);
+
+  // Global keyboard shortcuts: Cmd+K → palette, N → new diary entry
+  useEffect(() => {
+    if (!user) return;
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setPaletteOpen(p => !p); }
+      if (e.key === "n" && !e.metaKey && !e.ctrlKey && !e.altKey && document.activeElement.tagName === "BODY") {
+        setView("diary"); localStorage.setItem("echo_diary_new", "1");
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [user]);
 
   useEffect(() => {
@@ -7490,11 +7732,33 @@ export default function Echo() {
             >{reminderEnabled ? "ON" : "OFF"}</button>
           </div>
 
-          <button onClick={logout} style={{
-            background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6,
-            color: T.text3, cursor: "pointer", fontSize: 11, padding: "5px 12px",
-            fontFamily: "'DM Sans', sans-serif", width: "100%",
-          }}>Sign out</button>
+          <div style={{ display: "flex", gap: 6, marginBottom: 0 }}>
+            <button onClick={async () => {
+              const [diary, commits, decisions, incidents, credits, teammates] = await Promise.all([
+                db.from("diary_entries").select("*", { order: "date.desc" }),
+                db.from("commitments").select("*", { order: "inserted_at.asc" }),
+                db.from("decisions").select("*", { order: "date.desc" }),
+                db.from("incidents").select("*", { order: "date.desc" }),
+                db.from("user_credits").select("*", { order: "inserted_at.asc" }),
+                db.from("teammates").select("*"),
+              ]);
+              const data = { exported_at: new Date().toISOString(), diary_entries: diary || [], commitments: commits || [], decisions: decisions || [], incidents: incidents || [], credits: credits || [], teammates: teammates || [] };
+              const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = `echo-export-${new Date().toISOString().slice(0,10)}.json`;
+              a.click(); URL.revokeObjectURL(url);
+            }} style={{
+              flex: 1, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6,
+              color: T.text3, cursor: "pointer", fontSize: 11, padding: "5px 0",
+              fontFamily: "'DM Sans', sans-serif",
+            }} title="Download all your data as JSON">⬇ Export</button>
+            <button onClick={logout} style={{
+              flex: 1, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6,
+              color: T.text3, cursor: "pointer", fontSize: 11, padding: "5px 0",
+              fontFamily: "'DM Sans', sans-serif",
+            }}>Sign out</button>
+          </div>
         </div>
       </aside>
 
@@ -7507,7 +7771,21 @@ export default function Echo() {
               <div className="echo-page-sub">{PAGE_META[view]?.sub}</div>
             </div>
           </div>
-          <div style={{ fontSize: 13, color: T.text3 }}>{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <button onClick={() => setPaletteOpen(true)} style={{
+              display: "flex", alignItems: "center", gap: 7,
+              background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 8,
+              color: T.text3, cursor: "pointer", fontSize: 12, padding: "6px 12px",
+              fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s",
+            }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.borderHover; e.currentTarget.style.color = T.text2; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}
+              title="Search everything (Cmd+K)">
+              🔍 <span style={{ display: "none", "@media (min-width: 600px)": { display: "inline" } }}>Search</span>
+              <span style={{ fontSize: 10, background: T.navy3, padding: "1px 6px", borderRadius: 4 }}>⌘K</span>
+            </button>
+            <div style={{ fontSize: 13, color: T.text3 }}>{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
+          </div>
         </div>
 
         {view === "dashboard"   && <Dashboard setView={setView} diaryCount={diaryCount} docCount={docCount} user={user} />}
@@ -7530,6 +7808,9 @@ export default function Echo() {
         {view === "credits"     && <CreditTracker user={user} />}
         {view === "resolve"     && <Resolve user={user} />}
       </main>
+
+      {/* ── Command Palette ── */}
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} setView={setView} user={user} />}
 
       {/* ── Pattern Interrupt overlay ── */}
       {showPatternInterrupt && (
