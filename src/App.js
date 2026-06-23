@@ -241,19 +241,61 @@ const probeAttendance = () => {
   return _attCheck;
 };
 
+let _dueDateCheck = null;
+let _dueDateSupported = null;
+const probeCommitmentDueDate = () => {
+  if (_dueDateSupported !== null) return Promise.resolve(_dueDateSupported);
+  if (_dueDateCheck) return _dueDateCheck;
+  _dueDateCheck = fetch(`${_REST()}/commitments?select=due_date&limit=0`, { headers: h() })
+    .then(r => { _dueDateSupported = r.ok; return r.ok; })
+    .catch(() => { _dueDateSupported = false; return false; })
+    .finally(() => { _dueDateCheck = null; });
+  return _dueDateCheck;
+};
+
 const GROQ_API_KEY = process.env.REACT_APP_GROQ_API_KEY || "";
+// Non-person words the AI sometimes wrongly extracts as collaborator names
+const _NAME_BLOCKLIST = new Set([
+  "team","everyone","all","management","midnight","morning","evening","afternoon","night",
+  "dev","devs","developer","developers","engineer","engineers","qa","qas","tester","testers",
+  "stakeholder","stakeholders","client","clients","user","users","channel","slack","jira",
+  "github","standup","scrum","sprint","meeting","group","cross","functional","product",
+  "business","ops","support","infra","backend","frontend","mobile","web","platform",
+]);
+
 async function callGroq(bullets, knownPeople = []) {
   if (!bullets.length) return null;
   if (!GROQ_API_KEY) throw new Error("AI categorisation is not configured — REACT_APP_GROQ_API_KEY is missing from the build.");
-  const teamCtx = knownPeople.length ? `\nKnown team members (use these exact spellings when they appear): ${knownPeople.join(", ")}.` : "";
+  const teamCtx = knownPeople.length
+    ? `Known team members — use exact spellings if they appear: ${knownPeople.join(", ")}.`
+    : "";
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "llama-3.1-8b-instant",
+      model: "llama-3.3-70b-versatile",
       messages: [
-        { role: "system", content: `You are a professional work diary assistant. For each work item, do TWO things:\n1. Categorise into one of: meeting (calls, standups, 1:1s, planning, discussions with people), execution (coding, building, shipping, fixing, implementing, writing), validation (testing, PR reviews, QA, debugging, verifying, signoff), other (admin, reading, unclear).\n2. Rewrite it in clear, professional English suitable for a performance review or work report. Rules for rewriting: keep ALL names, project names, system names, and ticket IDs exactly as given — do NOT invent or change them. Use past tense. Improve grammar and clarity only. Do not add information not present in the original.\n3. Extract any person names mentioned.${teamCtx}\nReturn JSON only — each category array contains the REWRITTEN (professional) version of the item, not the raw version: {"meeting":[],"execution":[],"validation":[],"other":[],"people":[]}` },
-        { role: "user", content: `Work items to categorise and rewrite:\n${bullets.map((b, i) => `${i + 1}. ${b}`).join("\n")}` }
+        { role: "system", content: `You are a professional work diary assistant for a QA engineer. Process each work item and return a single JSON object.
+
+CATEGORIES — assign each item to exactly one:
+- validation: test execution, test case design, bug filing, regression, smoke/sanity testing, exploratory testing, verifying a fix, signoff, QA review, reviewing a PR for quality
+- meeting: standups, 1:1s, planning sessions, catch-ups, calls, syncs, discussions with named people
+- execution: writing test plans, automation scripts, documentation, configuring tools, deployments, investigations
+- other: admin tasks, reading docs, unclear items
+
+REWRITE RULES (for the text inside each category array):
+- Use past tense, professional English
+- Keep ALL proper nouns, product names, system names, tool names, and ticket IDs EXACTLY as written — do not paraphrase them
+- Fix grammar only — do not add context, expand abbreviations, or invent detail not in the original
+- QA terms (regression, smoke, sanity, signoff, UAT, bug) must remain unchanged
+
+PERSON EXTRACTION — "people" array rules (STRICT):
+- Include ONLY individual human names: first names or full names (e.g. "Nitish", "Muzammil Shaikh")
+- ${teamCtx}
+- EXCLUDE: group nouns (team, everyone, devs, stakeholders, management), role labels (dev, QA, engineer), time words (midnight, morning), tool/product names, company names, anything starting with lowercase
+
+Return ONLY valid JSON, no explanation: {"validation":[],"meeting":[],"execution":[],"other":[],"people":[]}` },
+        { role: "user", content: `Work items:\n${bullets.map((b, i) => `${i + 1}. ${b}`).join("\n")}` }
       ],
       response_format: { type: "json_object" },
       temperature: 0.1,
@@ -277,6 +319,18 @@ async function callGroq(bullets, knownPeople = []) {
   ["meeting", "execution", "validation", "other", "people"].forEach(k => {
     if (Array.isArray(parsed[k])) parsed[k] = [...new Set(parsed[k].map(toStr).filter(Boolean))];
   });
+  // Filter people: must be a proper noun (starts with uppercase) and not in the blocklist
+  if (Array.isArray(parsed.people)) {
+    parsed.people = parsed.people.filter(p => {
+      if (!p || p.length < 2) return false;
+      if (_NAME_BLOCKLIST.has(p.trim().toLowerCase())) return false;
+      // Must start with an uppercase letter (proper noun)
+      if (!/^[A-Z]/.test(p.trim())) return false;
+      // Reject single characters or purely numeric strings
+      if (/^[^a-zA-Z]/.test(p.trim())) return false;
+      return true;
+    });
+  }
   return parsed;
 }
 
@@ -834,6 +888,17 @@ const injectStyles = () => {
       justify-content: space-between;
     }
 
+    .modal-box {
+      background: ${T.navy1};
+      border: 1px solid ${T.border};
+      border-radius: 16px;
+      padding: 28px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+    }
+
     /* ── Stats ── */
     .stat-card {
       background: ${T.navy2};
@@ -1372,6 +1437,116 @@ const injectStyles = () => {
     .credit-given    { background: rgba(63,207,180,0.1); color: ${T.teal}; border: 1px solid rgba(63,207,180,0.25); }
     .credit-received { background: rgba(232,198,106,0.1); color: ${T.gold}; border: 1px solid rgba(232,198,106,0.25); }
 
+    /* ── Page title — Syne font, stronger weight ── */
+    .echo-page-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 21px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    /* ── Modal entrance animation ── */
+    @keyframes modalEnter {
+      from { opacity: 0; transform: scale(0.96) translateY(6px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .modal     { animation: modalEnter 0.22s cubic-bezier(0.34, 1.3, 0.64, 1); }
+    .modal-box { animation: modalEnter 0.22s cubic-bezier(0.34, 1.3, 0.64, 1); }
+
+    /* ── Toast notifications ── */
+    @keyframes toastIn  {
+      from { opacity: 0; transform: translateX(14px) scale(0.97); }
+      to   { opacity: 1; transform: translateX(0) scale(1); }
+    }
+    @keyframes toastOut {
+      from { opacity: 1; transform: translateX(0) scale(1); }
+      to   { opacity: 0; transform: translateX(14px) scale(0.97); }
+    }
+    .echo-toast-wrap {
+      position: fixed; bottom: 82px; right: 24px;
+      display: flex; flex-direction: column; gap: 8px;
+      z-index: 99999; pointer-events: none;
+    }
+    .echo-toast {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 16px; border-radius: 10px;
+      font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+      animation: toastIn 0.25s cubic-bezier(0.34, 1.3, 0.64, 1);
+      pointer-events: all; backdrop-filter: blur(12px);
+      min-width: 180px; max-width: 340px;
+    }
+    .echo-toast-icon { font-size: 13px; flex-shrink: 0; line-height: 1; font-weight: 700; }
+    .echo-toast.success { background: rgba(10,14,26,0.96); border: 1px solid rgba(78,203,141,0.45); color: ${T.green}; }
+    .echo-toast.error   { background: rgba(10,14,26,0.96); border: 1px solid rgba(240,117,98,0.45); color: ${T.coral}; }
+    .echo-toast.info    { background: rgba(10,14,26,0.96); border: 1px solid ${T.borderHover}; color: ${T.text2}; }
+    .echo-toast.warning { background: rgba(10,14,26,0.96); border: 1px solid rgba(245,194,67,0.45); color: ${T.amber}; }
+    .echo-toast.exiting { animation: toastOut 0.22s ease forwards; }
+
+    /* ── Stat card hover ── */
+    .stat-card {
+      transition: border-color 0.18s, transform 0.18s, box-shadow 0.18s;
+      cursor: default;
+    }
+    .stat-card:hover {
+      border-color: ${T.borderHover};
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+    }
+    .stat-value { font-size: 30px; }
+
+    /* ── Nav active state — left accent bar (Linear-style) ── */
+    .echo-nav-item { position: relative; }
+    .echo-nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: -12px; top: 50%; transform: translateY(-50%);
+      height: 16px; width: 3px;
+      border-radius: 0 3px 3px 0;
+      background: ${T.accent};
+    }
+
+    /* ── Nav shortcut key hints ── */
+    .nav-hint {
+      margin-left: auto; opacity: 0;
+      font-size: 10px; color: ${T.text3};
+      background: ${T.navy4}; border: 1px solid ${T.border};
+      border-radius: 4px; padding: 1px 5px;
+      font-family: 'DM Mono', monospace;
+      transition: opacity 0.15s;
+      flex-shrink: 0; line-height: 1.5;
+    }
+    .echo-nav-item:hover .nav-hint { opacity: 1; }
+    .echo-nav-item.active .nav-hint { opacity: 0 !important; }
+
+    /* ── Nav SVG icon ── */
+    .echo-nav-icon {
+      flex-shrink: 0; opacity: 0.6;
+      transition: opacity 0.15s;
+    }
+    .echo-nav-item:hover .echo-nav-icon,
+    .echo-nav-item.active .echo-nav-icon { opacity: 1; }
+
+    /* ── Loading animation ── */
+    .echo-loading-dots { display: flex; gap: 6px; align-items: center; }
+    @keyframes echoLoadPulse {
+      0%, 100% { opacity: 0.25; transform: scale(0.85); }
+      50%       { opacity: 1;    transform: scale(1.05); }
+    }
+    .echo-loading-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: ${T.accent};
+      animation: echoLoadPulse 1.2s ease-in-out infinite;
+    }
+    .echo-loading-dot:nth-child(2) { animation-delay: 0.18s; }
+    .echo-loading-dot:nth-child(3) { animation-delay: 0.36s; }
+
+    /* ── Topbar divider ── */
+    .topbar-divider {
+      width: 1px; height: 18px; border-radius: 2px;
+      background: ${T.border}; margin: 0 2px; flex-shrink: 0;
+    }
+
     /* ── Mobile drawer ── */
     .echo-hamburger {
       display: none;
@@ -1412,6 +1587,30 @@ const injectStyles = () => {
   `;
   document.head.appendChild(style);
 };
+
+// ─── Diary Entry Templates ────────────────────────────────────────────────────
+const DIARY_TEMPLATES = [
+  {
+    key: "standup",
+    label: "Standup",
+    icon: "📋",
+    content: ["Yesterday: ", "Today: "],
+    blockers: "Blocked by: ",
+  },
+  {
+    key: "meeting",
+    label: "Meeting",
+    icon: "🤝",
+    content: ["Meeting: ", "Attendees: ", "Decision: ", "Action: "],
+  },
+  {
+    key: "eod",
+    label: "End of Day",
+    icon: "🌙",
+    content: ["Completed: ", "Pending: ", "Tomorrow: "],
+    blockers: "Blocked by: ",
+  },
+];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -1635,12 +1834,72 @@ ${(entry.tags||[]).length ? `<div class="section-title">Tags</div><div>${entry.t
   setTimeout(() => win.print(), 600);
 }
 
+// ─── Navigation SVG Icons ────────────────────────────────────────────────────
+function NavIcon({ id, size = 15 }) {
+  const p = { fill: "none", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" };
+  const shapes = {
+    dashboard:   <><rect key="a" x="2" y="2" width="5" height="5" rx="1" {...p}/><rect key="b" x="9" y="2" width="5" height="5" rx="1" {...p}/><rect key="c" x="2" y="9" width="5" height="5" rx="1" {...p}/><rect key="d" x="9" y="9" width="5" height="5" rx="1" {...p}/></>,
+    diary:       <><path key="a" d="M5 2h7a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Z" {...p}/><path key="b" d="M7 5.5h3M7 8h3M7 10.5h2" {...p}/><line key="c" x1="4" y1="2" x2="4" y2="14" {...p}/></>,
+    locker:      <><path key="a" d="M11.5 7H4.5A1.5 1.5 0 0 0 3 8.5v4A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5v-4A1.5 1.5 0 0 0 11.5 7Z" {...p}/><path key="b" d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" {...p}/><circle key="c" cx="8" cy="10.5" r="1" fill="currentColor" stroke="none"/></>,
+    commitments: <><rect key="a" x="3" y="4" width="10" height="10" rx="1.5" {...p}/><path key="b" d="M5.5 2.5v2M10.5 2.5v2" {...p}/><path key="c" d="M5.5 9l1.5 1.5 3.5-3.5" {...p}/></>,
+    incidents:   <><path key="a" d="M8 2.5 1.5 13.5h13L8 2.5Z" {...p}/><path key="b" d="M8 7v3" {...p}/><circle key="c" cx="8" cy="11.5" r="0.75" fill="currentColor" stroke="none"/></>,
+    decisions:   <><circle key="a" cx="8" cy="8" r="3.5" {...p}/><path key="b" d="M8 1.5V4.5M8 11.5V14.5M1.5 8H4.5M11.5 8H14.5" {...p}/></>,
+    releases:    <><path key="a" d="M8 2.5v9M4.5 6 8 2.5 11.5 6" {...p}/><path key="b" d="M3 13.5h10" {...p}/></>,
+    team:        <><circle key="a" cx="6" cy="5.5" r="2" {...p}/><path key="b" d="M1.5 14c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4" {...p}/><circle key="c" cx="11.5" cy="5.5" r="1.5" {...p}/><path key="d" d="M11.5 9.5c2 .3 3 1.5 3 3.5" {...p}/></>,
+    brag:        <><path key="a" d="M8 1.5 9.7 5.5l4.2.6-3 2.9.7 4.2L8 11l-3.6 2.2.7-4.2-3-2.9 4.2-.6L8 1.5Z" {...p}/></>,
+    resume:      <><rect key="a" x="2.5" y="1.5" width="11" height="13" rx="1.5" {...p}/><path key="b" d="M5.5 5h5M5.5 8h5M5.5 11h3" {...p}/></>,
+    workmap:     <><circle key="a" cx="3.5" cy="8" r="1.5" {...p}/><circle key="b" cx="12.5" cy="3.5" r="1.5" {...p}/><circle key="c" cx="12.5" cy="12.5" r="1.5" {...p}/><circle key="d" cx="8" cy="8" r="1.5" {...p}/><path key="e" d="M5 8h1.5M9.5 8l1.7-3M9.5 8l1.7 3" {...p}/></>,
+    credits:     <><path key="a" d="M8 2 9.5 5.5l3.8.6-2.7 2.6.6 3.7L8 10.5l-3.2 1.9.6-3.7L2.7 6.1l3.8-.6L8 2Z" {...p}/></>,
+    resolve:     <><path key="a" d="M8 1.5c.3 2.2-2.5 4-2.5 6.5a2.5 2.5 0 005 0C10.5 5.5 7.7 3.7 8 1.5Z" {...p}/><path key="b" d="M6.5 11.5c.3.8.9 1.5 1.5 1.5" {...p}/></>,
+  };
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className="echo-nav-icon" aria-hidden="true" style={{ display: "block" }}>
+      {shapes[id] || null}
+    </svg>
+  );
+}
+
+// ─── Toast System ─────────────────────────────────────────────────────────────
+let _toastSeq = 0;
+const _toastBus = { cbs: [] };
+const toast = (msg, type = "success", dur = 3000) => {
+  const id = ++_toastSeq;
+  _toastBus.cbs.forEach(fn => fn({ id, msg, type, dur }));
+};
+
+function ToastContainer() {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    const add = (t) => {
+      setItems(prev => [...prev, { ...t, exiting: false }]);
+      setTimeout(() => {
+        setItems(prev => prev.map(x => x.id === t.id ? { ...x, exiting: true } : x));
+        setTimeout(() => setItems(prev => prev.filter(x => x.id !== t.id)), 240);
+      }, t.dur);
+    };
+    _toastBus.cbs.push(add);
+    return () => { _toastBus.cbs = _toastBus.cbs.filter(f => f !== add); };
+  }, []);
+  if (!items.length) return null;
+  const ICONS = { success: "✓", error: "✕", warning: "⚠", info: "·" };
+  return (
+    <div className="echo-toast-wrap">
+      {items.map(t => (
+        <div key={t.id} className={`echo-toast ${t.type}${t.exiting ? " exiting" : ""}`}>
+          <span className="echo-toast-icon">{ICONS[t.type] || "·"}</span>
+          <span>{t.msg}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
   const [recentEntries, setRecentEntries] = useState([]);
   const [heatEntries, setHeatEntries]     = useState([]);
   const [recentDocs, setRecentDocs]       = useState([]);
-  const [onThisDay, setOnThisDay]         = useState({ week: null, month: null });
+  const [onThisDay, setOnThisDay]         = useState({ week: null, month: null, quarter: null, year: null });
   const [openCommitCount, setOpenCommitCount] = useState(null);
   const [allCommits, setAllCommits]       = useState([]);
   const [teamPulse, setTeamPulse]         = useState(null);
@@ -1666,16 +1925,12 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
       setOpenCommitCount(arr.filter(r => !r.resolved_at).length);
     });
 
-    const weekAgo  = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-    const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate() - 30);
-    const wStr = weekAgo.toISOString().split("T")[0];
-    const mStr = monthAgo.toISOString().split("T")[0];
-    db.from("diary_entries").select("*", { eq: ["date", wStr] }).then(d => {
-      if (d?.[0]) setOnThisDay(prev => ({ ...prev, week: d[0] }));
-    });
-    db.from("diary_entries").select("*", { eq: ["date", mStr] }).then(d => {
-      if (d?.[0]) setOnThisDay(prev => ({ ...prev, month: d[0] }));
-    });
+    const offsetDay = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+    const wStr = offsetDay(7); const mStr = offsetDay(30); const qStr = offsetDay(90); const yStr = offsetDay(365);
+    db.from("diary_entries").select("*", { eq: ["date", wStr] }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, week: d[0] })); });
+    db.from("diary_entries").select("*", { eq: ["date", mStr] }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, month: d[0] })); });
+    db.from("diary_entries").select("*", { eq: ["date", qStr] }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, quarter: d[0] })); });
+    db.from("diary_entries").select("*", { eq: ["date", yStr] }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, year: d[0] })); });
 
     const members = (loadTeammates() || []).filter(t => (t.relationship || "direct") === "direct");
     if (members.length) {
@@ -1695,24 +1950,31 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
   const diaryStreak = (() => {
     if (!heatEntries.length) return 0;
     const dates = new Set(heatEntries.map(e => e.date));
-    const isWeekend = (date) => { const d = date.getDay(); return d === 0 || d === 6; };
-    const prevDay = (date) => new Date(date.getTime() - 86400000);
+    // Work entirely with UTC date strings — dates are stored via toISOString() (UTC)
+    // so local-midnight Date objects would shift the date in non-UTC timezones
+    const getDow  = (s) => new Date(s + "T00:00:00Z").getUTCDay(); // 0=Sun, 6=Sat
+    const isWknd  = (s) => { const w = getDow(s); return w === 0 || w === 6; };
+    const prevDay = (s) => {
+      const d = new Date(s + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() - 1);
+      return d.toISOString().slice(0, 10);
+    };
 
-    // Start from today; if today is weekend skip back to last weekday
-    let d = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00");
-    while (isWeekend(d)) d = prevDay(d);
+    // Start from today's UTC date (same representation as stored dates)
+    let d = new Date().toISOString().slice(0, 10);
+    while (isWknd(d)) d = prevDay(d);
 
-    // If the most recent weekday has no entry yet, allow it (still mid-day) — go to previous weekday
-    if (!dates.has(d.toISOString().slice(0, 10))) {
+    // If today's nearest weekday has no entry yet (still mid-day) — check previous weekday
+    if (!dates.has(d)) {
       d = prevDay(d);
-      while (isWeekend(d)) d = prevDay(d);
+      while (isWknd(d)) d = prevDay(d);
     }
 
-    // Count consecutive weekdays with entries going backward (weekends are transparent)
+    // Count consecutive weekdays with entries going backward (weekends transparent)
     let count = 0;
     while (true) {
-      while (isWeekend(d)) d = prevDay(d);
-      if (!dates.has(d.toISOString().slice(0, 10))) break;
+      while (isWknd(d)) d = prevDay(d);
+      if (!dates.has(d)) break;
       count++;
       d = prevDay(d);
     }
@@ -1971,29 +2233,38 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
       {(() => {
         const moodColor = { productive: T.green, resolved: T.teal, collaborative: T.accent, challenged: T.gold, frustrated: T.coral };
 
+        // UTC helpers — dates stored in Supabase are UTC strings so we stay consistent
+        const utcDayStr = (offsetDays) => {
+          const d = new Date();
+          d.setUTCDate(d.getUTCDate() - offsetDays);
+          return d.toISOString().slice(0, 10);
+        };
+        const utcDow = (dateStr) => new Date(dateStr + "T00:00:00Z").getUTCDay(); // 0=Sun
+
         // Build last 14 relevant days: weekdays always, weekends only if entry exists
         const days = [];
         let offset = 0;
         while (days.length < 14 && offset < 60) {
-          const d = new Date(); d.setDate(d.getDate() - offset);
-          const dow = d.getDay();
+          const dateStr = utcDayStr(offset);
+          const dow = utcDow(dateStr);
           const isWeekend = dow === 0 || dow === 6;
-          const dateStr = d.toISOString().split("T")[0];
+          const day = parseInt(dateStr.split("-")[2]);
+          const wd = new Date(dateStr + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" });
           const entry = heatEntries.find(e => e.date === dateStr);
           if (!isWeekend || entry) {
-            days.unshift({ dateStr, day: d.getDate(), wd: d.toLocaleDateString("en-GB", { weekday: "short" }), entry, isToday: offset === 0, isWeekend });
+            days.unshift({ dateStr, day, wd, entry, isToday: offset === 0, isWeekend });
           }
           offset++;
         }
 
-        // Streak counts consecutive working days with entries (weekends skipped)
+        // Streak: consecutive working days backward using UTC (weekends transparent)
         const streak = (() => {
           let s = 0, o = 0;
           while (o < 60) {
-            const d = new Date(); d.setDate(d.getDate() - o);
-            const dow = d.getDay();
+            const dateStr = utcDayStr(o);
+            const dow = utcDow(dateStr);
             if (dow === 0 || dow === 6) { o++; continue; }
-            if (!heatEntries.some(e => e.date === d.toISOString().split("T")[0])) break;
+            if (!heatEntries.some(e => e.date === dateStr)) break;
             s++; o++;
           }
           return s;
@@ -2011,6 +2282,7 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
                 const hasCF  = (entry?.carry_forward?.filter(i => !i.done).length || 0) > 0;
                 return (
                   <div key={dateStr} title={`${wd} ${day}${entry ? ` — ${mood?.label || "No mood"} · ${getFocusAreas(entry).join(", ")}` : " — no entry"}`}
+                    onClick={() => { if (entry) { localStorage.setItem("echo_diary_jump", dateStr); setView("diary"); } }}
                     style={{ flex: 1, textAlign: "center", cursor: entry ? "pointer" : "default" }}>
                     <div style={{ fontSize: 9, color: isToday ? T.accent : T.text3, marginBottom: 4, fontWeight: isToday ? 600 : 400 }}>{wd}</div>
                     <div style={{
@@ -2124,13 +2396,15 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
       )}
 
       {/* ── On This Day ── */}
-      {(onThisDay.week || onThisDay.month) && (
+      {(onThisDay.week || onThisDay.month || onThisDay.quarter || onThisDay.year) && (
         <div className="card" style={{ marginTop: 20 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: T.text1, marginBottom: 14 }}>🕰 On This Day</div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
             {[
-              { label: "1 week ago", entry: onThisDay.week },
-              { label: "1 month ago", entry: onThisDay.month },
+              { label: "1 week ago",    entry: onThisDay.week    },
+              { label: "1 month ago",   entry: onThisDay.month   },
+              { label: "3 months ago",  entry: onThisDay.quarter },
+              { label: "1 year ago",    entry: onThisDay.year    },
             ].filter(r => r.entry).map(({ label, entry }) => {
               const mood = MOODS.find(m => m.key === entry.mood);
               return (
@@ -3467,22 +3741,21 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
       const knownPeople = (loadTeammates() || []).map(t => t.name);
       const cats = await callGroq(bullets, knownPeople);
       if (cats) {
-        const existing = form.collaborators || [];
-        const existingLower = existing.map(x => x.toLowerCase());
-        const fresh = (cats.people || []).filter(p => p && !existingLower.includes(p.toLowerCase()));
-        const merged = [...existing, ...fresh];
-        // Final dedup preserving order
-        const collaborators = merged.filter((v, i, a) => a.findIndex(x => x.toLowerCase() === v.toLowerCase()) === i);
-        const updatedForm = {
-          ...form,
-          categories: cats,
-          collaborators,
-        };
-        setForm(updatedForm);
+        let savedForm = null;
+        setForm(f => {
+          const existing = f.collaborators || [];
+          const existingLower = existing.map(x => x.toLowerCase());
+          const fresh = (cats.people || []).filter(p => p && !existingLower.includes(p.toLowerCase()));
+          const merged = [...existing, ...fresh];
+          const collaborators = merged.filter((v, i, a) => a.findIndex(x => x.toLowerCase() === v.toLowerCase()) === i);
+          const next = { ...f, categories: cats, collaborators };
+          savedForm = next;
+          return next;
+        });
         // Auto-save silently after categorisation — only for existing entries (form.id exists).
         // New entries have no id yet; calling onAutoSave without an id does an INSERT each time, creating duplicates.
-        if (onAutoSave && updatedForm.id) {
-          await onAutoSave({ ...updatedForm, title: fmtDate(updatedForm.date), focus_area: (updatedForm.focus_areas || [])[0] || updatedForm.focus_area || "" });
+        if (onAutoSave && savedForm?.id) {
+          await onAutoSave({ ...savedForm, title: fmtDate(savedForm.date), focus_area: (savedForm.focus_areas || [])[0] || savedForm.focus_area || "" });
         }
       }
     } catch (e) {
@@ -3665,6 +3938,29 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
                 })}
               </div>
             </div>
+
+            {/* ── Quick Templates (shown only when content is empty) ── */}
+            {!(form.content || "").trim() && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, color: T.text3, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Start with:</span>
+                {DIARY_TEMPLATES.map(t => (
+                  <button key={t.key} onClick={() => {
+                    set("content", t.content.join("\n"));
+                    if (t.blockers) set("blockers", t.blockers);
+                    setPointInput("");
+                  }} style={{
+                    padding: "4px 11px", fontSize: 11, borderRadius: 20, cursor: "pointer",
+                    background: "transparent", color: T.text2,
+                    border: `1px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif",
+                    transition: "all 0.15s",
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text2; }}>
+                    {t.icon} {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* ── Log Zone ── */}
             <div className="form-group">
@@ -4463,6 +4759,7 @@ function Diary({ onCountChange, user }) {
   const [filterMood, setFilterMood]       = useState("");
   const [filterFocus, setFilterFocus]     = useState("");
   const [filterStarred, setFilterStarred] = useState(false);
+  const [filterPeriod, setFilterPeriod]   = useState("");
   const [starredIds, setStarredIds] = useState(new Set());
   const [scratchNotes, setScratchNotes]   = useState(() => loadScratchNotes());
 
@@ -4571,6 +4868,16 @@ function Diary({ onCountChange, user }) {
     load();
   };
 
+  const periodStart = (() => {
+    if (!filterPeriod) return null;
+    const now = new Date();
+    if (filterPeriod === "7d")    { const d = new Date(now); d.setUTCDate(d.getUTCDate() - 7);  return d.toISOString().slice(0, 10); }
+    if (filterPeriod === "30d")   { const d = new Date(now); d.setUTCDate(d.getUTCDate() - 30); return d.toISOString().slice(0, 10); }
+    if (filterPeriod === "month") return now.toISOString().slice(0, 7) + "-01";
+    if (filterPeriod === "week")  { const d = new Date(now); d.setUTCDate(d.getUTCDate() - d.getUTCDay()); return d.toISOString().slice(0, 10); }
+    return null;
+  })();
+
   const filtered = entries.filter(e => {
     const q = search.toLowerCase();
     const matchSearch = !q ||
@@ -4587,8 +4894,12 @@ function Diary({ onCountChange, user }) {
     const matchMood    = !filterMood    || e.mood       === filterMood;
     const matchFocus   = !filterFocus   || getFocusAreas(e).includes(filterFocus);
     const matchStarred = !filterStarred || starredIds.has(e.id);
-    return matchSearch && matchMood && matchFocus && matchStarred;
+    const matchPeriod  = !periodStart   || e.date >= periodStart;
+    return matchSearch && matchMood && matchFocus && matchStarred && matchPeriod;
   });
+
+  const isFiltered = !!(search || filterMood || filterFocus || filterStarred || filterPeriod);
+  const clearFilters = () => { setSearch(""); setFilterMood(""); setFilterFocus(""); setFilterStarred(false); setFilterPeriod(""); };
 
   return (
     <div className="echo-content fade-in">
@@ -4603,11 +4914,18 @@ function Diary({ onCountChange, user }) {
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
         <div className="search-bar" style={{ flex: 1, minWidth: 200 }}>
           <span style={{ color: T.text3, fontSize: 16 }}>🔍</span>
           <input placeholder="Search notes, tickets, team members, tags…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <select className="form-select" style={{ width: 120 }} value={filterPeriod} onChange={e => setFilterPeriod(e.target.value)}>
+          <option value="">All time</option>
+          <option value="week">This week</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="month">This month</option>
+        </select>
         <select className="form-select" style={{ width: 145 }} value={filterFocus} onChange={e => setFilterFocus(e.target.value)}>
           <option value="">All focus areas</option>
           {FOCUS_AREAS.map(f => <option key={f} value={f}>{f}</option>)}
@@ -4624,8 +4942,33 @@ function Diary({ onCountChange, user }) {
         <button className="btn btn-ghost" onClick={() => setWeeklyReport(true)} title="Weekly summary report">
           📊 Week
         </button>
+        <button className="btn btn-ghost" title="Export diary as CSV" onClick={() => {
+          if (!entries.length) return;
+          const rows = entries.filter(e => !periodStart || e.date >= periodStart).map(e => ({
+            date: e.date, mood: e.mood || "", focus_areas: getFocusAreas(e).join("; "),
+            content: (e.content || "").replace(/\n/g, " | "),
+            blockers: (e.blockers || "").replace(/\n/g, " | "),
+            collaborators: (e.collaborators || []).map(cleanCollab).join("; "),
+            tags: (e.tags || []).join("; "), jira_links: (e.jira_links || []).join("; "),
+            is_win: e.is_win ? "Yes" : "No",
+          }));
+          const hdrs = Object.keys(rows[0]);
+          const csv = [hdrs.join(","), ...rows.map(r => hdrs.map(h => `"${String(r[h]).replace(/"/g, '""')}"`).join(","))].join("\n");
+          const blob = new Blob([csv], { type: "text/csv" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a"); a.href = url; a.download = `echo-diary-${today()}.csv`; a.click(); URL.revokeObjectURL(url);
+        }}>⬇ CSV</button>
         <button className="btn btn-primary" onClick={() => setModal("new")}>+ New Entry</button>
       </div>
+
+      {isFiltered && entries.length > 0 && (
+        <div style={{ fontSize: 12, color: T.text3, marginBottom: 12, paddingLeft: 2, display: "flex", alignItems: "center", gap: 12 }}>
+          Showing <strong style={{ color: T.text2 }}>{filtered.length}</strong> of {entries.length} entries
+          {filtered.length !== entries.length && (
+            <button onClick={clearFilters} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 12, fontFamily: "'DM Sans', sans-serif", padding: 0 }}>✕ Clear filters</button>
+          )}
+        </div>
+      )}
 
       {loading && <div style={{ color: T.text3, textAlign: "center", padding: 40 }}>Loading entries…</div>}
 
@@ -5686,6 +6029,8 @@ function WorkMap() {
     (e.collaborators || []).forEach(c => {
       const name = (c || "").trim();
       if (!name) return;
+      if (_NAME_BLOCKLIST.has(name.toLowerCase())) return;
+      if (!/^[A-Z]/.test(name)) return;
       if (!collabMap[name]) collabMap[name] = { name, focusMap: {}, count: 0 };
       collabMap[name].count++;
       getFocusAreas(e).forEach(f => { collabMap[name].focusMap[f] = (collabMap[name].focusMap[f] || 0) + 1; });
@@ -6670,10 +7015,11 @@ function BragDoc() {
 // ─── Commitments ──────────────────────────────────────────────────────────────
 function Commitments({ user }) {
   const [items, setItems] = useState([]);
-  const [form, setForm] = useState({ direction: "i_owe", person: "", what: "" });
+  const [form, setForm] = useState({ direction: "i_owe", person: "", what: "", due_date: "" });
   const [loading, setLoading] = useState(true);
   const [showResolved, setShowResolved] = useState(false);
   const [tableExists, setTableExists] = useState(true);
+  const [dueDateOk, setDueDateOk] = useState(false);
 
   const load = useCallback(async () => {
     const rows = await db.from("commitments").select("*", { order: "inserted_at.asc" });
@@ -6682,12 +7028,18 @@ function Commitments({ user }) {
     setLoading(false);
   }, []);
 
-  useEffect(() => { if (isConfigured()) load(); else setLoading(false); }, [load]);
+  useEffect(() => {
+    if (!isConfigured()) { setLoading(false); return; }
+    load();
+    probeCommitmentDueDate().then(setDueDateOk);
+  }, [load]);
 
   const add = async () => {
     if (!form.person.trim() || !form.what.trim()) return;
-    await db.from("commitments").insert({ user_id: user.id, direction: form.direction, person: form.person.trim(), what: form.what.trim() });
-    setForm(f => ({ ...f, person: "", what: "" }));
+    const payload = { user_id: user.id, direction: form.direction, person: form.person.trim(), what: form.what.trim() };
+    if (dueDateOk && form.due_date) payload.due_date = form.due_date;
+    await db.from("commitments").insert(payload);
+    setForm(f => ({ ...f, person: "", what: "", due_date: "" }));
     load();
   };
 
@@ -6695,11 +7047,26 @@ function Commitments({ user }) {
   const reopen  = async (id) => { await db.from("commitments").update({ resolved_at: null }, id); load(); };
   const remove  = async (id) => { await db.from("commitments").delete(id); setItems(prev => prev.filter(i => i.id !== id)); };
 
-  const daysSince = (ts) => Math.floor((Date.now() - new Date(ts).getTime()) / 86400000);
+  const todayStr = today();
+  const daysSince   = (ts) => Math.floor((Date.now() - new Date(ts).getTime()) / 86400000);
+  const daysUntilDue = (item) => {
+    if (!item.due_date) return null;
+    const d = new Date(item.due_date + "T00:00:00Z");
+    const t = new Date(todayStr + "T00:00:00Z");
+    return Math.floor((d - t) / 86400000);
+  };
+
+  // Sort: overdue/due-today first, then by due_date asc, then by inserted_at
+  const urgencyScore = (item) => {
+    const dtd = daysUntilDue(item);
+    if (dtd !== null) return dtd; // negative = past due
+    return daysSince(item.inserted_at); // no due date: treated as neutral
+  };
+
   const open = items.filter(i => !i.resolved_at);
   const resolved = items.filter(i => !!i.resolved_at);
-  const iOwe     = open.filter(i => i.direction === "i_owe").sort((a, b) => new Date(a.inserted_at) - new Date(b.inserted_at));
-  const waitingOn = open.filter(i => i.direction === "waiting_on").sort((a, b) => new Date(a.inserted_at) - new Date(b.inserted_at));
+  const iOwe     = open.filter(i => i.direction === "i_owe").sort((a, b) => urgencyScore(a) - urgencyScore(b));
+  const waitingOn = open.filter(i => i.direction === "waiting_on").sort((a, b) => urgencyScore(a) - urgencyScore(b));
 
   if (!tableExists) return (
     <div className="echo-content fade-in">
@@ -6725,22 +7092,38 @@ create policy "own" on commitments for all using (auth.uid()=user_id);`}
   );
 
   const CommitCard = ({ item }) => {
-    const days = daysSince(item.inserted_at);
-    const isOverdue = item.direction === "i_owe" && days >= 7;
-    const isUrgent  = item.direction === "waiting_on" && days >= 5;
-    const urgentColor = isOverdue ? T.coral : isUrgent ? T.coral : days >= 3 ? T.gold : T.text3;
+    const dtd = daysUntilDue(item);
+    const daysSinceAdded = daysSince(item.inserted_at);
+    // Overdue: has due_date and it's past, OR no due_date and i_owe for 7+ days
+    const isOverdue = dtd !== null ? dtd < 0 : (item.direction === "i_owe" && daysSinceAdded >= 7);
+    const isDueToday = dtd === 0;
+    const isDueSoon  = dtd !== null && dtd > 0 && dtd <= 3;
+    const dueBadgeColor = isOverdue ? T.coral : isDueToday ? T.amber : isDueSoon ? T.gold : T.text3;
     const leftBorder = isOverdue ? T.coral : item.direction === "i_owe" ? T.accent : T.coral;
+
+    const dueDateLabel = (() => {
+      if (dtd === null) return `${daysSinceAdded === 0 ? "today" : `${daysSinceAdded}d ago`}`;
+      if (dtd < 0) return `${Math.abs(dtd)}d overdue`;
+      if (dtd === 0) return "due today";
+      if (dtd === 1) return "due tomorrow";
+      return `due in ${dtd}d`;
+    })();
+
     return (
-      <div style={{ background: isOverdue ? `${T.coral}08` : T.navy2, border: `1px solid ${isOverdue ? T.coral + "40" : T.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 8, borderLeft: `3px solid ${leftBorder}` }}>
+      <div style={{ background: isOverdue ? `${T.coral}08` : isDueToday ? `${T.amber}06` : T.navy2, border: `1px solid ${isOverdue ? T.coral + "40" : isDueToday ? T.amber + "30" : T.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 8, borderLeft: `3px solid ${leftBorder}` }}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4, flexWrap: "wrap" }}>
               <div style={{ fontSize: 13, color: T.text1, fontWeight: 500, lineHeight: 1.4 }}>{item.what}</div>
               {isOverdue && <span style={{ fontSize: 10, background: `${T.coral}22`, color: T.coral, padding: "1px 6px", borderRadius: 4, fontWeight: 700, flexShrink: 0 }}>OVERDUE</span>}
+              {isDueToday && !isOverdue && <span style={{ fontSize: 10, background: `${T.amber}22`, color: T.amber, padding: "1px 6px", borderRadius: 4, fontWeight: 700, flexShrink: 0 }}>DUE TODAY</span>}
             </div>
-            <div style={{ fontSize: 11, color: T.text3 }}>
+            <div style={{ fontSize: 11, color: T.text3, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
               {item.direction === "i_owe" ? "→ " : "← "}<span style={{ color: T.text2, fontWeight: 500 }}>{item.person}</span>
-              <span style={{ color: urgentColor, marginLeft: 8 }}>· {days === 0 ? "today" : `${days}d ago`}</span>
+              <span style={{ color: dueBadgeColor, marginLeft: 4 }}>· {dueDateLabel}</span>
+              {item.due_date && (
+                <span style={{ color: T.text3, fontSize: 10, marginLeft: 4 }}>({new Date(item.due_date + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })})</span>
+              )}
             </div>
           </div>
           <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
@@ -6767,8 +7150,11 @@ create policy "own" on commitments for all using (auth.uid()=user_id);`}
               }}>{d.label}</button>
             ))}
           </div>
-          <input className="form-input" placeholder="Person" value={form.person} style={{ width: 140, flex: "none" }} onChange={e => setForm(f => ({ ...f, person: e.target.value }))} />
-          <input className="form-input" placeholder="What exactly…" value={form.what} style={{ flex: 1, minWidth: 180 }} onChange={e => setForm(f => ({ ...f, what: e.target.value }))} onKeyDown={e => e.key === "Enter" && add()} />
+          <input className="form-input" placeholder="Person" value={form.person} style={{ width: 130, flex: "none" }} onChange={e => setForm(f => ({ ...f, person: e.target.value }))} />
+          <input className="form-input" placeholder="What exactly…" value={form.what} style={{ flex: 1, minWidth: 160 }} onChange={e => setForm(f => ({ ...f, what: e.target.value }))} onKeyDown={e => e.key === "Enter" && add()} />
+          {dueDateOk && (
+            <input type="date" className="form-input" title="Due date (optional)" value={form.due_date} style={{ width: 140, flex: "none", color: form.due_date ? T.text1 : T.text3 }} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} min={todayStr} />
+          )}
           <button className="btn btn-primary" onClick={add} disabled={!form.person.trim() || !form.what.trim()} style={{ flexShrink: 0 }}>Add</button>
         </div>
       </div>
@@ -7211,61 +7597,92 @@ function WeeklyUpdateModal({ user, onClose }) {
 }
 
 // ─── Release Tracker ─────────────────────────────────────────────────────────
-const RELEASE_KEY = "echo_release_logs";
-const getReleaseDay = (date) => {
-  try { return JSON.parse(localStorage.getItem(RELEASE_KEY) || "{}")[date] || []; } catch { return []; }
-};
-const saveReleaseDay = (date, owners) => {
+const RELEASE_KEY = "echo_release_logs"; // legacy key — used only for one-time migration
+
+const getReleaseDay = async (date, userId) => {
   try {
-    const all = JSON.parse(localStorage.getItem(RELEASE_KEY) || "{}");
-    all[date] = owners;
-    localStorage.setItem(RELEASE_KEY, JSON.stringify(all));
-  } catch {}
+    const r = await fetch(`${_REST()}/release_logs?user_id=eq.${userId}&release_date=eq.${date}&select=owners`, { headers: h() });
+    if (!r.ok) return [];
+    const rows = await r.json();
+    return rows?.[0]?.owners || [];
+  } catch { return []; }
 };
 
-function ReleaseTracker() {
+const saveReleaseDay = (date, owners, userId) => {
+  fetch(`${_REST()}/release_logs`, {
+    method: "POST",
+    headers: { ...h(), Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify({ user_id: userId, release_date: date, owners, updated_at: new Date().toISOString() }),
+  }).catch(() => {});
+};
+
+function ReleaseTracker({ user }) {
+  const userId = user?.id;
   const [date, setDate] = useState(today);
-  const [owners, setOwners] = useState(() => getReleaseDay(today()));
-  const [addingOwner, setAddingOwner] = useState(false);
-  const [newOwner, setNewOwner] = useState("");
+  const [owners, setOwners] = useState([]);
+  const [rlLoading, setRlLoading] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
-  const [itemForm, setItemForm] = useState({ ticket: "", note: "", status: "today" });
+  const [itemForm, setItemForm] = useState({ ticket: "", note: "", status: "today", action: "" });
   const [addingItemFor, setAddingItemFor] = useState(null);
   const [copied, setCopied] = useState(false);
 
-  const loadDate = (d) => { setDate(d); setOwners(getReleaseDay(d)); setAddingOwner(false); setAddingItemFor(null); setEditingItem(null); };
-  const persist = (next) => { setOwners(next); saveReleaseDay(date, next); };
+  // Load data for a date from Supabase
+  const loadDate = useCallback(async (d) => {
+    setDate(d);
+    setAddingItemFor(null);
+    setEditingItem(null);
+    if (!userId) return;
+    setRlLoading(true);
+    const data = await getReleaseDay(d, userId);
+    setOwners(data);
+    setRlLoading(false);
+  }, [userId]);
+
+  // Initial load + one-time localStorage migration
+  useEffect(() => {
+    if (!userId) return;
+    const todayStr = today();
+    // Migrate any existing localStorage data to Supabase (runs once)
+    const legacy = localStorage.getItem(RELEASE_KEY);
+    if (legacy) {
+      try {
+        const all = JSON.parse(legacy);
+        Object.entries(all).forEach(([d, ownerArr]) => {
+          if (Array.isArray(ownerArr) && ownerArr.length > 0) {
+            saveReleaseDay(d, ownerArr, userId);
+          }
+        });
+      } catch {}
+      localStorage.removeItem(RELEASE_KEY);
+    }
+    loadDate(todayStr);
+  }, [userId, loadDate]);
+
+  const persist = (next) => { setOwners(next); saveReleaseDay(date, next, userId); };
 
   const shiftDate = (days) => {
-    const d = new Date(date + "T00:00:00");
-    d.setDate(d.getDate() + days);
+    const d = new Date(date + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + days);
     loadDate(d.toISOString().slice(0, 10));
   };
 
-  const addOwner = () => {
-    const name = newOwner.trim();
-    if (!name) return;
-    if (owners.some(o => o.name.toLowerCase() === name.toLowerCase())) { setNewOwner(""); setAddingOwner(false); return; }
-    persist([...owners, { name, items: [] }]);
-    setNewOwner(""); setAddingOwner(false);
-  };
   const removeOwner = (idx) => { if (!window.confirm("Remove this owner?")) return; persist(owners.filter((_, i) => i !== idx)); };
 
-  const startAddItem = (ownerIdx) => { setAddingItemFor(ownerIdx); setEditingItem(null); setItemForm({ ticket: "", note: "", status: "today" }); };
+  const startAddItem = (ownerIdx) => { setAddingItemFor(ownerIdx); setEditingItem(null); setItemForm({ ticket: "", note: "", status: "today", action: "" }); };
   const addItem = (ownerIdx) => {
     const t = itemForm.ticket.trim(), n = itemForm.note.trim();
     if (!t && !n) return;
-    const next = owners.map((o, i) => i !== ownerIdx ? o : { ...o, items: [...o.items, { ticket: t, note: n, status: itemForm.status }] });
-    persist(next); setAddingItemFor(null); setItemForm({ ticket: "", note: "", status: "today" });
+    const next = owners.map((o, i) => i !== ownerIdx ? o : { ...o, items: [...o.items, { ticket: t, note: n, status: itemForm.status, action: itemForm.action.trim() }] });
+    persist(next); setAddingItemFor(null); setItemForm({ ticket: "", note: "", status: "today", action: "" });
   };
   const startEditItem = (ownerIdx, itemIdx) => {
     setEditingItem({ ownerIdx, itemIdx }); setAddingItemFor(null);
     const item = owners[ownerIdx].items[itemIdx];
-    setItemForm({ ticket: item.ticket || "", note: item.note || "", status: item.status || "today" });
+    setItemForm({ ticket: item.ticket || "", note: item.note || "", status: item.status || "today", action: item.action || "" });
   };
   const saveEditItem = () => {
     const { ownerIdx, itemIdx } = editingItem;
-    const next = owners.map((o, i) => i !== ownerIdx ? o : { ...o, items: o.items.map((it, j) => j !== itemIdx ? it : { ticket: itemForm.ticket.trim(), note: itemForm.note.trim(), status: itemForm.status }) });
+    const next = owners.map((o, i) => i !== ownerIdx ? o : { ...o, items: o.items.map((it, j) => j !== itemIdx ? it : { ticket: itemForm.ticket.trim(), note: itemForm.note.trim(), status: itemForm.status, action: itemForm.action.trim() }) });
     persist(next); setEditingItem(null);
   };
   const removeItem = (ownerIdx, itemIdx) => {
@@ -7285,16 +7702,15 @@ function ReleaseTracker() {
 
   const displayDate = (() => {
     const t = today();
-    const tom = new Date(t + "T00:00:00"); tom.setDate(tom.getDate() + 1);
-    const yest = new Date(t + "T00:00:00"); yest.setDate(yest.getDate() - 1);
+    const addDay = (s, n) => { const d = new Date(s + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
     if (date === t) return "Today";
-    if (date === tom.toISOString().slice(0, 10)) return "Tomorrow";
-    if (date === yest.toISOString().slice(0, 10)) return "Yesterday";
-    return new Date(date + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    if (date === addDay(t, 1)) return "Tomorrow";
+    if (date === addDay(t, -1)) return "Yesterday";
+    return new Date(date + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
   })();
 
   const copyReport = () => {
-    const dateLabel = new Date(date + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    const dateLabel = new Date(date + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
     let lines = [`📊 Release Status — ${dateLabel}`, ""];
     if (owners.length === 0) {
       lines.push("No entries.");
@@ -7302,15 +7718,22 @@ function ReleaseTracker() {
       owners.forEach(o => {
         lines.push(`👤 ${o.name}`);
         if (o.items.length === 0) { lines.push("   (no items)"); }
-        else { o.items.forEach(it => { const rs = RELEASE_STATUSES.find(s => s.key === it.status); const desc = [it.ticket, it.note].filter(Boolean).join(" — "); lines.push(`   ${rs?.icon || "•"} ${desc}  [${rs?.label || it.status}]`); }); }
+        else {
+          o.items.forEach(it => {
+            const rs = RELEASE_STATUSES.find(s => s.key === it.status);
+            const desc = [it.ticket, it.note].filter(Boolean).join(" — ");
+            const actionLine = it.action ? `  → Needs to: ${it.action}` : "";
+            lines.push(`   ${rs?.icon || "•"} ${desc}  [${rs?.label || it.status}]${actionLine}`);
+          });
+        }
         lines.push("");
       });
     }
     navigator.clipboard.writeText(lines.join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); });
   };
 
-  const teammates = loadTeammates();
-  const myName = localStorage.getItem("echo_display_name") || "";
+  const teammates = loadTeammates().filter(t => (t.relationship || "direct") === "direct");
+  const myName = user?.user_metadata?.display_name || localStorage.getItem("echo_display_name") || "";
   const selfNotAdded = myName && !owners.some(o => o.name.toLowerCase() === myName.toLowerCase());
   const selfChip = selfNotAdded ? [{ name: myName, emoji: "🙋" }] : [];
   const unaddedTeammates = [...selfChip, ...teammates.filter(t => !owners.some(o => o.name.toLowerCase() === t.name.toLowerCase()))];
@@ -7323,6 +7746,12 @@ function ReleaseTracker() {
     if (items.length === 0) return T.borderHover;
     return T.text3;
   };
+
+  if (rlLoading) return (
+    <div className="echo-content fade-in" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 200, color: T.text3, fontSize: 13 }}>
+      Loading release data…
+    </div>
+  );
 
   return (
     <div className="echo-content fade-in">
@@ -7379,8 +7808,8 @@ function ReleaseTracker() {
         </div>
       )}
 
-      {/* ── Teammate quick-add bar ── */}
-      {(unaddedTeammates.length > 0 || owners.length === 0) && (
+      {/* ── Team member quick-add bar — only shows people from My Team roster ── */}
+      {unaddedTeammates.length > 0 && (
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 18, alignItems: "center", padding: "10px 14px", background: T.navy2, borderRadius: 10, border: `1px solid ${T.border}` }}>
           <span style={{ fontSize: 11, color: T.text3, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>Add owner</span>
           {unaddedTeammates.map((t, i) => (
@@ -7389,26 +7818,16 @@ function ReleaseTracker() {
               {t.emoji || "👤"} {t.name}
             </button>
           ))}
-          <button onClick={() => setAddingOwner(v => !v)}
-            style={{ padding: "4px 11px", fontSize: 12, borderRadius: 16, cursor: "pointer", background: addingOwner ? T.navy3 : T.accent, color: addingOwner ? T.text2 : "#fff", border: "none", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>
-            {addingOwner ? "Cancel" : "+ Custom"}
-          </button>
         </div>
       )}
-
-      {/* Custom owner input */}
-      {addingOwner && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          <input autoFocus className="form-input" style={{ maxWidth: 240 }} placeholder="Enter owner name…" value={newOwner}
-            onChange={e => setNewOwner(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") addOwner(); if (e.key === "Escape") { setAddingOwner(false); setNewOwner(""); } }} />
-          <button className="btn btn-primary btn-sm" onClick={addOwner}>Add</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => { setAddingOwner(false); setNewOwner(""); }}>Cancel</button>
+      {unaddedTeammates.length === 0 && owners.length === 0 && (
+        <div style={{ marginBottom: 14, padding: "9px 14px", background: T.navy2, borderRadius: 10, border: `1px solid ${T.border}`, fontSize: 12, color: T.text3 }}>
+          All team members are already added, or go to <strong style={{ color: T.text2 }}>My Team</strong> to add teammates first.
         </div>
       )}
 
       {/* Empty state */}
-      {owners.length === 0 && !addingOwner && (
+      {owners.length === 0 && (
         <div style={{ textAlign: "center", color: T.text3, fontSize: 14, padding: "56px 24px", background: T.navy2, borderRadius: 12, border: `1px dashed ${T.borderHover}` }}>
           <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
           <div style={{ fontWeight: 600, color: T.text2, marginBottom: 4 }}>No entries for {displayDate}</div>
@@ -7461,7 +7880,9 @@ function ReleaseTracker() {
                           {RELEASE_STATUSES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
                         </select>
                       </div>
-                      <textarea className="form-textarea" style={{ minHeight: 50, marginBottom: 8 }} placeholder="Release note / detail… (optional)"
+                      <input className="form-input" style={{ marginBottom: 8 }} placeholder={`What does ${owner.name} need to do? (e.g. "Deploy to prod after QA sign-off")`}
+                        value={itemForm.action} onChange={e => setItemForm(f => ({ ...f, action: e.target.value }))} />
+                      <textarea className="form-textarea" style={{ minHeight: 50, marginBottom: 8 }} placeholder="Release note / context… (optional)"
                         value={itemForm.note} onChange={e => setItemForm(f => ({ ...f, note: e.target.value }))} />
                       <div style={{ display: "flex", gap: 8 }}>
                         <button className="btn btn-primary btn-sm" onClick={saveEditItem}>Save</button>
@@ -7472,19 +7893,29 @@ function ReleaseTracker() {
                 }
                 return (
                   <div key={ii}
-                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderBottom: `1px solid ${T.border}`, transition: "background 0.12s" }}
+                    style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 16px", borderBottom: `1px solid ${T.border}`, transition: "background 0.12s" }}
                     onMouseEnter={e => e.currentTarget.style.background = `${T.accent}06`}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     {/* Clickable status badge to cycle */}
                     <button onClick={() => cycleStatus(oi, ii)} title="Click to change status"
-                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", background: `${rs?.color || T.text3}18`, color: rs?.color || T.text3, border: `1px solid ${rs?.color || T.text3}30` }}>
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, marginTop: 2, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", background: `${rs?.color || T.text3}18`, color: rs?.color || T.text3, border: `1px solid ${rs?.color || T.text3}30` }}>
                       {rs?.icon} {rs?.label || item.status}
                     </button>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      {item.ticket && <div style={{ fontSize: 13, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.ticket}</div>}
-                      {item.note && <div style={{ fontSize: 11, color: T.text3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.note}</div>}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        {item.ticket && <span style={{ fontSize: 13, fontWeight: 600, color: T.text1 }}>{item.ticket}</span>}
+                        <span style={{ fontSize: 11, color: T.text3, background: T.navy3, padding: "1px 7px", borderRadius: 8 }}>{owner.name}</span>
+                      </div>
+                      {item.action && (
+                        <div style={{ fontSize: 11, color: T.amber, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                          <span>→</span>
+                          <span style={{ fontWeight: 600 }}>Needs to:</span>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.action}</span>
+                        </div>
+                      )}
+                      {item.note && <div style={{ fontSize: 11, color: T.text3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.note}</div>}
                     </div>
-                    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>
                       <button onClick={() => startEditItem(oi, ii)}
                         style={{ padding: "3px 8px", fontSize: 11, borderRadius: 5, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>✏</button>
                       <button onClick={() => removeItem(oi, ii)}
@@ -7500,13 +7931,14 @@ function ReleaseTracker() {
                   style={{ padding: "14px 16px", fontSize: 12, color: T.text3, cursor: "pointer", textAlign: "center", fontStyle: "italic", transition: "color 0.15s" }}
                   onMouseEnter={e => e.currentTarget.style.color = T.accent}
                   onMouseLeave={e => e.currentTarget.style.color = T.text3}>
-                  Click to add first item
+                  Click to add first item for {owner.name}
                 </div>
               )}
 
               {/* Inline add form */}
               {addingItemFor === oi && (
                 <div style={{ padding: "12px 16px", background: `${T.accent}07`, borderTop: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Adding item for {owner.name}</div>
                   <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                     <input autoFocus className="form-input" style={{ flex: 1 }} placeholder="Ticket / task (e.g. DN-1234)"
                       value={itemForm.ticket} onChange={e => setItemForm(f => ({ ...f, ticket: e.target.value }))}
@@ -7515,11 +7947,13 @@ function ReleaseTracker() {
                       {RELEASE_STATUSES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
                     </select>
                   </div>
-                  <textarea className="form-textarea" style={{ minHeight: 50, marginBottom: 8 }} placeholder="Release note / detail… (optional)"
+                  <input className="form-input" style={{ marginBottom: 8 }} placeholder={`What does ${owner.name} need to do? (action required)`}
+                    value={itemForm.action} onChange={e => setItemForm(f => ({ ...f, action: e.target.value }))} />
+                  <textarea className="form-textarea" style={{ minHeight: 50, marginBottom: 8 }} placeholder="Release note / context… (optional)"
                     value={itemForm.note} onChange={e => setItemForm(f => ({ ...f, note: e.target.value }))} />
                   <div style={{ display: "flex", gap: 8 }}>
                     <button className="btn btn-primary btn-sm" onClick={() => addItem(oi)}>Add Item</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => { setAddingItemFor(null); setItemForm({ ticket: "", note: "", status: "today" }); }}>Cancel</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setAddingItemFor(null); setItemForm({ ticket: "", note: "", status: "today", action: "" }); }}>Cancel</button>
                   </div>
                 </div>
               )}
@@ -7579,6 +8013,17 @@ function KeyboardShortcuts({ onClose }) {
       { key: "Esc", desc: "Close any modal or palette" },
     ]},
     { heading: "Navigation", items: [
+      { key: "1", desc: "Go to Dashboard" },
+      { key: "2", desc: "Go to Corporate Diary" },
+      { key: "3", desc: "Go to Commitments" },
+      { key: "4", desc: "Go to Incident Log" },
+      { key: "5", desc: "Go to Decision Log" },
+      { key: "6", desc: "Go to Release Status" },
+      { key: "7", desc: "Go to My Team" },
+      { key: "8", desc: "Go to Brag Doc" },
+      { key: "9", desc: "Go to Shadow Resume" },
+    ]},
+    { heading: "Search", items: [
       { key: "⌘ K → type", desc: "Navigate to any section by name" },
       { key: "⌘ K → @name", desc: "Find a team member" },
       { key: "⌘ K → diary text", desc: "Search diary entries" },
@@ -7792,8 +8237,6 @@ export default function Echo() {
   const [docCount, setDocCount]       = useState(0);
   const [user, setUser]               = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [reminderEnabled, setReminderEnabled] = useState(() => localStorage.getItem("echo_reminder_on") === "true");
-  const [reminderTime, setReminderTime]       = useState(() => localStorage.getItem("echo_reminder_time") || "17:30");
   const [padOpen, setPadOpen]                 = useState(false);
   const [showPatternInterrupt, setShowPatternInterrupt] = useState(false);
   const [sidebarOpen, setSidebarOpen]         = useState(false);
@@ -7805,15 +8248,36 @@ export default function Echo() {
   const [shortcutsOpen, setShortcutsOpen]     = useState(false);
   const [overdueCount, setOverdueCount]       = useState(0);
   const [teamDueBadge, setTeamDueBadge]       = useState(false);
+  const [todayEntryMissing, setTodayEntryMissing] = useState(false);
 
   useEffect(() => {
     db.auth.getUser().then(u => {
-      if (u?.id) setUser(u);
+      if (u?.id) {
+        setUser(u);
+        // Seed display name from Supabase user_metadata (cross-device safe)
+        const metaName = u.user_metadata?.display_name;
+        if (metaName) {
+          setDisplayName(metaName);
+          localStorage.setItem("echo_display_name", metaName);
+        }
+        const metaAvatar = u.user_metadata?.avatar;
+        if (metaAvatar) {
+          setAvatarData(metaAvatar);
+          localStorage.setItem("echo_avatar", metaAvatar);
+        }
+      }
       setAuthLoading(false);
     }).catch(() => setAuthLoading(false));
   }, []);
 
   useEffect(() => { localStorage.setItem("echo_view", view); }, [view]);
+
+  // Keep browser tab title in sync with current section and alert count
+  useEffect(() => {
+    const meta = PAGE_META[view];
+    const prefix = overdueCount > 0 && view === "commitments" ? `(${overdueCount}) ` : "";
+    document.title = meta ? `${prefix}${meta.title} — Echo` : "Echo";
+  }, [view, overdueCount]);
 
   useEffect(() => {
     if (!user) return;
@@ -7825,12 +8289,21 @@ export default function Echo() {
     if (!user || !isConfigured()) return;
     db.from("diary_entries").select("id").then(rows => setDiaryCount((rows || []).length));
     db.from("documents").select("id").then(rows => setDocCount((rows || []).length));
-    // Overdue "I owe" commitments (>7 days)
-    db.from("commitments").select("direction,inserted_at,resolved_at").then(rows => {
-      const overdue = (rows || []).filter(r =>
-        !r.resolved_at && r.direction === "i_owe" &&
-        (Date.now() - new Date(r.inserted_at).getTime()) > 7 * 86400000
-      );
+    // Check if today has a diary entry (only matters on weekdays)
+    const todayStr = today();
+    const todayDow = new Date(todayStr + "T00:00:00Z").getUTCDay();
+    if (todayDow !== 0 && todayDow !== 6) {
+      fetch(`${_REST()}/diary_entries?date=eq.${todayStr}&select=id&limit=1`, { headers: h() })
+        .then(r => r.json()).then(rows => setTodayEntryMissing(!(rows && rows.length > 0))).catch(() => {});
+    }
+    // Overdue "I owe" commitments — use due_date if present, else 7-day fallback
+    db.from("commitments").select("direction,inserted_at,resolved_at,due_date").then(rows => {
+      const todayD = today();
+      const overdue = (rows || []).filter(r => {
+        if (r.resolved_at || r.direction !== "i_owe") return false;
+        if (r.due_date) return r.due_date < todayD;
+        return (Date.now() - new Date(r.inserted_at).getTime()) > 7 * 86400000;
+      });
       setOverdueCount(overdue.length);
     });
     // Team 1:1 due badge — last week of month + direct reports without session
@@ -7850,15 +8323,20 @@ export default function Echo() {
     }
   }, [user]);
 
-  // Global keyboard shortcuts: Cmd+K → palette, N → new diary entry, Cmd+? → shortcuts
+  // Global keyboard shortcuts: Cmd+K → palette, N → new diary entry, 1-9 → sections, Cmd+? → shortcuts
   useEffect(() => {
     if (!user) return;
+    const NAV_KEYS = { "1": "dashboard", "2": "diary", "3": "commitments", "4": "incidents", "5": "decisions", "6": "releases", "7": "team", "8": "brag", "9": "resume" };
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setPaletteOpen(p => !p); }
       if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setShortcutsOpen(p => !p); }
-      if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey && document.activeElement.tagName === "BODY") { setShortcutsOpen(p => !p); }
-      if (e.key === "n" && !e.metaKey && !e.ctrlKey && !e.altKey && document.activeElement.tagName === "BODY") {
+      const isBody = document.activeElement.tagName === "BODY";
+      if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey && isBody) { setShortcutsOpen(p => !p); }
+      if (e.key === "n" && !e.metaKey && !e.ctrlKey && !e.altKey && isBody) {
         setView("diary"); localStorage.setItem("echo_diary_new", "1");
+      }
+      if (NAV_KEYS[e.key] && !e.metaKey && !e.ctrlKey && !e.altKey && isBody) {
+        setView(NAV_KEYS[e.key]);
       }
     };
     document.addEventListener("keydown", onKey);
@@ -7881,27 +8359,6 @@ export default function Echo() {
     });
   }, [user]);
 
-  useEffect(() => {
-    if (!reminderEnabled) return;
-    const check = async () => {
-      const now = new Date();
-      const [h, m] = reminderTime.split(":").map(Number);
-      if (now.getHours() !== h || now.getMinutes() !== m) return;
-      const todayStr = now.toISOString().split("T")[0];
-      if (localStorage.getItem("echo_last_notified") === todayStr) return;
-      const rows = await db.from("diary_entries").select("id", { eq: ["date", todayStr] });
-      if ((rows || []).length > 0) return;
-      if (Notification.permission === "granted") {
-        new Notification("Echo — time to log your day 📓", {
-          body: "You haven't recorded today's diary entry yet.",
-          icon: "/favicon.ico",
-        });
-        localStorage.setItem("echo_last_notified", todayStr);
-      }
-    };
-    const id = setInterval(check, 60000);
-    return () => clearInterval(id);
-  }, [reminderEnabled, reminderTime]);
 
   const openProfile = () => {
     setProfileDraft({ name: displayName, avatar: avatarData });
@@ -7913,6 +8370,14 @@ export default function Echo() {
     localStorage.setItem("echo_display_name", profileDraft.name);
     if (profileDraft.avatar) localStorage.setItem("echo_avatar", profileDraft.avatar);
     else localStorage.removeItem("echo_avatar");
+    // Persist to Supabase user_metadata so it survives device/browser changes
+    const token = localStorage.getItem("echo_token") || SUPABASE_ANON_KEY;
+    fetch(`${_AUTH()}/user`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ data: { display_name: profileDraft.name, avatar: profileDraft.avatar || null } }),
+    }).catch(() => {});
+    toast("Profile saved");
     setProfileOpen(false);
   };
   const handleAvatarFile = e => {
@@ -7933,8 +8398,13 @@ export default function Echo() {
   };
 
   if (authLoading) return (
-    <div style={{ minHeight: "100vh", background: T.navy0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', sans-serif" }}>
-      <div style={{ color: T.text3, fontSize: 14 }}>Loading…</div>
+    <div style={{ minHeight: "100vh", background: T.navy0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, fontFamily: "'DM Sans', sans-serif" }}>
+      <EchoLogo size={28} withText dark />
+      <div className="echo-loading-dots">
+        <div className="echo-loading-dot" />
+        <div className="echo-loading-dot" />
+        <div className="echo-loading-dot" />
+      </div>
     </div>
   );
 
@@ -7943,6 +8413,7 @@ export default function Echo() {
   const isOwner = user.email === OWNER_EMAIL;
   const visibleNav = NAV.filter(n => n.id !== "locker" || isOwner);
   const sections   = [...new Set(visibleNav.map(n => n.section))];
+  const NAV_SHORTCUT = { dashboard: "1", diary: "2", commitments: "3", incidents: "4", decisions: "5", releases: "6", team: "7", brag: "8", resume: "9" };
 
   return (
     <div className="echo-root">
@@ -7961,7 +8432,7 @@ export default function Echo() {
               <div className="echo-nav-section">{sec}</div>
               {visibleNav.filter(n => n.section === sec).map(n => (
                 <div key={n.id} className={`echo-nav-item ${view === n.id ? "active" : ""}`} onClick={() => { setView(n.id); setSidebarOpen(false); }}>
-                  <span style={{ fontSize: 15 }}>{n.icon}</span>
+                  <NavIcon id={n.id} />
                   <span>{n.label}</span>
                   {n.id === "diary" && diaryCount > 0 && (
                     <span style={{ marginLeft: "auto", fontSize: 11, background: "rgba(79,142,247,0.15)", color: T.accent, padding: "1px 7px", borderRadius: 10 }}>{diaryCount}</span>
@@ -7974,6 +8445,9 @@ export default function Echo() {
                   )}
                   {n.id === "team" && teamDueBadge && (
                     <span style={{ marginLeft: "auto", width: 7, height: 7, borderRadius: "50%", background: T.amber, flexShrink: 0 }} title="1:1s due this month" />
+                  )}
+                  {NAV_SHORTCUT[n.id] && !((n.id === "diary" && diaryCount > 0) || (n.id === "commitments" && overdueCount > 0) || (n.id === "team" && teamDueBadge) || (n.id === "locker" && docCount > 0)) && (
+                    <span className="nav-hint">{NAV_SHORTCUT[n.id]}</span>
                   )}
                 </div>
               ))}
@@ -7998,36 +8472,6 @@ export default function Echo() {
           </div>
           {isOwner && <div style={{ fontSize: 10, color: T.teal, marginBottom: 4, paddingLeft: 8 }}>Owner</div>}
 
-          {/* End-of-day reminder */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 0", borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}`, marginBottom: 8 }}>
-            <span style={{ fontSize: 12 }} title="End-of-day diary reminder">🔔</span>
-            <input
-              type="time"
-              value={reminderTime}
-              onChange={e => { setReminderTime(e.target.value); localStorage.setItem("echo_reminder_time", e.target.value); }}
-              style={{ flex: 1, background: "transparent", border: "none", color: reminderEnabled ? T.text2 : T.text3, fontSize: 11, fontFamily: "'DM Mono', monospace", outline: "none" }}
-            />
-            <button
-              onClick={() => {
-                if (!reminderEnabled && Notification.permission !== "granted") {
-                  Notification.requestPermission().then(p => {
-                    if (p === "granted") { setReminderEnabled(true); localStorage.setItem("echo_reminder_on", "true"); }
-                  });
-                } else {
-                  const next = !reminderEnabled;
-                  setReminderEnabled(next);
-                  localStorage.setItem("echo_reminder_on", String(next));
-                }
-              }}
-              style={{
-                background: reminderEnabled ? T.teal : "transparent",
-                border: `1px solid ${reminderEnabled ? T.teal : T.border}`,
-                borderRadius: 4, color: reminderEnabled ? T.navy0 : T.text3,
-                fontSize: 10, fontWeight: 600, padding: "2px 7px", cursor: "pointer",
-                fontFamily: "'DM Sans', sans-serif",
-              }}
-            >{reminderEnabled ? "ON" : "OFF"}</button>
-          </div>
 
           <div style={{ display: "flex", gap: 6, marginBottom: 0 }}>
             <button onClick={async () => {
@@ -8045,6 +8489,7 @@ export default function Echo() {
               const a = document.createElement("a");
               a.href = url; a.download = `echo-export-${new Date().toISOString().slice(0,10)}.json`;
               a.click(); URL.revokeObjectURL(url);
+              toast("Data exported as JSON", "info");
             }} style={{
               flex: 1, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6,
               color: T.text3, cursor: "pointer", fontSize: 11, padding: "5px 0",
@@ -8069,6 +8514,13 @@ export default function Echo() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {todayEntryMissing && view !== "diary" && (
+              <button onClick={() => { setView("diary"); localStorage.setItem("echo_diary_new", "1"); setTodayEntryMissing(false); }}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 11px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: `${T.amber}18`, border: `1px solid ${T.amber}40`, color: T.amber, fontFamily: "'DM Sans', sans-serif", transition: "opacity 0.15s" }}
+                title="No diary entry for today yet">
+                📓 Log today
+              </button>
+            )}
             <button onClick={() => setPaletteOpen(true)} style={{
               display: "flex", alignItems: "center", gap: 7,
               background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 8,
@@ -8078,7 +8530,7 @@ export default function Echo() {
               onMouseEnter={e => { e.currentTarget.style.borderColor = T.borderHover; e.currentTarget.style.color = T.text2; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}
               title="Search everything (Cmd+K)">
-              🔍
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="7" cy="7" r="4"/><path d="M10.5 10.5 14 14"/></svg>
               <span style={{ fontSize: 10, background: T.navy3, padding: "1px 6px", borderRadius: 4 }}>⌘K</span>
             </button>
             <button onClick={() => setShortcutsOpen(true)} style={{
@@ -8089,6 +8541,7 @@ export default function Echo() {
               onMouseEnter={e => { e.currentTarget.style.borderColor = T.borderHover; e.currentTarget.style.color = T.text2; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text3; }}
               title="Keyboard shortcuts (?)">?</button>
+            <div className="topbar-divider" />
             <div style={{ fontSize: 13, color: T.text3 }}>{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
           </div>
         </div>
@@ -8105,7 +8558,7 @@ export default function Echo() {
         {view === "commitments" && <Commitments user={user} />}
         {view === "incidents"   && <IncidentLog user={user} />}
         {view === "decisions"   && <DecisionLog user={user} />}
-        {view === "releases"    && <ReleaseTracker />}
+        {view === "releases"    && <ReleaseTracker user={user} />}
         {view === "team"        && <MyTeam user={user} />}
         {view === "brag"        && <BragDoc />}
         {view === "resume"      && <ShadowResume />}
@@ -8130,6 +8583,9 @@ export default function Echo() {
 
       {/* ── Floating Scratch Pad ── */}
       {padOpen && <ScratchPad onClose={() => setPadOpen(false)} user={user} />}
+
+      {/* ── Toast notifications ── */}
+      <ToastContainer />
 
       {/* ── Profile Modal ── */}
       {profileOpen && (
@@ -8188,7 +8644,12 @@ export default function Echo() {
           transition: "all 0.2s ease",
         }}
       >
-        {padOpen ? "✕" : "📝"}
+        {padOpen ? "✕" : (
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14.5 3.5 16 5l-9.5 9.5H5v-1.5L14.5 3.5Z"/>
+            <path d="M13 5l2 2"/>
+          </svg>
+        )}
       </button>
     </div>
   );
