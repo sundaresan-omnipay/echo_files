@@ -217,6 +217,19 @@ const probeAgendaQueue = () => {
   return _agqCheck;
 };
 
+// ─── release_logs table probe ────────────────────────────────────────────────
+let _rlCheck = null;
+let _rlSupported = null;
+const probeReleaseTable = () => {
+  if (_rlSupported !== null) return Promise.resolve(_rlSupported);
+  if (_rlCheck) return _rlCheck;
+  _rlCheck = fetch(`${_REST()}/release_logs?select=id&limit=0`, { headers: h() })
+    .then(r => { _rlSupported = r.ok; return r.ok; })
+    .catch(() => { _rlSupported = false; return false; })
+    .finally(() => { _rlCheck = null; });
+  return _rlCheck;
+};
+
 let _catCheck = null;
 let _catSupported = null;
 const probeCategories = () => {
@@ -433,6 +446,7 @@ const linkify = (text) => {
 // create table commitments (id uuid primary key default gen_random_uuid(), user_id uuid not null, direction text not null, person text not null, what text not null, source text default 'manual', resolved_at timestamptz, inserted_at timestamptz default now()); alter table commitments enable row level security; create policy "own" on commitments for all using (auth.uid()=user_id);
 // create table incidents (id uuid primary key default gen_random_uuid(), user_id uuid not null, date date not null default current_date, type text not null default 'escaped_defect', module text default '', root_cause text default '', test_gap text default '', severity text default 'medium', notes text default '', inserted_at timestamptz default now()); alter table incidents enable row level security; create policy "own" on incidents for all using (auth.uid()=user_id);
 // create table decisions (id uuid primary key default gen_random_uuid(), user_id uuid not null, date date not null default current_date, decision text not null, context text default '', people text default '', inserted_at timestamptz default now()); alter table decisions enable row level security; create policy "own" on decisions for all using (auth.uid()=user_id);
+// create table release_logs (id uuid primary key default gen_random_uuid(), user_id uuid not null, release_date date not null, owners jsonb default '[]', updated_at timestamptz default now(), unique(user_id, release_date)); alter table release_logs enable row level security; create policy "own" on release_logs for all using (auth.uid()=user_id);
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const T = {
@@ -7598,22 +7612,42 @@ function WeeklyUpdateModal({ user, onClose }) {
 
 // ─── Release Tracker ─────────────────────────────────────────────────────────
 const RELEASE_KEY = "echo_release_logs"; // legacy key — used only for one-time migration
+const RELEASE_LS_KEY = "echo_rl_v2"; // localStorage backup — always written regardless of DB state
+
+const _lsSaveRelease = (date, owners) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(RELEASE_LS_KEY) || "{}");
+    all[date] = owners;
+    localStorage.setItem(RELEASE_LS_KEY, JSON.stringify(all));
+  } catch {}
+};
+const _lsLoadRelease = (date) => {
+  try { return JSON.parse(localStorage.getItem(RELEASE_LS_KEY) || "{}")?.[date] || null; }
+  catch { return null; }
+};
 
 const getReleaseDay = async (date, userId) => {
-  try {
-    const r = await fetch(`${_REST()}/release_logs?user_id=eq.${userId}&release_date=eq.${date}&select=owners`, { headers: h() });
-    if (!r.ok) return [];
-    const rows = await r.json();
-    return rows?.[0]?.owners || [];
-  } catch { return []; }
+  const supported = await probeReleaseTable();
+  if (supported) {
+    try {
+      const r = await fetch(`${_REST()}/release_logs?user_id=eq.${userId}&release_date=eq.${date}&select=owners`, { headers: h() });
+      if (r.ok) {
+        const rows = await r.json();
+        if (rows?.length > 0) return rows[0].owners || [];
+      }
+    } catch {}
+  }
+  return _lsLoadRelease(date) || [];
 };
 
 const saveReleaseDay = (date, owners, userId) => {
+  _lsSaveRelease(date, owners);
+  if (_rlSupported === false) return;
   fetch(`${_REST()}/release_logs`, {
     method: "POST",
     headers: { ...h(), Prefer: "resolution=merge-duplicates,return=representation" },
     body: JSON.stringify({ user_id: userId, release_date: date, owners, updated_at: new Date().toISOString() }),
-  }).catch(() => {});
+  }).then(r => { if (!r.ok) _rlSupported = false; }).catch(() => { _rlSupported = false; });
 };
 
 function ReleaseTracker({ user }) {
@@ -7625,6 +7659,7 @@ function ReleaseTracker({ user }) {
   const [itemForm, setItemForm] = useState({ ticket: "", note: "", status: "today", action: "" });
   const [addingItemFor, setAddingItemFor] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [rlTableMissing, setRlTableMissing] = useState(false);
 
   // Load data for a date from Supabase
   const loadDate = useCallback(async (d) => {
@@ -7638,10 +7673,11 @@ function ReleaseTracker({ user }) {
     setRlLoading(false);
   }, [userId]);
 
-  // Initial load + one-time localStorage migration
+  // Initial load + table probe + one-time localStorage migration
   useEffect(() => {
     if (!userId) return;
     const todayStr = today();
+    probeReleaseTable().then(ok => { if (!ok) setRlTableMissing(true); });
     // Migrate any existing localStorage data to Supabase (runs once)
     const legacy = localStorage.getItem(RELEASE_KEY);
     if (legacy) {
@@ -7755,6 +7791,15 @@ function ReleaseTracker({ user }) {
 
   return (
     <div className="echo-content fade-in">
+
+      {rlTableMissing && (
+        <div style={{ marginBottom: 16, padding: "12px 16px", background: "rgba(240,117,98,0.1)", border: `1px solid ${T.coral}`, borderRadius: 10, fontSize: 12 }}>
+          <div style={{ color: T.coral, fontWeight: 700, marginBottom: 6 }}>⚠️ Release Status table not set up — data is being saved locally only</div>
+          <div style={{ color: T.text2, marginBottom: 8 }}>Run this once in your <strong>Supabase SQL editor</strong> to enable cloud saving:</div>
+          <pre style={{ background: T.navy1, borderRadius: 7, padding: "8px 12px", fontSize: 11, color: T.teal, overflowX: "auto", margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{`create table release_logs (id uuid primary key default gen_random_uuid(), user_id uuid not null, release_date date not null, owners jsonb default '[]', updated_at timestamptz default now(), unique(user_id, release_date));\nalter table release_logs enable row level security;\ncreate policy "own" on release_logs for all using (auth.uid()=user_id);`}</pre>
+          <div style={{ color: T.text3, fontSize: 11, marginTop: 6 }}>After running, reload the page. Your locally saved data will sync automatically.</div>
+        </div>
+      )}
 
       {/* ── Top bar: date nav + copy button ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
