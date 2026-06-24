@@ -2650,6 +2650,23 @@ function SectionInput({ children }) {
 }
 
 // ─── Scratch Pad ─────────────────────────────────────────────────────────────
+function NoteRow({ n, isActive, onClick, onDelete }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)} onClick={onClick}
+      style={{ display: "flex", alignItems: "center", padding: "7px 10px", cursor: "pointer", gap: 6,
+        background: isActive ? "rgba(79,142,247,0.12)" : hov ? "rgba(255,255,255,0.03)" : "transparent",
+        borderLeft: `2px solid ${isActive ? T.accent : "transparent"}`, transition: "background 0.1s" }}>
+      <span style={{ flex: 1, fontSize: 12, color: isActive ? T.text1 : T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {n.title || "Untitled"}
+      </span>
+      {hov && (
+        <span onClick={onDelete} title="Delete" style={{ fontSize: 14, color: T.text3, lineHeight: 1, cursor: "pointer", flexShrink: 0, padding: "0 2px" }}>×</span>
+      )}
+    </div>
+  );
+}
+
 function ScratchPad({ onClose, user }) {
   const [notes, setNotes] = useState([{ id: 1, title: "Note 1", text: "", group: "" }]);
   const [loaded, setLoaded] = useState(false);
@@ -2731,107 +2748,109 @@ function ScratchPad({ onClose, user }) {
     setNewGroupInput("");
   };
 
+  const groups = [...new Set(notes.map(n => n.group || "").filter(Boolean))];
+
   return (
     <div style={{
-      position: "fixed", bottom: 84, right: 24, width: 390, height: 480,
+      position: "fixed", bottom: 84, right: 24, width: 600, height: 500,
       background: T.navy1, border: `1px solid ${T.borderHover}`,
-      borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+      borderRadius: 14, boxShadow: "0 24px 64px rgba(0,0,0,0.65)",
       display: "flex", flexDirection: "column", zIndex: 9998, overflow: "hidden",
     }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: T.navy2, flexShrink: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: T.text1 }}>📝 Scratch Pad</div>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>✕</button>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "2px 4px" }}>✕</button>
       </div>
 
-      {/* Group filter bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 10px", borderBottom: `1px solid ${T.border}`, background: T.navy2, flexShrink: 0, overflowX: "auto" }}>
-        {allGroups.map(g => (
-          <button key={g} onClick={() => { setActiveGroup(g); setActiveIdx(0); }} style={{
-            background: activeGroup === g ? T.accentGlow : "transparent",
-            border: `1px solid ${activeGroup === g ? T.accent : T.border}`,
-            borderRadius: 20, padding: "2px 10px", cursor: "pointer",
-            fontSize: 11, color: activeGroup === g ? T.accent : T.text3,
-            fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap", flexShrink: 0,
-          }}>{g}</button>
-        ))}
-        {showGroupInput ? (
-          <input
-            autoFocus
-            value={newGroupInput}
-            onChange={e => setNewGroupInput(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") addGroup(); if (e.key === "Escape") { setShowGroupInput(false); setNewGroupInput(""); } }}
-            onBlur={addGroup}
-            placeholder="Group name…"
-            style={{ background: T.navy3, border: `1px solid ${T.accent}`, borderRadius: 20, padding: "2px 10px", fontSize: 11, color: T.text1, outline: "none", fontFamily: "'DM Sans', sans-serif", width: 100 }}
-          />
-        ) : (
-          <button onClick={() => setShowGroupInput(true)} title="New group" style={{ background: "none", border: `1px dashed ${T.border}`, borderRadius: 20, padding: "2px 8px", cursor: "pointer", fontSize: 11, color: T.text3, fontFamily: "'DM Sans', sans-serif", flexShrink: 0 }}>＋ Group</button>
-        )}
-      </div>
+      {/* Body: sidebar + editor */}
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
-      {/* Note tabs */}
-      <div style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}`, overflowX: "auto", background: T.navy2, flexShrink: 0 }}>
-        {visibleNotes.map((n, idx) => (
-          <div key={n.id} onClick={() => setActiveIdx(idx)} style={{
-            display: "flex", alignItems: "center", gap: 4, padding: "6px 10px",
-            cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
-            borderBottom: `2px solid ${activeIdx === idx ? T.accent : "transparent"}`,
-            color: activeIdx === idx ? T.text1 : T.text3, fontSize: 12,
-          }}>
-            <span style={{ maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis" }}>
-              {n.title || `Note ${idx + 1}`}
-            </span>
-            <span onClick={(e) => deleteNote(idx, e)} style={{ fontSize: 11, color: T.text3, marginLeft: 1, opacity: 0.7 }}>×</span>
+        {/* ── Left sidebar: note list ── */}
+        <div style={{ width: 180, borderRight: `1px solid ${T.border}`, background: T.navy2, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {/* Ungrouped notes */}
+            {notes.filter(n => !n.group).map((n, _i) => {
+              const idx = notes.indexOf(n);
+              const isActive = idx === realIdx;
+              return (
+                <NoteRow key={n.id} n={n} isActive={isActive}
+                  onClick={() => { setActiveIdx(notes.filter(x => !x.group).indexOf(n)); setActiveGroup("All"); }}
+                  onDelete={e => deleteNote(notes.filter(x => !x.group).indexOf(n), e)}
+                />
+              );
+            })}
+            {/* Grouped notes */}
+            {groups.map(g => (
+              <div key={g}>
+                <div style={{ padding: "8px 10px 3px", fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.07em", userSelect: "none" }}>{g}</div>
+                {notes.filter(n => (n.group || "") === g).map(n => {
+                  const visArr = notes.filter(x => (x.group || "") === g);
+                  const visI = visArr.indexOf(n);
+                  const isActive = notes.indexOf(n) === realIdx;
+                  return (
+                    <NoteRow key={n.id} n={n} isActive={isActive}
+                      onClick={() => { setActiveGroup(g); setActiveIdx(visI); }}
+                      onDelete={e => deleteNote(visI, e)}
+                    />
+                  );
+                })}
+              </div>
+            ))}
           </div>
-        ))}
-        <button onClick={addNote} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", padding: "6px 10px", fontSize: 18, flexShrink: 0, lineHeight: 1 }} title="New note">+</button>
-      </div>
 
-      {/* Note title + group */}
-      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-        <input
-          type="text"
-          value={active?.title || ""}
-          onChange={e => updateActive("title", e.target.value)}
-          placeholder="Note title…"
-          style={{
-            flex: 1, background: "transparent", border: "none",
-            color: T.text1, fontSize: 13, fontWeight: 600, padding: "8px 14px",
-            outline: "none", fontFamily: "'DM Sans', sans-serif",
-          }}
-        />
-        <input
-          type="text"
-          value={active?.group || ""}
-          onChange={e => updateActive("group", e.target.value)}
-          onBlur={e => { const g = e.target.value.trim(); if (g && !allGroups.includes(g)) setActiveGroup("All"); }}
-          placeholder="Group…"
-          title="Assign to a group"
-          style={{
-            width: 90, background: "transparent", border: "none", borderLeft: `1px solid ${T.border}`,
-            color: T.accent, fontSize: 11, padding: "8px 10px",
-            outline: "none", fontFamily: "'DM Sans', sans-serif",
-          }}
-        />
-      </div>
+          {/* Sidebar footer: new note + new group */}
+          <div style={{ borderTop: `1px solid ${T.border}`, padding: "6px 8px", display: "flex", gap: 4 }}>
+            <button onClick={addNote} title="New note" style={{ flex: 1, background: T.accentGlow, border: `1px solid ${T.accent}`, borderRadius: 7, padding: "5px 0", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontWeight: 600 }}>＋ Note</button>
+            {showGroupInput ? (
+              <input autoFocus value={newGroupInput}
+                onChange={e => setNewGroupInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") addGroup(); if (e.key === "Escape") { setShowGroupInput(false); setNewGroupInput(""); } }}
+                onBlur={addGroup}
+                placeholder="Group…"
+                style={{ flex: 1, background: T.navy3, border: `1px solid ${T.accent}`, borderRadius: 7, padding: "5px 7px", fontSize: 11, color: T.text1, outline: "none", fontFamily: "'DM Sans',sans-serif" }}
+              />
+            ) : (
+              <button onClick={() => setShowGroupInput(true)} title="New group" style={{ flex: 1, background: "transparent", border: `1px dashed ${T.border}`, borderRadius: 7, padding: "5px 0", fontSize: 11, color: T.text3, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>＋ Group</button>
+            )}
+          </div>
+        </div>
 
-      {/* Note body */}
-      <textarea
-        value={active?.text || ""}
-        onChange={e => updateActive("text", e.target.value)}
-        placeholder="Jot something down…"
-        style={{
-          flex: 1, background: "transparent", border: "none",
-          color: T.text2, fontSize: 13, padding: "10px 14px",
-          outline: "none", resize: "none", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.75,
-        }}
-      />
+        {/* ── Right editor ── */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {/* Title + group tag */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+            <input
+              type="text"
+              value={active?.title || ""}
+              onChange={e => updateActive("title", e.target.value)}
+              placeholder="Note title…"
+              style={{ flex: 1, background: "transparent", border: "none", color: T.text1, fontSize: 14, fontWeight: 700, outline: "none", fontFamily: "'DM Sans',sans-serif" }}
+            />
+            <select
+              value={active?.group || ""}
+              onChange={e => updateActive("group", e.target.value)}
+              style={{ background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 6, padding: "3px 7px", fontSize: 11, color: active?.group ? T.accent : T.text3, outline: "none", fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}
+            >
+              <option value="">No group</option>
+              {groups.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
 
-      {/* Footer */}
-      <div style={{ padding: "5px 14px", borderTop: `1px solid ${T.border}`, fontSize: 11, color: T.text3, display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
-        <span>{active?.text?.length || 0} chars</span>
-        <span>{visibleNotes.length}/{notes.length} notes · auto-saved</span>
+          {/* Textarea */}
+          <textarea
+            value={active?.text || ""}
+            onChange={e => updateActive("text", e.target.value)}
+            placeholder="Jot something down…"
+            style={{ flex: 1, background: "transparent", border: "none", color: T.text2, fontSize: 13, padding: "12px 16px", outline: "none", resize: "none", fontFamily: "'DM Sans',sans-serif", lineHeight: 1.8 }}
+          />
+
+          {/* Footer */}
+          <div style={{ padding: "5px 14px", borderTop: `1px solid ${T.border}`, fontSize: 11, color: T.text3, display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
+            <span>{active?.text?.length || 0} chars</span>
+            <span>{notes.length} note{notes.length !== 1 ? "s" : ""} · auto-saved</span>
+          </div>
+        </div>
       </div>
     </div>
   );
