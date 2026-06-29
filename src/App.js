@@ -113,32 +113,59 @@ const db = {
       return r.json();
     },
     insert: async (data) => {
-      const r = await fetch(`${_REST()}/${table}`, {
+      let r = await fetch(`${_REST()}/${table}`, {
         method: "POST",
         headers: { ...h(), Prefer: "return=representation" },
         body: JSON.stringify(data),
       });
-      return r.json();
+      if (r.status === 401) {
+        await _refreshToken();
+        r = await fetch(`${_REST()}/${table}`, {
+          method: "POST",
+          headers: { ...h(), Prefer: "return=representation" },
+          body: JSON.stringify(data),
+        });
+      }
+      const text = await r.text();
+      try { return text ? JSON.parse(text) : {}; } catch { return {}; }
     },
     update: async (data, id) => {
-      const r = await fetch(`${_REST()}/${table}?id=eq.${id}`, {
+      let r = await fetch(`${_REST()}/${table}?id=eq.${id}`, {
         method: "PATCH",
         headers: { ...h(), Prefer: "return=representation" },
         body: JSON.stringify(data),
       });
-      return r.json();
+      if (r.status === 401) {
+        await _refreshToken();
+        r = await fetch(`${_REST()}/${table}?id=eq.${id}`, {
+          method: "PATCH",
+          headers: { ...h(), Prefer: "return=representation" },
+          body: JSON.stringify(data),
+        });
+      }
+      const text = await r.text();
+      try { return text ? JSON.parse(text) : {}; } catch { return {}; }
     },
     delete: async (id) => {
       await fetch(`${_REST()}/${table}?id=eq.${id}`, { method: "DELETE", headers: h() });
     },
     upsert: async (data, onConflict) => {
       const qs = onConflict ? `?on_conflict=${onConflict}` : "";
-      const r = await fetch(`${_REST()}/${table}${qs}`, {
+      let r = await fetch(`${_REST()}/${table}${qs}`, {
         method: "POST",
         headers: { ...h(), Prefer: "resolution=merge-duplicates,return=representation" },
         body: JSON.stringify(data),
       });
-      return r.json();
+      if (r.status === 401) {
+        await _refreshToken();
+        r = await fetch(`${_REST()}/${table}${qs}`, {
+          method: "POST",
+          headers: { ...h(), Prefer: "resolution=merge-duplicates,return=representation" },
+          body: JSON.stringify(data),
+        });
+      }
+      const text = await r.text();
+      try { return text ? JSON.parse(text) : {}; } catch { return {}; }
     },
     deleteWhere: async (filters) => {
       const qs = Object.entries(filters).map(([k, v]) => `${k}=eq.${v}`).join("&");
@@ -4553,6 +4580,9 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
         {saveError && (
           <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(240,122,110,0.12)", border: `1px solid ${T.coral}`, borderRadius: 8, fontSize: 12, color: T.coral }}>
             <div style={{ marginBottom: saveError.includes("Supabase") ? 8 : 0 }}>{saveError}</div>
+            {saveError.toLowerCase().includes("jwt") && (
+              <div style={{ marginTop: 6, color: T.text2 }}>Your session has expired. Sign out and sign back in, then try again.</div>
+            )}
             {saveError.includes("Supabase") && (
               <pre style={{ margin: 0, fontSize: 11, color: T.teal, background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: "6px 10px", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{`ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS team_updates jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS feedback_given jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS blockers text DEFAULT '';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS jira_links jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS collaborators jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS carry_forward jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS reminders jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS linked_note text;\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS categories jsonb DEFAULT '{}';`}</pre>
             )}
