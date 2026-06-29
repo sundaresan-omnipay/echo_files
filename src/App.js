@@ -3765,6 +3765,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
   const [reminderInput, setReminderInput] = useState("");
   const [pointInput, setPointInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
   const [attDbOk, setAttDbOk] = useState(null);
@@ -3878,8 +3879,10 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
   const save = async () => {
     if (!form.date) return;
     setSaving(true);
-    await onSave({ ...form, title: fmtDate(form.date), focus_area: (form.focus_areas || [])[0] || form.focus_area || "" });
+    setSaveError("");
+    const result = await onSave({ ...form, title: fmtDate(form.date), focus_area: (form.focus_areas || [])[0] || form.focus_area || "" });
     setSaving(false);
+    if (result?.error) { setSaveError(result.error); return; }
     onClose();
   };
 
@@ -4543,7 +4546,12 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
+        {saveError && (
+          <div style={{ marginTop: 12, padding: "8px 12px", background: "rgba(240,122,110,0.12)", border: `1px solid ${T.coral}`, borderRadius: 8, fontSize: 12, color: T.coral }}>
+            ⚠️ Save failed — {saveError}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 12, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={save} disabled={saving || !form.date}>
             {saving ? "Saving…" : entry ? "Update Entry" : "Save Entry"}
@@ -4878,25 +4886,34 @@ function Diary({ onCountChange, user }) {
       const seen = new Set();
       form = { ...form, collaborators: form.collaborators.map(cleanCollab).filter(v => { const k = v.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }) };
     }
-    const doSave = async (data) => {
-      if (data.id) {
-        const { id, ...rest } = data;
-        return db.from("diary_entries").update(rest, id);
-      }
+    const doOne = async (data) => {
+      if (data.id) { const { id, ...rest } = data; return db.from("diary_entries").update(rest, id); }
       return db.from("diary_entries").insert(data);
     };
+    // Columns that may not exist yet — stripped one at a time if Supabase errors on them
+    const OPTIONAL_COLS = ["focus_areas","is_win","win_tags","team_attendance","categories",
+                           "team_updates","feedback_given","blockers","jira_links",
+                           "collaborators","carry_forward","reminders","linked_note","ticket_number"];
     const [hasFocusAreas, hasWin, hasCats, hasAtt] = await Promise.all([probeFocusAreas(), probeIsWin(), probeCategories(), probeAttendance()]);
     let saveData = form;
     if (!hasFocusAreas) { const { focus_areas, ...rest } = saveData; saveData = rest; }
-    if (!hasWin) { const { is_win, win_tags, ...rest } = saveData; saveData = rest; }
-    if (!hasAtt) { const { team_attendance, ...rest } = saveData; saveData = rest; }
-    if (!hasCats) { const { categories, ...rest } = saveData; saveData = rest; }
-    const result = await doSave(saveData);
-    if (result?.code === "PGRST204") {
-      if (result.message?.includes("focus_areas")) { _faSupported = false; const { focus_areas, ...f } = form; await doSave(f); }
-      else if (result.message?.includes("is_win") || result.message?.includes("win_tags")) { _winSupported = false; const { is_win, win_tags, ...f } = form; await doSave(f); }
-      else if (result.message?.includes("categories")) { _catSupported = false; const { categories, ...f } = form; await doSave(f); }
-      else if (result.message?.includes("team_attendance")) { _attSupported = false; const { team_attendance, ...f } = form; await doSave(f); }
+    if (!hasWin)        { const { is_win, win_tags, ...rest } = saveData; saveData = rest; }
+    if (!hasAtt)        { const { team_attendance, ...rest } = saveData; saveData = rest; }
+    if (!hasCats)       { const { categories, ...rest } = saveData; saveData = rest; }
+
+    // Generic retry: if Supabase errors on an unknown column, strip it and retry
+    let result = await doOne(saveData);
+    for (let attempt = 0; attempt < OPTIONAL_COLS.length && result?.code; attempt++) {
+      const msg = (result.message || "").toLowerCase();
+      const bad = OPTIONAL_COLS.find(c => msg.includes(c));
+      if (!bad) break; // unrecoverable error (not a missing-column issue)
+      const { [bad]: _dropped, ...stripped } = saveData;
+      saveData = stripped;
+      result = await doOne(saveData);
+    }
+    if (result?.code) {
+      // Save truly failed — return error so the form can display it
+      return { error: result.message || "Unknown error" };
     }
     load();
   };
