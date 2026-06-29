@@ -3883,6 +3883,10 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
     const result = await onSave({ ...form, title: fmtDate(form.date), focus_area: (form.focus_areas || [])[0] || form.focus_area || "" });
     setSaving(false);
     if (result?.error) { setSaveError(result.error); return; }
+    if (result?.warning) {
+      setSaveError(`⚠️ These fields were NOT saved because the columns are missing in Supabase: ${result.warning.join(", ")}. Run the SQL shown below to fix this permanently.`);
+      return; // keep form open so data isn't lost
+    }
     onClose();
   };
 
@@ -4547,8 +4551,11 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
         )}
 
         {saveError && (
-          <div style={{ marginTop: 12, padding: "8px 12px", background: "rgba(240,122,110,0.12)", border: `1px solid ${T.coral}`, borderRadius: 8, fontSize: 12, color: T.coral }}>
-            ⚠️ Save failed — {saveError}
+          <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(240,122,110,0.12)", border: `1px solid ${T.coral}`, borderRadius: 8, fontSize: 12, color: T.coral }}>
+            <div style={{ marginBottom: saveError.includes("Supabase") ? 8 : 0 }}>{saveError}</div>
+            {saveError.includes("Supabase") && (
+              <pre style={{ margin: 0, fontSize: 11, color: T.teal, background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: "6px 10px", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{`ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS team_updates jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS feedback_given jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS blockers text DEFAULT '';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS jira_links jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS collaborators jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS carry_forward jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS reminders jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS linked_note text;\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS categories jsonb DEFAULT '{}';`}</pre>
+            )}
           </div>
         )}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 12, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
@@ -4902,11 +4909,13 @@ function Diary({ onCountChange, user }) {
     if (!hasCats)       { const { categories, ...rest } = saveData; saveData = rest; }
 
     // Generic retry: if Supabase errors on an unknown column, strip it and retry
+    const droppedCols = [];
     let result = await doOne(saveData);
     for (let attempt = 0; attempt < OPTIONAL_COLS.length && result?.code; attempt++) {
       const msg = (result.message || "").toLowerCase();
       const bad = OPTIONAL_COLS.find(c => msg.includes(c));
       if (!bad) break; // unrecoverable error (not a missing-column issue)
+      droppedCols.push(bad);
       const { [bad]: _dropped, ...stripped } = saveData;
       saveData = stripped;
       result = await doOne(saveData);
@@ -4914,6 +4923,11 @@ function Diary({ onCountChange, user }) {
     if (result?.code) {
       // Save truly failed — return error so the form can display it
       return { error: result.message || "Unknown error" };
+    }
+    if (droppedCols.length > 0) {
+      // Saved successfully but some fields were silently dropped due to missing DB columns
+      load();
+      return { warning: droppedCols };
     }
     load();
   };
