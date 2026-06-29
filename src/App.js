@@ -1707,6 +1707,13 @@ const RELEASE_STATUSES = [
   { key: "leave",    label: "On Leave",    icon: "🏖️", color: T.text3   },
 ];
 
+// attendance options shown on each owner card and included in the copy report
+const OWNER_ATT = [
+  { key: "wfh",  label: "WFH",      icon: "🏠", color: T.accent },
+  { key: "half", label: "Half Day", icon: "🌓", color: T.amber  },
+  { key: "leave",label: "On Leave", icon: "🏖️", color: T.coral  },
+];
+
 const statusColor   = (s) => TEAM_STATUSES.find(x => x.key === s)?.color   || T.text3;
 const feedbackColor = (t) => FEEDBACK_TYPES.find(x => x.key === t)?.color  || T.text3;
 const priorityColor = (p) => PRIORITIES.find(x => x.key === p)?.color      || T.text3;
@@ -7636,27 +7643,43 @@ const RELEASE_LS_KEY = "echo_rl_v2"; // localStorage backup — always written r
 const _lsSaveRelease = (date, owners) => {
   try {
     const all = JSON.parse(localStorage.getItem(RELEASE_LS_KEY) || "{}");
-    all[date] = owners;
+    all[date] = { owners, ts: Date.now() }; // store timestamp alongside data
     localStorage.setItem(RELEASE_LS_KEY, JSON.stringify(all));
   } catch {}
 };
 const _lsLoadRelease = (date) => {
-  try { return JSON.parse(localStorage.getItem(RELEASE_LS_KEY) || "{}")?.[date] || null; }
-  catch { return null; }
+  try {
+    const entry = JSON.parse(localStorage.getItem(RELEASE_LS_KEY) || "{}")?.[date];
+    if (!entry) return null;
+    // handle legacy format (plain array) and new format ({owners, ts})
+    if (Array.isArray(entry)) return { owners: entry, ts: 0 };
+    return entry;
+  } catch { return null; }
 };
 
 const getReleaseDay = async (date, userId) => {
+  const lsEntry = _lsLoadRelease(date);
+  const lsOwners = lsEntry?.owners || null;
+  const lsTs = lsEntry?.ts || 0;
+
   const supported = await probeReleaseTable();
   if (supported) {
     try {
-      const r = await fetch(`${_REST()}/release_logs?user_id=eq.${userId}&release_date=eq.${date}&select=owners`, { headers: h() });
+      // order=updated_at.desc ensures we always read the LATEST row (fixes missing-unique-constraint duplication bug)
+      const r = await fetch(`${_REST()}/release_logs?user_id=eq.${userId}&release_date=eq.${date}&select=owners,updated_at&order=updated_at.desc&limit=1`, { headers: h() });
       if (r.ok) {
         const rows = await r.json();
-        if (rows?.length > 0) return rows[0].owners || [];
+        if (rows?.length > 0) {
+          const dbOwners = rows[0].owners || [];
+          const dbTs = rows[0].updated_at ? new Date(rows[0].updated_at).getTime() : 0;
+          // prefer whichever version is newer — handles partial-save scenarios
+          if (dbTs >= lsTs) return dbOwners;
+          return lsOwners || [];
+        }
       }
     } catch {}
   }
-  return _lsLoadRelease(date) || [];
+  return lsOwners || [];
 };
 
 const saveReleaseDay = (date, owners, userId) => {
@@ -7767,6 +7790,18 @@ function ReleaseTracker({ user }) {
   const copyReport = () => {
     const dateLabel = new Date(date + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
     let lines = [`📊 Release Status — ${dateLabel}`, ""];
+
+    // Attendance section — only shown if any owner has an attendance status set
+    const withAtt = owners.filter(o => o.att);
+    if (withAtt.length > 0) {
+      lines.push("👥 Team Availability");
+      owners.forEach(o => {
+        const att = OWNER_ATT.find(a => a.key === o.att);
+        lines.push(`   ${att ? att.icon + " " + o.name + " — " + att.label : "✅ " + o.name + " — In Office"}`);
+      });
+      lines.push("");
+    }
+
     if (owners.length === 0) {
       lines.push("No entries.");
     } else {
@@ -7777,7 +7812,7 @@ function ReleaseTracker({ user }) {
           o.items.forEach(it => {
             const rs = RELEASE_STATUSES.find(s => s.key === it.status);
             const desc = [it.ticket, it.note].filter(Boolean).join(" — ");
-            const actionLine = it.action ? `  → Needs to: ${it.action}` : "";
+            const actionLine = it.action ? `\n     → Needs to: ${it.action}` : "";
             lines.push(`   ${rs?.icon || "•"} ${desc}  [${rs?.label || it.status}]${actionLine}`);
           });
         }
@@ -7841,7 +7876,7 @@ function ReleaseTracker({ user }) {
 
         {/* Quick date chips */}
         {[["Yesterday", -1], ["Today", 0], ["Tomorrow", 1]].map(([label, offset]) => {
-          const d = new Date(today() + "T00:00:00"); d.setDate(d.getDate() + offset);
+          const d = new Date(today() + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + offset);
           const ds = d.toISOString().slice(0, 10);
           const active = date === ds;
           return (
@@ -7913,6 +7948,23 @@ function ReleaseTracker({ user }) {
                   {tmMeta?.emoji || "👤"}
                 </div>
                 <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>{owner.name}</span>
+                {/* Attendance toggle — cycles WFH / Half Day / Leave / clear */}
+                {(() => {
+                  const att = OWNER_ATT.find(a => a.key === owner.att);
+                  const cycle = ["wfh", "half", "leave", null];
+                  const cur = owner.att || null;
+                  const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
+                  return (
+                    <button onClick={() => persist(owners.map((o, i) => i !== oi ? o : { ...o, att: next }))}
+                      title={att ? `${att.label} — click to change` : "Set attendance"}
+                      style={{ padding: "3px 9px", fontSize: 11, fontWeight: 600, borderRadius: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s",
+                        background: att ? `${att.color}18` : "transparent",
+                        color: att ? att.color : T.text3,
+                        border: `1px solid ${att ? att.color + "40" : T.border}` }}>
+                      {att ? `${att.icon} ${att.label}` : "＋ Attendance"}
+                    </button>
+                  );
+                })()}
                 {/* Status mini-pills */}
                 <div style={{ display: "flex", gap: 4 }}>
                   {RELEASE_STATUSES.filter(s => owner.items.some(i => i.status === s.key)).map(s => (
