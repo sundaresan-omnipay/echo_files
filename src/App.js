@@ -4579,9 +4579,22 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
 
         {saveError && (
           <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(240,122,110,0.12)", border: `1px solid ${T.coral}`, borderRadius: 8, fontSize: 12, color: T.coral }}>
-            <div style={{ marginBottom: saveError.includes("Supabase") ? 8 : 0 }}>{saveError}</div>
-            {saveError.toLowerCase().includes("jwt") && (
-              <div style={{ marginTop: 6, color: T.text2 }}>Your session has expired. Sign out and sign back in, then try again.</div>
+            {saveError === "jwt_expired" ? (
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>Your session has expired.</div>
+                <div style={{ color: T.text2, marginBottom: 10 }}>Sign out and sign back in, then save again. Your form data is still here.</div>
+                <button onClick={() => { db.auth.signOut(); window.location.reload(); }}
+                  style={{ padding: "6px 14px", background: T.coral, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
+                  Sign out now
+                </button>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: saveError.includes("Supabase") ? 8 : 0 }}>{saveError}</div>
+                {saveError.toLowerCase().includes("jwt") && (
+                  <div style={{ marginTop: 6, color: T.text2 }}>Your session has expired. Sign out and sign back in, then try again.</div>
+                )}
+              </>
             )}
             {saveError.includes("Supabase") && (
               <pre style={{ margin: 0, fontSize: 11, color: T.teal, background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: "6px 10px", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{`ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS team_updates jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS feedback_given jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS blockers text DEFAULT '';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS jira_links jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS collaborators jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS carry_forward jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS reminders jsonb DEFAULT '[]';\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS linked_note text;\nALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS categories jsonb DEFAULT '{}';`}</pre>
@@ -4938,9 +4951,19 @@ function Diary({ onCountChange, user }) {
     if (!hasAtt)        { const { team_attendance, ...rest } = saveData; saveData = rest; }
     if (!hasCats)       { const { categories, ...rest } = saveData; saveData = rest; }
 
-    // Generic retry: if Supabase errors on an unknown column, strip it and retry
+    // JWT expired — refresh token and retry once before anything else
+    const isJwtError = (r) => {
+      const msg = (r?.message || "").toLowerCase();
+      return r?.code && (msg.includes("jwt") || msg.includes("token") || r?.code === "PGRST301");
+    };
     const droppedCols = [];
     let result = await doOne(saveData);
+    if (isJwtError(result)) {
+      const ok = await _refreshToken();
+      if (!ok) return { error: "jwt_expired" };
+      result = await doOne(saveData);
+    }
+    // Generic retry: if Supabase errors on an unknown column, strip it and retry
     for (let attempt = 0; attempt < OPTIONAL_COLS.length && result?.code; attempt++) {
       const msg = (result.message || "").toLowerCase();
       const bad = OPTIONAL_COLS.find(c => msg.includes(c));
