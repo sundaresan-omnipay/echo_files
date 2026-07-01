@@ -3383,7 +3383,6 @@ function OneOnOneModal({ teammate, user, onClose }) {
   const [reportCopied, setReportCopied] = useState(false);
   const shareReport = () => {
     if (sessions.length === 0) return;
-    const sentLabel = (key) => SESSION_SENTIMENTS.find(s => s.key === key)?.label || key;
     const fbLabel = (key) => FEEDBACK_TYPES.find(t => t.key === key)?.label || key;
     const sorted = [...sessions].sort((a, b) => a.session_date.localeCompare(b.session_date));
     const first = sorted[0].session_date;
