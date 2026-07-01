@@ -103,6 +103,7 @@ const db = {
     select: async (cols = "*", opts = {}) => {
       let url = `${_REST()}/${table}?select=${cols}`;
       if (opts.eq) url += `&${opts.eq[0]}=eq.${opts.eq[1]}`;
+      if (opts.match) Object.entries(opts.match).forEach(([k, v]) => { url += `&${k}=eq.${encodeURIComponent(v)}`; });
       if (opts.order) url += `&order=${opts.order}`;
       let r = await fetch(url, { headers: h() });
       if (r.status === 401) {
@@ -279,6 +280,18 @@ const probeAttendance = () => {
     .catch(() => { _attSupported = false; return false; })
     .finally(() => { _attCheck = null; });
   return _attCheck;
+};
+
+let _uidDiaryCheck = null;
+let _uidDiarySupported = null;
+const probeUserIdDiary = () => {
+  if (_uidDiarySupported !== null) return Promise.resolve(_uidDiarySupported);
+  if (_uidDiaryCheck) return _uidDiaryCheck;
+  _uidDiaryCheck = fetch(`${_REST()}/diary_entries?select=user_id&limit=0`, { headers: h() })
+    .then(r => { _uidDiarySupported = r.ok; return r.ok; })
+    .catch(() => { _uidDiarySupported = false; return false; })
+    .finally(() => { _uidDiaryCheck = null; });
+  return _uidDiaryCheck;
 };
 
 let _dueDateCheck = null;
@@ -1965,9 +1978,20 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
 
   useEffect(() => {
     if (!isConfigured()) return;
-    db.from("diary_entries").select("*", { order: "date.desc" }).then(d => {
-      setRecentEntries((d || []).slice(0, 3));
-      setHeatEntries(d || []);
+    probeUserIdDiary().then(uidOk => {
+      const dOpts = { order: "date.desc" };
+      if (uidOk && user?.id) dOpts.match = { user_id: user.id };
+      db.from("diary_entries").select("*", dOpts).then(d => {
+        setRecentEntries((d || []).slice(0, 3));
+        setHeatEntries(d || []);
+      });
+      const offsetDay = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+      const wStr = offsetDay(7); const mStr = offsetDay(30); const qStr = offsetDay(90); const yStr = offsetDay(365);
+      const uid = uidOk && user?.id ? { user_id: user.id } : {};
+      db.from("diary_entries").select("*", { eq: ["date", wStr], match: uid }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, week: d[0] })); });
+      db.from("diary_entries").select("*", { eq: ["date", mStr], match: uid }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, month: d[0] })); });
+      db.from("diary_entries").select("*", { eq: ["date", qStr], match: uid }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, quarter: d[0] })); });
+      db.from("diary_entries").select("*", { eq: ["date", yStr], match: uid }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, year: d[0] })); });
     });
     db.from("documents").select("*", { order: "created_at.desc" }).then(d => setRecentDocs((d || []).slice(0, 4)));
     db.from("commitments").select("*", { order: "inserted_at.asc" }).then(rows => {
@@ -1975,13 +1999,6 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
       setAllCommits(arr);
       setOpenCommitCount(arr.filter(r => !r.resolved_at).length);
     });
-
-    const offsetDay = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
-    const wStr = offsetDay(7); const mStr = offsetDay(30); const qStr = offsetDay(90); const yStr = offsetDay(365);
-    db.from("diary_entries").select("*", { eq: ["date", wStr] }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, week: d[0] })); });
-    db.from("diary_entries").select("*", { eq: ["date", mStr] }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, month: d[0] })); });
-    db.from("diary_entries").select("*", { eq: ["date", qStr] }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, quarter: d[0] })); });
-    db.from("diary_entries").select("*", { eq: ["date", yStr] }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, year: d[0] })); });
 
     const members = (loadTeammates() || []).filter(t => (t.relationship || "direct") === "direct");
     if (members.length) {
@@ -2931,7 +2948,10 @@ function MyTeam({ user }) {
     if (!user?.id) return;
     probeTeammateRelationship().then(ok => setRelSupported(ok));
     refreshTeammates().then(rows => setTeammates(rows));
-    db.from("diary_entries").select("date,collaborators", { order: "date.desc" }).then(rows => {
+    probeUserIdDiary().then(uidOk => {
+      const opts = { order: "date.desc" };
+      if (uidOk && user?.id) opts.match = { user_id: user.id };
+      db.from("diary_entries").select("date,collaborators", opts).then(rows => {
       const seen = {};
       (rows || []).forEach(e => {
         (e.collaborators || []).forEach(name => {
@@ -2940,6 +2960,7 @@ function MyTeam({ user }) {
         });
       });
       setLastSeen(seen);
+      });
     });
     const monthStart = new Date().toISOString().slice(0, 7) + "-01";
     fetch(`${_REST()}/one_on_one_sessions?select=teammate_id&session_date=gte.${monthStart}`, { headers: h() })
@@ -3251,8 +3272,10 @@ function OneOnOneModal({ teammate, user, onClose }) {
   useEffect(() => {
     if (!user?.id || !teammate?.id) return;
     const agqOk = probeAgendaQueue();
+    probeUserIdDiary().then(uidOk => {
+    const dOpts = { order: "date.desc", ...(uidOk && user?.id ? { match: { user_id: user.id } } : {}) };
     Promise.all([
-      db.from("diary_entries").select("*", { order: "date.desc" }),
+      db.from("diary_entries").select("*", dOpts),
       db.from("one_on_one_sessions").select("*", { eq: ["teammate_id", teammate.id], order: "session_date.desc" }),
       db.from("commitments").select("*", { order: "inserted_at.asc" }),
       db.from("teammates").select("id,agenda_queue", { eq: ["id", teammate.id] }),
@@ -3293,6 +3316,7 @@ function OneOnOneModal({ teammate, user, onClose }) {
       });
       setLoading(false);
     }).catch(() => setLoading(false));
+    }); // probeUserIdDiary
   }, [user, teammate]);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -4852,6 +4876,7 @@ function Diary({ onCountChange, user }) {
   const [prevEntry, setPrevEntry] = useState(null);
   const [loading, setLoading]     = useState(true);
   const [catColReady, setCatColReady] = useState(true);
+  const [uidReady, setUidReady]   = useState(null);
   const [search, setSearch]       = useState("");
   const [modal, setModal]         = useState(null);
   const [viewEntry, setViewEntry] = useState(null);
@@ -4882,8 +4907,12 @@ function Diary({ onCountChange, user }) {
     setLoading(true);
     if (!isConfigured()) { setLoading(false); return; }
     probeFocusAreas(); probeIsWin(); probeAttendance();
-    probeCategories().then(ok => setCatColReady(ok)); // warm up caches — results ready before user can save
-    const d = await db.from("diary_entries").select("*", { order: "date.desc" });
+    probeCategories().then(ok => setCatColReady(ok));
+    const uidOk = await probeUserIdDiary();
+    setUidReady(uidOk);
+    const diaryOpts = { order: "date.desc" };
+    if (uidOk && user?.id) diaryOpts.match = { user_id: user.id };
+    const d = await db.from("diary_entries").select("*", diaryOpts);
     setEntries(d || []);
     setPrevEntry(d?.[0] || null);
     onCountChange?.(d?.length || 0);
@@ -4944,11 +4973,13 @@ function Diary({ onCountChange, user }) {
       return db.from("diary_entries").insert(data);
     };
     // Columns that may not exist yet — stripped one at a time if Supabase errors on them
-    const OPTIONAL_COLS = ["focus_areas","is_win","win_tags","team_attendance","categories",
+    const OPTIONAL_COLS = ["user_id","focus_areas","is_win","win_tags","team_attendance","categories",
                            "team_updates","feedback_given","blockers","jira_links",
                            "collaborators","carry_forward","reminders","linked_note","ticket_number"];
     const [hasFocusAreas, hasWin, hasCats, hasAtt] = await Promise.all([probeFocusAreas(), probeIsWin(), probeCategories(), probeAttendance()]);
     let saveData = form;
+    // Stamp user_id on new entries for data isolation (requires user_id column + RLS in Supabase)
+    if (user?.id && !saveData.id) saveData = { ...saveData, user_id: user.id };
     if (!hasFocusAreas) { const { focus_areas, ...rest } = saveData; saveData = rest; }
     if (!hasWin)        { const { is_win, win_tags, ...rest } = saveData; saveData = rest; }
     if (!hasAtt)        { const { team_attendance, ...rest } = saveData; saveData = rest; }
@@ -5031,6 +5062,14 @@ function Diary({ onCountChange, user }) {
   return (
     <div className="echo-content fade-in">
       <ConfigBanner />
+
+      {uidReady === false && (
+        <div style={{ background: `rgba(240,117,98,0.1)`, border: `1px solid ${T.coral}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: T.coral }}>
+          <strong>⚠️ Diary entries are not private yet</strong> — all users can see each other's data.
+          Run this once in your <strong>Supabase SQL editor</strong> to enable per-user isolation, then reload:
+          <pre style={{ marginTop: 8, background: "rgba(0,0,0,0.25)", borderRadius: 6, padding: "8px 12px", fontFamily: "monospace", fontSize: 11, color: T.teal, userSelect: "all", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{`ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id);\nALTER TABLE diary_entries ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "own" ON diary_entries FOR ALL USING (auth.uid() = user_id);\nUPDATE diary_entries SET user_id = auth.uid() WHERE user_id IS NULL;`}</pre>
+        </div>
+      )}
 
       {!catColReady && (
         <div style={{ background: `${T.amber}15`, border: `1px solid ${T.amber}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: T.amber }}>
@@ -5860,17 +5899,21 @@ function PatternInterrupt({ onDismiss, user }) {
 }
 
 // ─── Shadow Resume ────────────────────────────────────────────────────────────
-function ShadowResume() {
+function ShadowResume({ user }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!isConfigured()) { setLoading(false); return; }
-    db.from("diary_entries").select("*", { order: "date.asc" }).then(d => {
-      setEntries(d || []);
-      setLoading(false);
+    probeUserIdDiary().then(uidOk => {
+      const opts = { order: "date.asc" };
+      if (uidOk && user?.id) opts.match = { user_id: user.id };
+      db.from("diary_entries").select("*", opts).then(d => {
+        setEntries(d || []);
+        setLoading(false);
+      });
     });
-  }, []);
+  }, [user]);
 
   if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Building profile…</div>;
 
@@ -6122,7 +6165,7 @@ function ShadowResume() {
 }
 
 // ─── Work Map ─────────────────────────────────────────────────────────────────
-function WorkMap() {
+function WorkMap({ user }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hovered, setHovered] = useState(null);
@@ -6130,11 +6173,15 @@ function WorkMap() {
 
   useEffect(() => {
     if (!isConfigured()) { setLoading(false); return; }
-    db.from("diary_entries").select("*", { order: "date.desc" }).then(d => {
-      setEntries(d || []);
-      setLoading(false);
+    probeUserIdDiary().then(uidOk => {
+      const opts = { order: "date.desc" };
+      if (uidOk && user?.id) opts.match = { user_id: user.id };
+      db.from("diary_entries").select("*", opts).then(d => {
+        setEntries(d || []);
+        setLoading(false);
+      });
     });
-  }, []);
+  }, [user]);
 
   if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Building work map…</div>;
 
@@ -6963,7 +7010,7 @@ function Resolve({ user }) {
 }
 
 // ─── Brag Doc ─────────────────────────────────────────────────────────────────
-function BragDoc() {
+function BragDoc({ user }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState("quarter");
@@ -6973,15 +7020,17 @@ function BragDoc() {
 
   useEffect(() => {
     if (!isConfigured()) { setLoading(false); return; }
-    probeIsWin().then(ok => {
+    Promise.all([probeIsWin(), probeUserIdDiary()]).then(([ok, uidOk]) => {
       setSupported(ok);
       if (!ok) { setLoading(false); return; }
-      db.from("diary_entries").select("*", { order: "date.desc" }).then(rows => {
+      const opts = { order: "date.desc" };
+      if (uidOk && user?.id) opts.match = { user_id: user.id };
+      db.from("diary_entries").select("*", opts).then(rows => {
         setEntries((rows || []).filter(e => e.is_win));
         setLoading(false);
       });
     });
-  }, []);
+  }, [user]);
 
   const PERIODS = [
     { key: "month", label: "This Month" },
@@ -7789,6 +7838,7 @@ function ReleaseTracker({ user }) {
   const [addingItemFor, setAddingItemFor] = useState(null);
   const [copied, setCopied] = useState(false);
   const [rlTableMissing, setRlTableMissing] = useState(false);
+  const [manualOwnerName, setManualOwnerName] = useState("");
 
   // Load data for a date from Supabase
   const loadDate = useCallback(async (d) => {
@@ -7994,23 +8044,26 @@ function ReleaseTracker({ user }) {
         </div>
       )}
 
-      {/* ── Team member quick-add bar — only shows people from My Team roster ── */}
-      {unaddedTeammates.length > 0 && (
-        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 18, alignItems: "center", padding: "10px 14px", background: T.navy2, borderRadius: 10, border: `1px solid ${T.border}` }}>
-          <span style={{ fontSize: 11, color: T.text3, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>Add owner</span>
-          {unaddedTeammates.map((t, i) => (
-            <button key={i} onClick={() => persist([...owners, { name: t.name, items: [] }])}
-              style={{ padding: "4px 11px", fontSize: 12, borderRadius: 16, cursor: "pointer", background: "transparent", color: T.text2, border: `1px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s" }}>
-              {t.emoji || "👤"} {t.name}
-            </button>
-          ))}
-        </div>
-      )}
-      {unaddedTeammates.length === 0 && owners.length === 0 && (
-        <div style={{ marginBottom: 14, padding: "9px 14px", background: T.navy2, borderRadius: 10, border: `1px solid ${T.border}`, fontSize: 12, color: T.text3 }}>
-          All team members are already added, or go to <strong style={{ color: T.text2 }}>My Team</strong> to add teammates first.
-        </div>
-      )}
+      {/* ── Add owner bar — chips for known teammates + free-text input for anyone ── */}
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 18, alignItems: "center", padding: "10px 14px", background: T.navy2, borderRadius: 10, border: `1px solid ${T.border}` }}>
+        <span style={{ fontSize: 11, color: T.text3, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>Add owner</span>
+        {unaddedTeammates.map((t, i) => (
+          <button key={i} onClick={() => persist([...owners, { name: t.name, items: [] }])}
+            style={{ padding: "4px 11px", fontSize: 12, borderRadius: 16, cursor: "pointer", background: "transparent", color: T.text2, border: `1px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s" }}>
+            {t.emoji || "👤"} {t.name}
+          </button>
+        ))}
+        <form onSubmit={e => { e.preventDefault(); const n = manualOwnerName.trim(); if (!n || owners.some(o => o.name.toLowerCase() === n.toLowerCase())) return; persist([...owners, { name: n, items: [] }]); setManualOwnerName(""); }}
+          style={{ display: "flex", gap: 5, alignItems: "center", marginLeft: "auto" }}>
+          <input value={manualOwnerName} onChange={e => setManualOwnerName(e.target.value)}
+            placeholder="Type a name…"
+            style={{ padding: "4px 10px", fontSize: 12, borderRadius: 8, background: T.navy3, border: `1px solid ${T.border}`, color: T.text1, outline: "none", width: 130, fontFamily: "'DM Sans', sans-serif" }} />
+          <button type="submit" disabled={!manualOwnerName.trim()}
+            style={{ padding: "4px 11px", fontSize: 12, borderRadius: 8, cursor: manualOwnerName.trim() ? "pointer" : "default", background: manualOwnerName.trim() ? T.accent : "transparent", color: manualOwnerName.trim() ? "#fff" : T.text3, border: `1px solid ${manualOwnerName.trim() ? T.accent : T.border}`, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s" }}>
+            + Add
+          </button>
+        </form>
+      </div>
 
       {/* Empty state */}
       {owners.length === 0 && (
@@ -8263,7 +8316,7 @@ function KeyboardShortcuts({ onClose }) {
 }
 
 // ─── Command Palette (Cmd+K / Ctrl+K) ────────────────────────────────────────
-function CommandPalette({ onClose, setView }) {
+function CommandPalette({ onClose, setView, user }) {
   const [q, setQ] = useState("");
   const [diary, setDiary] = useState(null);
   const [sel, setSel] = useState(0);
@@ -8271,8 +8324,12 @@ function CommandPalette({ onClose, setView }) {
 
   useEffect(() => {
     inputRef.current?.focus();
-    db.from("diary_entries").select("id,date,content,mood,focus_areas", { order: "date.desc" })
-      .then(rows => setDiary((rows || []).slice(0, 60)));
+    probeUserIdDiary().then(uidOk => {
+      const opts = { order: "date.desc" };
+      if (uidOk && user?.id) opts.match = { user_id: user.id };
+      db.from("diary_entries").select("id,date,content,mood,focus_areas", opts)
+        .then(rows => setDiary((rows || []).slice(0, 60)));
+    });
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -8490,15 +8547,18 @@ export default function Echo() {
 
   useEffect(() => {
     if (!user || !isConfigured()) return;
-    db.from("diary_entries").select("id").then(rows => setDiaryCount((rows || []).length));
+    probeUserIdDiary().then(uidOk => {
+      const dOpts = uidOk && user?.id ? { match: { user_id: user.id } } : {};
+      db.from("diary_entries").select("id", dOpts).then(rows => setDiaryCount((rows || []).length));
+      const todayStr = today();
+      const todayDow = new Date(todayStr + "T00:00:00Z").getUTCDay();
+      if (todayDow !== 0 && todayDow !== 6) {
+        const uidParam = uidOk && user?.id ? `&user_id=eq.${user.id}` : "";
+        fetch(`${_REST()}/diary_entries?date=eq.${todayStr}${uidParam}&select=id&limit=1`, { headers: h() })
+          .then(r => r.json()).then(rows => setTodayEntryMissing(!(rows && rows.length > 0))).catch(() => {});
+      }
+    });
     db.from("documents").select("id").then(rows => setDocCount((rows || []).length));
-    // Check if today has a diary entry (only matters on weekdays)
-    const todayStr = today();
-    const todayDow = new Date(todayStr + "T00:00:00Z").getUTCDay();
-    if (todayDow !== 0 && todayDow !== 6) {
-      fetch(`${_REST()}/diary_entries?date=eq.${todayStr}&select=id&limit=1`, { headers: h() })
-        .then(r => r.json()).then(rows => setTodayEntryMissing(!(rows && rows.length > 0))).catch(() => {});
-    }
     // Overdue "I owe" commitments — use due_date if present, else 7-day fallback
     db.from("commitments").select("direction,inserted_at,resolved_at,due_date").then(rows => {
       const todayD = today();
@@ -8550,7 +8610,10 @@ export default function Echo() {
     if (!user || !isConfigured()) return;
     const dismissed = localStorage.getItem("echo_pi_dismissed");
     if (dismissed && Date.now() - Number(dismissed) < 86400000) return;
-    db.from("diary_entries").select("date,mood", { order: "date.desc" }).then(rows => {
+    probeUserIdDiary().then(uidOk => {
+      const opts = { order: "date.desc" };
+      if (uidOk && user?.id) opts.match = { user_id: user.id };
+      db.from("diary_entries").select("date,mood", opts).then(rows => {
       if (!rows || rows.length < 3) return;
       const badMoods = ["frustrated", "challenged"];
       let streak = 0;
@@ -8559,6 +8622,7 @@ export default function Echo() {
         else break;
       }
       if (streak >= 3) setShowPatternInterrupt(true);
+      });
     });
   }, [user]);
 
@@ -8678,8 +8742,10 @@ export default function Echo() {
 
           <div style={{ display: "flex", gap: 6, marginBottom: 0 }}>
             <button onClick={async () => {
+              const uidOk = await probeUserIdDiary();
+              const dOpts = { order: "date.desc", ...(uidOk && user?.id ? { match: { user_id: user.id } } : {}) };
               const [diary, commits, decisions, incidents, credits, teammates] = await Promise.all([
-                db.from("diary_entries").select("*", { order: "date.desc" }),
+                db.from("diary_entries").select("*", dOpts),
                 db.from("commitments").select("*", { order: "inserted_at.asc" }),
                 db.from("decisions").select("*", { order: "date.desc" }),
                 db.from("incidents").select("*", { order: "date.desc" }),
@@ -8763,9 +8829,9 @@ export default function Echo() {
         {view === "decisions"   && <DecisionLog user={user} />}
         {view === "releases"    && <ReleaseTracker user={user} />}
         {view === "team"        && <MyTeam user={user} />}
-        {view === "brag"        && <BragDoc />}
-        {view === "resume"      && <ShadowResume />}
-        {view === "workmap"     && <WorkMap />}
+        {view === "brag"        && <BragDoc user={user} />}
+        {view === "resume"      && <ShadowResume user={user} />}
+        {view === "workmap"     && <WorkMap user={user} />}
         {view === "credits"     && <CreditTracker user={user} />}
         {view === "resolve"     && <Resolve user={user} />}
       </main>
