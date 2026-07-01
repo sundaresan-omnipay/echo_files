@@ -2010,6 +2010,7 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
           setTeamPulse({ total: members.length, done: members.filter(m => done.has(m.id)).length });
         }).catch(() => {});
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const hour = new Date().getHours();
@@ -8333,6 +8334,7 @@ function CommandPalette({ onClose, setView, user }) {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose]);
 
   const teammates = loadTeammates();
