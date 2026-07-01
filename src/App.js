@@ -317,13 +317,16 @@ async function callGroq(bullets, knownPeople = []) {
       messages: [
         { role: "system", content: `You are a professional work diary assistant for a QA engineer. Process each work item and return a single JSON object.
 
-CATEGORIES — assign each item to exactly one:
+ATOMIC RULE (most important): Each numbered item is ONE indivisible unit. Assign the ENTIRE item to exactly ONE category. Do NOT split an item at dashes, semicolons, commas, or conjunctions — the text after a dash is a qualifier, not a separate item. Never produce more category entries than input items.
+
+CATEGORIES — assign each item to exactly one (pick the PRIMARY work type):
 - validation: test execution, test case design, bug filing, regression, smoke/sanity testing, exploratory testing, verifying a fix, signoff, QA review, reviewing a PR for quality
 - meeting: standups, 1:1s, planning sessions, catch-ups, calls, syncs, discussions with named people
 - execution: writing test plans, automation scripts, documentation, configuring tools, deployments, investigations
 - other: admin tasks, reading docs, unclear items
 
 REWRITE RULES (for the text inside each category array):
+- Include the FULL original item text (including any sub-clauses after dashes)
 - Use past tense, professional English
 - Keep ALL proper nouns, product names, system names, tool names, and ticket IDs EXACTLY as written — do not paraphrase them
 - Fix grammar only — do not add context, expand abbreviations, or invent detail not in the original
