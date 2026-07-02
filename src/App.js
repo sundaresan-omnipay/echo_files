@@ -5299,15 +5299,15 @@ function Diary({ onCountChange, user }) {
                       <button
                         title="Edit this entry"
                         className="entry-stat-badge"
-                        style={{ cursor: "pointer", background: "transparent", borderColor: T.border, color: T.text3, fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 7px" }}
+                        style={{ cursor: "pointer", background: "rgba(123,110,246,0.12)", border: `1px solid rgba(123,110,246,0.35)`, color: T.accent2, fontSize: 11, borderRadius: 5, padding: "2px 8px", fontWeight: 600 }}
                         onClick={ev => { ev.stopPropagation(); setModal(e); }}
-                      >✏</button>
+                      >✏️ Edit</button>
                       <button
-                        title="Generate standup"
+                        title="Generate AI standup"
                         className="entry-stat-badge"
-                        style={{ cursor: "pointer", background: "rgba(79,142,247,0.07)", borderColor: T.border, color: T.text3, fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 7px" }}
+                        style={{ cursor: "pointer", background: "rgba(52,217,179,0.1)", border: `1px solid rgba(52,217,179,0.3)`, color: T.teal, fontSize: 11, borderRadius: 5, padding: "2px 8px", fontWeight: 600 }}
                         onClick={ev => { ev.stopPropagation(); setStandup(e); }}
-                      >📋</button>
+                      >📋 Standup</button>
                       <button
                         title={starredIds.has(e.id) ? "Unstar" : "Star this entry"}
                         style={{ cursor: "pointer", background: "transparent", border: "none", fontSize: 15, padding: "0 1px", lineHeight: 1, opacity: starredIds.has(e.id) ? 1 : 0.35 }}
