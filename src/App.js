@@ -7972,6 +7972,7 @@ function ReleaseTracker({ user }) {
   const [copied, setCopied] = useState(false);
   const [rlTableMissing, setRlTableMissing] = useState(false);
   const [manualOwnerName, setManualOwnerName] = useState("");
+  const [boardOpen, setBoardOpen] = useState(true);
 
   // Check if an item in today's view was also present yesterday (not yet released) = carry-over
   const isCarryOver = (item) => {
@@ -8066,6 +8067,10 @@ function ReleaseTracker({ user }) {
     const updated = owners.map((o, i) => i !== ownerIdx ? o : { ...o, items: o.items.map((it, j) => j !== itemIdx ? it : { ...it, status: nextKey }) });
     persist(updated);
   };
+  const setItemStatus = (oi, ii, newStatus) => {
+    const updated = owners.map((o, i) => i !== oi ? o : { ...o, items: o.items.map((it, j) => j !== ii ? it : { ...it, status: newStatus }) });
+    persist(updated);
+  };
 
   const allItems = owners.flatMap(o => o.items);
   const stats = RELEASE_STATUSES.map(s => ({ ...s, count: allItems.filter(i => i.status === s.key).length })).filter(s => s.count > 0);
@@ -8105,7 +8110,8 @@ function ReleaseTracker({ user }) {
             const rs = RELEASE_STATUSES.find(s => s.key === it.status);
             const desc = [it.ticket, it.note].filter(Boolean).join(" — ");
             const actionLine = it.action ? `\n     → Needs to: ${it.action}` : "";
-            lines.push(`   ${rs?.icon || "•"} ${desc}  [${rs?.label || it.status}]${actionLine}`);
+            const coTag = isCarryOver(it) ? " ↻ carried over" : "";
+            lines.push(`   ${rs?.icon || "•"} ${desc}  [${rs?.label || it.status}${coTag}]${actionLine}`);
           });
         }
         lines.push("");
@@ -8378,6 +8384,131 @@ function ReleaseTracker({ user }) {
           );
         })}
       </div>
+
+      {/* ── QA Release Board ─────────────────────────────────────────────── */}
+      {owners.some(o => o.items.length > 0) && (
+        <div style={{ marginTop: 24, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+
+          {/* Board header */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: boardOpen ? `1px solid ${T.border}` : "none", background: T.navy1 }}>
+            <span style={{ fontSize: 16 }}>📊</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>QA Release Board</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>All items across the team — flat view with quick actions</div>
+            </div>
+            {/* Summary chips */}
+            {(() => {
+              const flat = owners.flatMap((o, oi) => o.items.map((it, ii) => ({ it, oi, ii, owner: o })));
+              const blocked  = flat.filter(x => x.it.status === "blocked").length;
+              const carried  = flat.filter(x => isCarryOver(x.it)).length;
+              const released = flat.filter(x => x.it.status === "released").length;
+              const active   = flat.length - released;
+              return (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {blocked > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.coral, background: `${T.coral}15`, border: `1px solid ${T.coral}30`, borderRadius: 20, padding: "3px 10px" }}>🔴 {blocked} blocked</span>}
+                  {carried > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, background: `${T.amber}15`, border: `1px solid ${T.amber}30`, borderRadius: 20, padding: "3px 10px" }}>↻ {carried} carried</span>}
+                  <span style={{ fontSize: 11, color: T.text3, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 20, padding: "3px 10px" }}>{active} active · {released} done</span>
+                </div>
+              );
+            })()}
+            <button onClick={() => setBoardOpen(b => !b)}
+              style={{ padding: "5px 12px", fontSize: 12, borderRadius: 7, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, fontWeight: 600, whiteSpace: "nowrap" }}>
+              {boardOpen ? "▲ Collapse" : "▼ Expand"}
+            </button>
+          </div>
+
+          {boardOpen && (() => {
+            const flat = owners.flatMap((o, oi) => o.items.map((it, ii) => ({ it, oi, ii, owner: o, co: isCarryOver(it) })));
+            const sorted = [
+              ...flat.filter(x => x.it.status === "blocked"),
+              ...flat.filter(x => x.co && x.it.status !== "blocked" && x.it.status !== "released"),
+              ...flat.filter(x => !x.co && x.it.status !== "blocked" && x.it.status !== "released"),
+              ...flat.filter(x => x.it.status === "released"),
+            ];
+            if (sorted.length === 0) return <div style={{ padding: "20px 18px", fontSize: 13, color: T.text3, textAlign: "center", fontStyle: "italic" }}>No items yet</div>;
+            return (
+              <div>
+                {/* Column headers */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 18px", borderBottom: `1px solid ${T.border}`, background: T.navy0 }}>
+                  <div style={{ width: 116, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>Status</div>
+                  <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em" }}>Ticket / Note</div>
+                  <div style={{ width: 90, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>QA Owner</div>
+                  <div style={{ width: 138, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0, textAlign: "right" }}>Actions</div>
+                </div>
+
+                {sorted.map(({ it, oi, ii, owner, co }, rowIdx) => {
+                  const rs = RELEASE_STATUSES.find(s => s.key === it.status);
+                  const isBlocked  = it.status === "blocked";
+                  const isReleased = it.status === "released";
+                  const rowBg = isBlocked ? `${T.coral}09` : co ? `${T.amber}07` : "transparent";
+                  const rowBgHover = isBlocked ? `${T.coral}15` : co ? `${T.amber}13` : `${T.accent}06`;
+                  return (
+                    <div key={`board-${oi}-${ii}-${rowIdx}`}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 18px", borderBottom: `1px solid ${T.border}`, background: rowBg, opacity: isReleased ? 0.55 : 1, transition: "background 0.12s" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = rowBgHover; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = rowBg; }}
+                    >
+                      {/* Status badge — click to cycle */}
+                      <button onClick={() => cycleStatus(oi, ii)} title="Click to cycle status"
+                        style={{ width: 116, display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", background: `${rs?.color || T.text3}18`, color: rs?.color || T.text3, border: `1px solid ${rs?.color || T.text3}30` }}>
+                        {rs?.icon} {rs?.label || it.status}
+                      </button>
+
+                      {/* Ticket + Note */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          {it.ticket && (
+                            <span style={{ fontSize: 13, fontWeight: 700, color: isReleased ? T.text3 : T.text1, textDecoration: isReleased ? "line-through" : "none" }}>{it.ticket}</span>
+                          )}
+                          {co && (
+                            <span title="Was not released yesterday — still pending" style={{ fontSize: 10, fontWeight: 700, color: T.amber, background: `${T.amber}18`, border: `1px solid ${T.amber}40`, padding: "1px 7px", borderRadius: 8 }}>↻ carried</span>
+                          )}
+                        </div>
+                        {it.note && <div style={{ fontSize: 11, color: T.text3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.note}</div>}
+                        {it.action && <div style={{ fontSize: 11, color: T.amber, marginTop: 1 }}>→ {it.action}</div>}
+                      </div>
+
+                      {/* QA Owner chip */}
+                      <div style={{ width: 90, flexShrink: 0 }}>
+                        <span style={{ fontSize: 11, color: T.accent2, background: `${T.accent}12`, border: `1px solid ${T.accent}25`, padding: "3px 8px", borderRadius: 20, fontWeight: 600, display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{owner.name}</span>
+                      </div>
+
+                      {/* Actions */}
+                      <div style={{ width: 138, display: "flex", gap: 5, flexShrink: 0, justifyContent: "flex-end" }}>
+                        {!isReleased && (
+                          <button onClick={() => setItemStatus(oi, ii, "released")} title="Mark as released — done"
+                            style={{ padding: "4px 11px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", background: "rgba(76,175,80,0.12)", color: T.emerald, border: "1px solid rgba(76,175,80,0.3)", whiteSpace: "nowrap" }}>
+                            ✅ Done
+                          </button>
+                        )}
+                        {isReleased && (
+                          <button onClick={() => setItemStatus(oi, ii, "review")} title="Reopen this item"
+                            style={{ padding: "4px 11px", fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>
+                            ↩ Reopen
+                          </button>
+                        )}
+                        {!isBlocked && !isReleased && (
+                          <button onClick={() => setItemStatus(oi, ii, "blocked")} title="Mark as blocked"
+                            style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", background: `${T.coral}12`, color: T.coral, border: `1px solid ${T.coral}35`, whiteSpace: "nowrap" }}>
+                            🔴 Block
+                          </button>
+                        )}
+                        {isBlocked && (
+                          <button onClick={() => setItemStatus(oi, ii, "review")} title="Unblock — move to In Review"
+                            style={{ padding: "4px 11px", fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>
+                            ↩ Unblock
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
     </div>
   );
 }
