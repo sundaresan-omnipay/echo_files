@@ -1791,6 +1791,13 @@ const RELEASE_STATUSES = [
   { key: "leave",    label: "On Leave",    icon: "🏖️", color: T.text3   },
 ];
 
+const PROGRESS_OPTIONS = [
+  { key: "not-started", label: "Not Started", icon: "⚪", color: "#6B7280" },
+  { key: "in-progress", label: "In Progress", icon: "🔵", color: T.accent  },
+  { key: "in-review",   label: "In Review",   icon: "🟡", color: T.amber   },
+  { key: "done",        label: "Done",        icon: "🟢", color: T.emerald },
+];
+
 // attendance options shown on each owner card and included in the copy report
 const OWNER_ATT = [
   { key: "wfh",  label: "WFH",      icon: "🏠", color: T.accent },
@@ -8071,6 +8078,16 @@ function ReleaseTracker({ user }) {
     const updated = owners.map((o, i) => i !== oi ? o : { ...o, items: o.items.map((it, j) => j !== ii ? it : { ...it, status: newStatus }) });
     persist(updated);
   };
+  const setItemProgress = (oi, ii, newProgress) => {
+    const updated = owners.map((o, i) => i !== oi ? o : { ...o, items: o.items.map((it, j) => j !== ii ? it : { ...it, progress: newProgress }) });
+    persist(updated);
+  };
+  const cycleProgress = (oi, ii) => {
+    const keys = PROGRESS_OPTIONS.map(p => p.key);
+    const cur = owners[oi].items[ii].progress || "not-started";
+    const nextKey = keys[(keys.indexOf(cur) + 1) % keys.length];
+    setItemProgress(oi, ii, nextKey);
+  };
 
   const allItems = owners.flatMap(o => o.items);
   const stats = RELEASE_STATUSES.map(s => ({ ...s, count: allItems.filter(i => i.status === s.key).length })).filter(s => s.count > 0);
@@ -8385,29 +8402,27 @@ function ReleaseTracker({ user }) {
         })}
       </div>
 
-      {/* ── QA Release Board ─────────────────────────────────────────────── */}
+      {/* ── QA Release Board (two-panel) ─────────────────────────────────── */}
       {owners.some(o => o.items.length > 0) && (
         <div style={{ marginTop: 24, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
 
-          {/* Board header */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: boardOpen ? `1px solid ${T.border}` : "none", background: T.navy1 }}>
+          {/* ── Header ── */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: `1px solid ${T.border}`, background: T.navy1 }}>
             <span style={{ fontSize: 16 }}>📊</span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>QA Release Board</div>
-              <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>All items across the team — flat view with quick actions</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>Team progress tracker + flat release view</div>
             </div>
-            {/* Summary chips */}
             {(() => {
-              const flat = owners.flatMap((o, oi) => o.items.map((it, ii) => ({ it, oi, ii, owner: o })));
-              const blocked  = flat.filter(x => x.it.status === "blocked").length;
-              const carried  = flat.filter(x => isCarryOver(x.it)).length;
-              const released = flat.filter(x => x.it.status === "released").length;
-              const active   = flat.length - released;
+              const flat = owners.flatMap(o => o.items);
+              const blocked  = flat.filter(x => x.status === "blocked").length;
+              const carried  = flat.filter(x => isCarryOver(x)).length;
+              const released = flat.filter(x => x.status === "released").length;
               return (
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {blocked > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.coral, background: `${T.coral}15`, border: `1px solid ${T.coral}30`, borderRadius: 20, padding: "3px 10px" }}>🔴 {blocked} blocked</span>}
                   {carried > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, background: `${T.amber}15`, border: `1px solid ${T.amber}30`, borderRadius: 20, padding: "3px 10px" }}>↻ {carried} carried</span>}
-                  <span style={{ fontSize: 11, color: T.text3, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 20, padding: "3px 10px" }}>{active} active · {released} done</span>
+                  <span style={{ fontSize: 11, color: T.text3, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 20, padding: "3px 10px" }}>{flat.length - released} active · {released} done</span>
                 </div>
               );
             })()}
@@ -8425,84 +8440,167 @@ function ReleaseTracker({ user }) {
               ...flat.filter(x => !x.co && x.it.status !== "blocked" && x.it.status !== "released"),
               ...flat.filter(x => x.it.status === "released"),
             ];
-            if (sorted.length === 0) return <div style={{ padding: "20px 18px", fontSize: 13, color: T.text3, textAlign: "center", fontStyle: "italic" }}>No items yet</div>;
             return (
-              <div>
-                {/* Column headers */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 18px", borderBottom: `1px solid ${T.border}`, background: T.navy0 }}>
-                  <div style={{ width: 116, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>Status</div>
-                  <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em" }}>Ticket / Note</div>
-                  <div style={{ width: 90, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>QA Owner</div>
-                  <div style={{ width: 138, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0, textAlign: "right" }}>Actions</div>
+              <div style={{ display: "flex", minHeight: 0 }}>
+
+                {/* ══ LEFT: Team Progress Panel ══ */}
+                <div style={{ width: 252, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.navy1, overflowY: "auto" }}>
+                  {/* Panel header */}
+                  <div style={{ padding: "9px 14px", borderBottom: `1px solid ${T.border}`, background: T.navy0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.07em" }}>👥 Team Progress</div>
+                  </div>
+
+                  {owners.filter(o => o.items.length > 0).map((owner, listIdx) => {
+                    const oi = owners.indexOf(owner);
+                    const doneCount   = owner.items.filter(it => it.progress === "done" || it.status === "released").length;
+                    const blockedCount = owner.items.filter(it => it.status === "blocked").length;
+                    const pct         = owner.items.length ? Math.round((doneCount / owner.items.length) * 100) : 0;
+                    const accentColor = ownerAccent(owner.items);
+                    return (
+                      <div key={listIdx} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
+                        {/* Owner row */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                          <div style={{ width: 30, height: 30, borderRadius: "50%", background: `${accentColor}22`, border: `2px solid ${accentColor}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: accentColor, flexShrink: 0 }}>
+                            {owner.name[0].toUpperCase()}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{owner.name}</div>
+                            <div style={{ fontSize: 10, color: T.text3 }}>
+                              {doneCount}/{owner.items.length} done
+                              {blockedCount > 0 && <span style={{ color: T.coral, marginLeft: 6 }}>· {blockedCount} blocked</span>}
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: pct === 100 ? T.emerald : T.text3, fontFamily: "'Syne', sans-serif" }}>{pct}%</div>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div style={{ height: 4, background: T.border, borderRadius: 3, marginBottom: 10, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${pct}%`, background: pct === 100 ? T.emerald : accentColor, borderRadius: 3, transition: "width 0.35s ease" }} />
+                        </div>
+
+                        {/* Task list with progress selectors */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                          {owner.items.map((it, ii) => {
+                            const prog = PROGRESS_OPTIONS.find(p => p.key === (it.progress || "not-started")) || PROGRESS_OPTIONS[0];
+                            const isBlocked  = it.status === "blocked";
+                            const isReleased = it.status === "released";
+                            return (
+                              <div key={ii} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "7px 9px", borderRadius: 8, background: isBlocked ? `${T.coral}09` : isReleased ? "transparent" : `${T.accent}05`, border: `1px solid ${isBlocked ? T.coral + "25" : T.border}`, opacity: isReleased ? 0.55 : 1 }}>
+                                {/* Task label */}
+                                <div style={{ fontSize: 11, fontWeight: 600, color: isReleased ? T.text3 : T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isReleased ? "line-through" : "none" }}>
+                                  {it.ticket || it.note?.slice(0, 28) || "—"}
+                                  {isCarryOver(it) && <span style={{ marginLeft: 5, fontSize: 9, color: T.amber, fontWeight: 700 }}>↻</span>}
+                                </div>
+                                {/* Progress badge — click to cycle */}
+                                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                  <button
+                                    onClick={() => cycleProgress(oi, ii)}
+                                    title="Click to update progress"
+                                    disabled={isReleased}
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 12, cursor: isReleased ? "default" : "pointer", fontSize: 10, fontWeight: 700, background: `${prog.color}18`, color: prog.color, border: `1px solid ${prog.color}35`, transition: "all 0.15s", opacity: isReleased ? 0.5 : 1 }}>
+                                    {prog.icon} {prog.label}
+                                  </button>
+                                  {isBlocked && <span style={{ fontSize: 9, color: T.coral, fontWeight: 700 }}>BLOCKED</span>}
+                                  {isReleased && <span style={{ fontSize: 9, color: T.emerald, fontWeight: 700 }}>RELEASED</span>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
 
-                {sorted.map(({ it, oi, ii, owner, co }, rowIdx) => {
-                  const rs = RELEASE_STATUSES.find(s => s.key === it.status);
-                  const isBlocked  = it.status === "blocked";
-                  const isReleased = it.status === "released";
-                  const rowBg = isBlocked ? `${T.coral}09` : co ? `${T.amber}07` : "transparent";
-                  const rowBgHover = isBlocked ? `${T.coral}15` : co ? `${T.amber}13` : `${T.accent}06`;
-                  return (
-                    <div key={`board-${oi}-${ii}-${rowIdx}`}
-                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 18px", borderBottom: `1px solid ${T.border}`, background: rowBg, opacity: isReleased ? 0.55 : 1, transition: "background 0.12s" }}
-                      onMouseEnter={e => { e.currentTarget.style.background = rowBgHover; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = rowBg; }}
-                    >
-                      {/* Status badge — click to cycle */}
-                      <button onClick={() => cycleStatus(oi, ii)} title="Click to cycle status"
-                        style={{ width: 116, display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", background: `${rs?.color || T.text3}18`, color: rs?.color || T.text3, border: `1px solid ${rs?.color || T.text3}30` }}>
-                        {rs?.icon} {rs?.label || it.status}
-                      </button>
-
-                      {/* Ticket + Note */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                          {it.ticket && (
-                            <span style={{ fontSize: 13, fontWeight: 700, color: isReleased ? T.text3 : T.text1, textDecoration: isReleased ? "line-through" : "none" }}>{it.ticket}</span>
-                          )}
-                          {co && (
-                            <span title="Was not released yesterday — still pending" style={{ fontSize: 10, fontWeight: 700, color: T.amber, background: `${T.amber}18`, border: `1px solid ${T.amber}40`, padding: "1px 7px", borderRadius: 8 }}>↻ carried</span>
-                          )}
-                        </div>
-                        {it.note && <div style={{ fontSize: 11, color: T.text3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.note}</div>}
-                        {it.action && <div style={{ fontSize: 11, color: T.amber, marginTop: 1 }}>→ {it.action}</div>}
+                {/* ══ RIGHT: Flat Release Board ══ */}
+                <div style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
+                  {sorted.length === 0 ? (
+                    <div style={{ padding: "28px 20px", fontSize: 13, color: T.text3, textAlign: "center", fontStyle: "italic" }}>No items yet</div>
+                  ) : (
+                    <div>
+                      {/* Column headers */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 16px", borderBottom: `1px solid ${T.border}`, background: T.navy0 }}>
+                        <div style={{ width: 112, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>Release Status</div>
+                        <div style={{ width: 108, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>Progress</div>
+                        <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em" }}>Ticket / Note</div>
+                        <div style={{ width: 80, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>QA</div>
+                        <div style={{ width: 138, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0, textAlign: "right" }}>Actions</div>
                       </div>
 
-                      {/* QA Owner chip */}
-                      <div style={{ width: 90, flexShrink: 0 }}>
-                        <span style={{ fontSize: 11, color: T.accent2, background: `${T.accent}12`, border: `1px solid ${T.accent}25`, padding: "3px 8px", borderRadius: 20, fontWeight: 600, display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{owner.name}</span>
-                      </div>
+                      {sorted.map(({ it, oi, ii, owner, co }, rowIdx) => {
+                        const rs   = RELEASE_STATUSES.find(s => s.key === it.status);
+                        const prog = PROGRESS_OPTIONS.find(p => p.key === (it.progress || "not-started")) || PROGRESS_OPTIONS[0];
+                        const isBlocked  = it.status === "blocked";
+                        const isReleased = it.status === "released";
+                        const rowBg      = isBlocked ? `${T.coral}09` : co ? `${T.amber}07` : "transparent";
+                        const rowBgHover = isBlocked ? `${T.coral}16` : co ? `${T.amber}13` : `${T.accent}06`;
+                        return (
+                          <div key={`board-${oi}-${ii}-${rowIdx}`}
+                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderBottom: `1px solid ${T.border}`, background: rowBg, opacity: isReleased ? 0.52 : 1, transition: "background 0.12s" }}
+                            onMouseEnter={e => { e.currentTarget.style.background = rowBgHover; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = rowBg; }}
+                          >
+                            {/* Release status badge — click to cycle */}
+                            <button onClick={() => cycleStatus(oi, ii)} title="Click to cycle release status"
+                              style={{ width: 112, display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 9px", borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", background: `${rs?.color || T.text3}18`, color: rs?.color || T.text3, border: `1px solid ${rs?.color || T.text3}30` }}>
+                              {rs?.icon} {rs?.label || it.status}
+                            </button>
 
-                      {/* Actions */}
-                      <div style={{ width: 138, display: "flex", gap: 5, flexShrink: 0, justifyContent: "flex-end" }}>
-                        {!isReleased && (
-                          <button onClick={() => setItemStatus(oi, ii, "released")} title="Mark as released — done"
-                            style={{ padding: "4px 11px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", background: "rgba(76,175,80,0.12)", color: T.emerald, border: "1px solid rgba(76,175,80,0.3)", whiteSpace: "nowrap" }}>
-                            ✅ Done
-                          </button>
-                        )}
-                        {isReleased && (
-                          <button onClick={() => setItemStatus(oi, ii, "review")} title="Reopen this item"
-                            style={{ padding: "4px 11px", fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>
-                            ↩ Reopen
-                          </button>
-                        )}
-                        {!isBlocked && !isReleased && (
-                          <button onClick={() => setItemStatus(oi, ii, "blocked")} title="Mark as blocked"
-                            style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", background: `${T.coral}12`, color: T.coral, border: `1px solid ${T.coral}35`, whiteSpace: "nowrap" }}>
-                            🔴 Block
-                          </button>
-                        )}
-                        {isBlocked && (
-                          <button onClick={() => setItemStatus(oi, ii, "review")} title="Unblock — move to In Review"
-                            style={{ padding: "4px 11px", fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>
-                            ↩ Unblock
-                          </button>
-                        )}
-                      </div>
+                            {/* Progress badge — click to cycle */}
+                            <button onClick={() => cycleProgress(oi, ii)} title="Click to update progress" disabled={isReleased}
+                              style={{ width: 108, display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 9px", borderRadius: 20, cursor: isReleased ? "default" : "pointer", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, transition: "all 0.15s", background: `${prog.color}15`, color: prog.color, border: `1px solid ${prog.color}32`, opacity: isReleased ? 0.5 : 1 }}>
+                              {prog.icon} {prog.label}
+                            </button>
+
+                            {/* Ticket + Note */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                {it.ticket && <span style={{ fontSize: 13, fontWeight: 700, color: isReleased ? T.text3 : T.text1, textDecoration: isReleased ? "line-through" : "none" }}>{it.ticket}</span>}
+                                {co && <span title="Not released yesterday" style={{ fontSize: 10, fontWeight: 700, color: T.amber, background: `${T.amber}18`, border: `1px solid ${T.amber}40`, padding: "1px 6px", borderRadius: 8 }}>↻ carried</span>}
+                              </div>
+                              {it.note && <div style={{ fontSize: 11, color: T.text3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.note}</div>}
+                              {it.action && <div style={{ fontSize: 11, color: T.amber, marginTop: 1 }}>→ {it.action}</div>}
+                            </div>
+
+                            {/* QA owner chip */}
+                            <div style={{ width: 80, flexShrink: 0 }}>
+                              <span style={{ fontSize: 11, color: T.accent2, background: `${T.accent}12`, border: `1px solid ${T.accent}25`, padding: "3px 8px", borderRadius: 20, fontWeight: 600, display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{owner.name}</span>
+                            </div>
+
+                            {/* Actions */}
+                            <div style={{ width: 138, display: "flex", gap: 5, flexShrink: 0, justifyContent: "flex-end" }}>
+                              {!isReleased && (
+                                <button onClick={() => { setItemStatus(oi, ii, "released"); setItemProgress(oi, ii, "done"); }} title="Mark released & done"
+                                  style={{ padding: "4px 11px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", background: "rgba(76,175,80,0.12)", color: T.emerald, border: "1px solid rgba(76,175,80,0.3)", whiteSpace: "nowrap" }}>
+                                  ✅ Done
+                                </button>
+                              )}
+                              {isReleased && (
+                                <button onClick={() => { setItemStatus(oi, ii, "review"); setItemProgress(oi, ii, "in-review"); }} title="Reopen this item"
+                                  style={{ padding: "4px 11px", fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>
+                                  ↩ Reopen
+                                </button>
+                              )}
+                              {!isBlocked && !isReleased && (
+                                <button onClick={() => setItemStatus(oi, ii, "blocked")} title="Mark as blocked"
+                                  style={{ padding: "4px 9px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", background: `${T.coral}12`, color: T.coral, border: `1px solid ${T.coral}35`, whiteSpace: "nowrap" }}>
+                                  🔴 Block
+                                </button>
+                              )}
+                              {isBlocked && (
+                                <button onClick={() => setItemStatus(oi, ii, "review")} title="Unblock — move to In Review"
+                                  style={{ padding: "4px 11px", fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>
+                                  ↩ Unblock
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                  )}
+                </div>
+
               </div>
             );
           })()}
