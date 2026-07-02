@@ -421,6 +421,47 @@ async function callGroqInsight(entries) {
   } catch { return null; }
 }
 
+// AI standup — generates a Done/Doing/Blocked standup from a diary entry
+async function callGroqStandup(entry) {
+  if (!GROQ_API_KEY) throw new Error("REACT_APP_GROQ_API_KEY is not configured.");
+  const pending = (entry.carry_forward || []).filter(i => !i.done);
+  const lines = [
+    entry.content ? `Work done:\n${entry.content}` : "",
+    (entry.jira_links || []).length ? `Tickets: ${entry.jira_links.join(", ")}` : "",
+    (entry.collaborators || []).length ? `Collaborated with: ${entry.collaborators.map(c => (typeof c === "string" ? c : c.name || "")).filter(Boolean).join(", ")}` : "",
+    entry.blockers ? `Blockers: ${entry.blockers}` : "",
+    pending.length ? `Today's plan: ${pending.map(i => i.text).join("; ")}` : "",
+  ].filter(Boolean).join("\n");
+
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama-3.1-8b-instant",
+      messages: [
+        { role: "system", content: `You are a standup assistant for a QA engineer. Generate a concise daily standup in exactly this format:
+
+✅ Done:
+• [what was completed yesterday]
+
+🔄 Doing:
+• [what is being worked on today]
+
+🚧 Blocked:
+• [blockers, or write "None"]
+
+Rules: under 90 words total, first person, keep all ticket IDs and product names exactly as given, professional tone.` },
+        { role: "user", content: lines }
+      ],
+      temperature: 0.3,
+      max_tokens: 300,
+    })
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message || `Groq error ${res.status}`);
+  return json.choices[0].message.content.trim();
+}
+
 // Cleans a collaborator value — handles cases where Groq returned an object that got
 // JSON.stringify'd and saved as a literal string like '{"Name":"Ramveer"}'
 const cleanCollab = c => {
@@ -4856,10 +4897,13 @@ function WeeklyReportModal({ entries, onClose }) {
 
 function StandupModal({ entry, onClose }) {
   const [copied, setCopied] = useState(false);
+  const [aiText, setAiText] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
   const mood    = MOODS.find(m => m.key === entry.mood);
   const pending = (entry.carry_forward || []).filter(i => !i.done);
 
-  const lines = [
+  const rawLines = [
     `📋 STANDUP — ${fmtDate(entry.date)}`,
     ``,
     `Yesterday:`,
@@ -4875,16 +4919,28 @@ function StandupModal({ entry, onClose }) {
       ? pending.map(i => `  • [${(i.priority || "med").toUpperCase()}] ${i.text}`)
       : ["  • (add your plan for today)"]),
   ];
+  const rawText = rawLines.filter((l, i, arr) => !(l === "" && arr[i - 1] === "")).join("\n");
 
-  const text = lines
-    .filter((l, i, arr) => !(l === "" && arr[i - 1] === ""))
-    .join("\n");
+  const displayText = aiText || rawText;
 
   const copy = () => {
-    navigator.clipboard.writeText(text).then(() => {
+    navigator.clipboard.writeText(displayText).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     });
+  };
+
+  const generateAI = async () => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const result = await callGroqStandup(entry);
+      setAiText(result);
+    } catch (err) {
+      setAiError(err.message || "AI generation failed");
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   return (
@@ -4893,7 +4949,9 @@ function StandupModal({ entry, onClose }) {
         <div className="modal-title">
           <div>
             <div style={{ fontWeight: 600 }}>📋 Standup Generator</div>
-            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Copy and paste into Slack or your standup tool</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+              {aiText ? "AI-generated standup — edit before sending" : "Copy and paste into Slack or your standup tool"}
+            </div>
           </div>
           <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
         </div>
@@ -4903,17 +4961,34 @@ function StandupModal({ entry, onClose }) {
             {getFocusAreas(entry).map((f, i) => <span key={i} style={{ color: T.accent }}>{f}</span>)}
           </div>
         )}
+        {aiError && (
+          <div style={{ marginBottom: 12, padding: "8px 12px", background: `${T.coral}15`, border: `1px solid ${T.coral}40`, borderRadius: 7, fontSize: 12, color: T.coral }}>
+            {aiError}
+          </div>
+        )}
         <pre style={{
-          background: T.navy0, border: `1px solid ${T.border}`, borderRadius: 8,
+          background: T.navy0, border: `1px solid ${aiText ? T.accent + "40" : T.border}`, borderRadius: 8,
           padding: "14px 16px", fontSize: 13, color: T.text1, lineHeight: 1.8,
           whiteSpace: "pre-wrap", fontFamily: "'DM Mono', monospace",
           maxHeight: 320, overflowY: "auto", marginBottom: 16,
         }}>
-          {text}
+          {aiLoading ? "✨ Generating standup…" : displayText}
         </pre>
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
+          {aiText && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setAiText(null)} style={{ fontSize: 11, color: T.text3 }}>
+              ↩ Raw
+            </button>
+          )}
+          <button
+            onClick={generateAI}
+            disabled={aiLoading}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, cursor: aiLoading ? "default" : "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s", background: aiLoading ? "transparent" : `${T.accent}18`, color: aiLoading ? T.text3 : T.accent, border: `1px solid ${aiLoading ? T.border : T.accent + "40"}` }}
+          >
+            {aiLoading ? "Generating…" : "✨ Generate with AI"}
+          </button>
           <button className="btn btn-ghost" onClick={onClose}>Close</button>
-          <button className="btn btn-primary" onClick={copy} style={{ minWidth: 160 }}>
+          <button className="btn btn-primary" onClick={copy} style={{ minWidth: 140 }}>
             {copied ? "✓ Copied!" : "📋 Copy Standup"}
           </button>
         </div>
@@ -5221,6 +5296,12 @@ function Diary({ onCountChange, user }) {
                       )}
                       {pendingCF > 0 && <span className="entry-stat-badge" style={{ color: T.gold, borderColor: "rgba(232,198,106,0.25)" }}>⬆ {pendingCF}</span>}
                       {pendingR  > 0 && <span className="entry-stat-badge" style={{ color: T.coral, borderColor: "rgba(240,117,98,0.25)" }}>🔔 {pendingR}</span>}
+                      <button
+                        title="Edit this entry"
+                        className="entry-stat-badge"
+                        style={{ cursor: "pointer", background: "transparent", borderColor: T.border, color: T.text3, fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 7px" }}
+                        onClick={ev => { ev.stopPropagation(); setModal(e); }}
+                      >✏</button>
                       <button
                         title="Generate standup"
                         className="entry-stat-badge"
@@ -7883,6 +7964,7 @@ function ReleaseTracker({ user }) {
   const userId = user?.id;
   const [date, setDate] = useState(today);
   const [owners, setOwners] = useState([]);
+  const [prevDayOwners, setPrevDayOwners] = useState([]);
   const [rlLoading, setRlLoading] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [itemForm, setItemForm] = useState({ ticket: "", note: "", status: "today", action: "" });
@@ -7890,6 +7972,22 @@ function ReleaseTracker({ user }) {
   const [copied, setCopied] = useState(false);
   const [rlTableMissing, setRlTableMissing] = useState(false);
   const [manualOwnerName, setManualOwnerName] = useState("");
+
+  // Check if an item in today's view was also present yesterday (not yet released) = carry-over
+  const isCarryOver = (item) => {
+    if (!prevDayOwners.length) return false;
+    const t = (item.ticket || "").trim().toLowerCase();
+    const n = (item.note || "").trim().toLowerCase().slice(0, 30);
+    if (!t && !n) return false;
+    return prevDayOwners.some(po =>
+      po.items.some(pi => {
+        if (pi.status === "released") return false;
+        const pt = (pi.ticket || "").trim().toLowerCase();
+        const pn = (pi.note || "").trim().toLowerCase().slice(0, 30);
+        return (t && pt && t === pt) || (n.length > 4 && pn.length > 4 && n === pn);
+      })
+    );
+  };
 
   // Load data for a date from Supabase
   const loadDate = useCallback(async (d) => {
@@ -7901,6 +7999,12 @@ function ReleaseTracker({ user }) {
     const data = await getReleaseDay(d, userId);
     setOwners(data);
     setRlLoading(false);
+    // Load previous day silently for carry-over detection
+    const prevD = new Date(d + "T00:00:00Z");
+    prevD.setUTCDate(prevD.getUTCDate() - 1);
+    getReleaseDay(prevD.toISOString().slice(0, 10), userId)
+      .then(setPrevDayOwners)
+      .catch(() => setPrevDayOwners([]));
   }, [userId]);
 
   // Initial load + table probe + one-time localStorage migration
@@ -8176,6 +8280,7 @@ function ReleaseTracker({ user }) {
               {owner.items.map((item, ii) => {
                 const rs = RELEASE_STATUSES.find(s => s.key === item.status);
                 const isEditing = editingItem?.ownerIdx === oi && editingItem?.itemIdx === ii;
+                const carryOver = isCarryOver(item);
                 if (isEditing) {
                   return (
                     <div key={ii} style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, background: `${T.accent}07` }}>
@@ -8212,6 +8317,11 @@ function ReleaseTracker({ user }) {
                       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                         {item.ticket && <span style={{ fontSize: 13, fontWeight: 600, color: T.text1 }}>{item.ticket}</span>}
                         <span style={{ fontSize: 11, color: T.text3, background: T.navy3, padding: "1px 7px", borderRadius: 8 }}>{owner.name}</span>
+                        {carryOver && (
+                          <span title="This item was not released yesterday — still pending" style={{ fontSize: 10, fontWeight: 700, color: T.amber, background: `${T.amber}18`, border: `1px solid ${T.amber}40`, padding: "1px 7px", borderRadius: 8, letterSpacing: "0.03em" }}>
+                            ↻ carried over
+                          </span>
+                        )}
                       </div>
                       {item.action && (
                         <div style={{ fontSize: 11, color: T.amber, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
