@@ -5,7 +5,8 @@ import EchoLogo from "./EchoLogo";
 const SUPABASE_URL     = process.env.REACT_APP_SUPABASE_URL     || "https://ewbyjtclhtcnvbrqfwyz.supabase.co";
 const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3YnlqdGNsaHRjbnZicnFmd3l6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4OTgwMDYsImV4cCI6MjA5NTQ3NDAwNn0.NxpxEPHmLRSKAtyE7me7BGao-o3VpJqIPaumxu60-yw";
 const BUCKET     = "echo_documents";
-const OWNER_EMAIL = process.env.REACT_APP_OWNER_EMAIL || "sundaresan@datman.je";
+const OWNER_EMAIL   = process.env.REACT_APP_OWNER_EMAIL   || "sundaresan@datman.je";
+const PREMIUM_EMAIL = process.env.REACT_APP_PREMIUM_EMAIL || "rsundaresan147@gmail.com";
 
 // ─── DB client — headers refresh on every call so auth tokens work ────────────
 const _REST  = () => `${SUPABASE_URL}/rest/v1`;
@@ -460,6 +461,99 @@ Rules: under 90 words total, first person, keep all ticket IDs and product names
   const json = await res.json();
   if (!res.ok) throw new Error(json.error?.message || `Groq error ${res.status}`);
   return json.choices[0].message.content.trim();
+}
+
+async function callGroqOPS(myTickets) {
+  if (!GROQ_API_KEY || !myTickets.length) return null;
+  const OPS_CONTEXT = `OPS score formula (QA engineer):
+- DDE 30%: catch all bugs before production. Every escaped bug tanks this score. Raise bugs as JIRA tickets immediately.
+- DPS 20%: hit due dates. Tickets with NO due date are EXCLUDED from scoring (set one!). Miss by 7+ days = 0.
+- CTES 20%: speed from "In Progress" to "Done". Don't park started tickets. Don't re-open finished ones.
+- VS 15%: story points per productive hour. NO story points = VS can't count this ticket at all.
+- RS 10%: respond within 4 business hours of ticket assignment. A comment or status change counts.
+- CS 5%: comment on teammates' tickets. Easy free points.`;
+  const ticketList = myTickets.map(t =>
+    `${t.key}: "${t.summary}" | Status: ${t.status} (${t.statusCategory}) | Priority: ${t.priority || "unset"} | SP: ${t.storyPoints || "unset"} | Due: ${t.dueDate || "none set"} | Component: ${t.components.join(", ") || "—"}`
+  ).join("\n");
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: `You are an OPS score coach for a QA engineer. ${OPS_CONTEXT}\n\nReturn ONLY valid JSON, no markdown: {"priority_actions":["action1","action2","action3"],"tips":[{"key":"TICKET-KEY","tip":"specific actionable tip under 15 words","urgency":"high|medium|low"}]}` },
+        { role: "user", content: `My current sprint tickets:\n${ticketList}\n\nGive me 3 top priority actions to maximise my OPS score and one specific tip per ticket.` }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+      max_tokens: 1024,
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq error ${res.status}`);
+  const data = await res.json();
+  const txt = data.choices?.[0]?.message?.content || "{}";
+  return JSON.parse(txt);
+}
+
+async function callGroqRetro(entries, incidents) {
+  if (!GROQ_API_KEY) throw new Error("REACT_APP_GROQ_API_KEY is not configured.");
+  const wins = entries.filter(e => e.is_win).map(e => `WIN: ${e.title}${e.content ? " — " + e.content.slice(0, 120) : ""}`).join("\n");
+  const blockersText = entries.filter(e => e.blockers).map(e => `${e.date}: ${e.blockers}`).join("\n");
+  const moods = entries.map(e => e.mood).filter(Boolean);
+  const moodCounts = moods.reduce((acc, m) => { acc[m] = (acc[m] || 0) + 1; return acc; }, {});
+  const moodStr = Object.entries(moodCounts).map(([k, v]) => `${k}:${v}`).join(", ");
+  const incStr = (incidents || []).slice(0, 5).map(i => `[${i.severity || ""}] ${i.module || ""}: ${i.description || i.type || ""}`).join("\n");
+  const focusTotals = {};
+  entries.forEach(e => getFocusAreas(e).forEach(f => { focusTotals[f] = (focusTotals[f] || 0) + 1; }));
+  const topFocus = Object.entries(focusTotals).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k).join(", ");
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: `You are a QA engineering retrospective facilitator. Return ONLY valid JSON, no markdown: {"went_well":["item1","item2","item3"],"didnt_go_well":["item1","item2"],"actions":["SMART action1","SMART action2","SMART action3"],"shout_out":"one sentence celebrating the biggest win","theme":"one-word sprint theme e.g. Resilience"}` },
+        { role: "user", content: `Sprint data (last 2 weeks):\nWins:\n${wins || "None logged"}\n\nBlockers:\n${blockersText || "None"}\n\nMood distribution: ${moodStr || "no data"}\n\nIncidents:\n${incStr || "None"}\n\nTop focus areas: ${topFocus || "varied"}` },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.4,
+      max_tokens: 800,
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq ${res.status}`);
+  const data2 = await res.json();
+  return JSON.parse(data2.choices[0].message.content);
+}
+
+async function callGroqCareerCoach(entries, bragWins) {
+  if (!GROQ_API_KEY) throw new Error("REACT_APP_GROQ_API_KEY is not configured.");
+  const winLines = (bragWins || []).slice(0, 10).map(w => `• ${w.title || w.what}: ${w.impact || w.context || ""}`).join("\n");
+  const moods = entries.map(e => e.mood).filter(Boolean);
+  const negMoodSet = new Set(["frustrated", "overwhelmed", "stuck", "challenged", "anxious"]);
+  const negCount = moods.filter(m => negMoodSet.has(m)).length;
+  const totalMoods = moods.length;
+  const focusTotals = {};
+  entries.forEach(e => getFocusAreas(e).forEach(f => { focusTotals[f] = (focusTotals[f] || 0) + 1; }));
+  const topFocus = Object.entries(focusTotals).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}(${v}d)`).join(", ");
+  const blockersLst = [...new Set(entries.filter(e => e.blockers).map(e => e.blockers))].slice(0, 5).join("; ");
+  const collabNames = [...new Set(entries.flatMap(e => (e.collaborators || []).map(c => typeof c === "string" ? c : c.name || "")))].filter(Boolean).slice(0, 8).join(", ");
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: `You are a senior engineering career coach. Return ONLY valid JSON, no markdown: {"strengths":["strength1","strength2","strength3"],"growth_areas":["area1","area2"],"next_30_days":["specific action1","specific action2","specific action3"],"coach_note":"2-3 sentence personalised coaching note referencing their actual data","career_stage":"early|mid|senior"}` },
+        { role: "user", content: `Engineer's last 60 days:\n\nBrag-worthy wins:\n${winLines || "None logged yet"}\n\nTop focus areas: ${topFocus || "varied"}\n\nMood health: ${negCount} tough days out of ${totalMoods} logged (${totalMoods > 0 ? Math.round((1 - negCount / totalMoods) * 100) : 100}% positive)\n\nRecurring blockers: ${blockersLst || "None recorded"}\n\nKey collaborators: ${collabNames || "Not tracked yet"}` },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.5,
+      max_tokens: 900,
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq ${res.status}`);
+  const data3 = await res.json();
+  return JSON.parse(data3.choices[0].message.content);
 }
 
 // Cleans a collaborator value — handles cases where Groq returned an object that got
@@ -1963,6 +2057,7 @@ function NavIcon({ id, size = 15 }) {
     workmap:     <><circle key="a" cx="3.5" cy="8" r="1.5" {...p}/><circle key="b" cx="12.5" cy="3.5" r="1.5" {...p}/><circle key="c" cx="12.5" cy="12.5" r="1.5" {...p}/><circle key="d" cx="8" cy="8" r="1.5" {...p}/><path key="e" d="M5 8h1.5M9.5 8l1.7-3M9.5 8l1.7 3" {...p}/></>,
     credits:     <><path key="a" d="M8 2 9.5 5.5l3.8.6-2.7 2.6.6 3.7L8 10.5l-3.2 1.9.6-3.7L2.7 6.1l3.8-.6L8 2Z" {...p}/></>,
     resolve:     <><path key="a" d="M8 1.5c.3 2.2-2.5 4-2.5 6.5a2.5 2.5 0 005 0C10.5 5.5 7.7 3.7 8 1.5Z" {...p}/><path key="b" d="M6.5 11.5c.3.8.9 1.5 1.5 1.5" {...p}/></>,
+    sprint:      <><rect key="a" x="2" y="3" width="12" height="10" rx="1.5" {...p}/><path key="b" d="M7 3v10" {...p}/><path key="c" d="M4 6.5h1.5M4 9.5h1M9.5 6.5h2M9.5 9.5h1.5" {...p}/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className="echo-nav-icon" aria-hidden="true" style={{ display: "block" }}>
@@ -2007,7 +2102,7 @@ function ToastContainer() {
 }
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
-function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
+function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPremium = false }) {
   const [recentEntries, setRecentEntries] = useState([]);
   const [heatEntries, setHeatEntries]     = useState([]);
   const [recentDocs, setRecentDocs]       = useState([]);
@@ -2023,6 +2118,8 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
   const [calMonth, setCalMonth]           = useState(() => new Date().toISOString().slice(0, 7));
   const [calSelected, setCalSelected]     = useState(null);
   const [calEntry, setCalEntry]           = useState(null);
+  const [burnoutScore, setBurnoutScore]   = useState(null);
+  const [burnoutCount, setBurnoutCount]   = useState(0);
 
   useEffect(() => {
     if (!isConfigured()) return;
@@ -2060,6 +2157,20 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!isPremium || !heatEntries.length) return;
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+    const sinceStr = since.toISOString().split("T")[0];
+    const recent = heatEntries.filter(e => e.date >= sinceStr);
+    if (!recent.length) { setBurnoutScore(0); return; }
+    setBurnoutCount(recent.length);
+    const negMoods = new Set(["frustrated", "overwhelmed", "stuck", "challenged", "anxious"]);
+    const negCount = recent.filter(e => negMoods.has(e.mood)).length;
+    const blockerCount = recent.filter(e => e.blockers && e.blockers.trim()).length;
+    setBurnoutScore(Math.min(100, Math.round((negCount / recent.length) * 60 + (blockerCount / recent.length) * 40)));
+  }, [isPremium, heatEntries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -2232,6 +2343,99 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "" }) {
         ))}
       </div>
       {weeklyModal && <WeeklyUpdateModal user={user} onClose={() => setWeeklyModal(false)} />}
+
+      {/* ── Premium Quick Actions card ── */}
+      {isPremium && (
+        <div className="card mb-16" style={{ marginBottom: 20, background: "linear-gradient(135deg, #1a1830 0%, #16142e 100%)", border: `1px solid ${T.accent}30`, borderTop: `2px solid ${T.accent}60` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 14 }}>✨</span>
+            <span style={{ fontSize: 12, fontWeight: 800, color: T.accent2, letterSpacing: "0.08em", textTransform: "uppercase" }}>Premium Features</span>
+          </div>
+          <div style={{ fontSize: 10, color: T.text3, marginBottom: 12 }}>Use ⚡ Standup · 📋 Weekly · 🔄 Retro · 🤖 Coach in the top bar for AI-powered insights anytime.</div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {[
+              { icon: "🎯", label: "Sprint Board", desc: "Live JIRA tracker + OPS coaching", color: T.accent, view: "sprint" },
+              { icon: "📋", label: "Shadow Resume", desc: "Auto-built career profile", color: T.gold, view: "resume" },
+              { icon: "🔥", label: "Resolve", desc: "Habit streak tracker", color: T.coral, view: "resolve" },
+            ].map(f => (
+              <button key={f.view} onClick={() => setView(f.view)}
+                style={{ flex: "1 1 130px", background: `${f.color}10`, border: `1px solid ${f.color}30`, borderRadius: 10, padding: "10px 12px", cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}
+                onMouseEnter={e => { e.currentTarget.style.background = `${f.color}20`; e.currentTarget.style.borderColor = `${f.color}55`; }}
+                onMouseLeave={e => { e.currentTarget.style.background = `${f.color}10`; e.currentTarget.style.borderColor = `${f.color}30`; }}>
+                <div style={{ fontSize: 18, marginBottom: 4 }}>{f.icon}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: f.color, marginBottom: 2 }}>{f.label}</div>
+                <div style={{ fontSize: 10, color: T.text3, lineHeight: 1.4 }}>{f.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Burnout Risk Meter — premium only ── */}
+      {isPremium && burnoutScore !== null && (
+        <div className="card mb-16" style={{ marginBottom: 20, borderLeft: `3px solid ${burnoutScore >= 60 ? T.coral : burnoutScore >= 30 ? T.amber : T.teal}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 18 }}>{burnoutScore >= 60 ? "🔥" : burnoutScore >= 30 ? "⚡" : "💚"}</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text1 }}>Burnout Risk Meter</div>
+              <div style={{ fontSize: 10, color: T.text3 }}>Based on {burnoutCount} diary entries in the last 30 days</div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: burnoutScore >= 60 ? T.coral : burnoutScore >= 30 ? T.amber : T.teal, fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{burnoutScore}</div>
+              <div style={{ fontSize: 10, color: T.text3 }}>/ 100</div>
+            </div>
+          </div>
+          <div style={{ background: T.navy0, borderRadius: 6, height: 7, overflow: "hidden", marginBottom: 10 }}>
+            <div style={{ width: `${burnoutScore}%`, height: "100%", background: burnoutScore >= 60 ? T.coral : burnoutScore >= 30 ? T.amber : T.teal, borderRadius: 6, transition: "width 0.8s ease" }} />
+          </div>
+          <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }}>
+            {burnoutScore < 30 && "You're in good shape — mood and energy look healthy. Keep the momentum."}
+            {burnoutScore >= 30 && burnoutScore < 60 && "Moderate stress signals. Consider blocking focus time and surfacing blockers in your next standup."}
+            {burnoutScore >= 60 && "High stress signals detected. Log a 1:1 with your manager and protect recovery time — this pattern needs attention."}
+          </div>
+        </div>
+      )}
+
+      {/* ── My Sprint Tickets (from JIRA cache) — premium only ── */}
+      {isPremium && (() => {
+        const jiraCfg = (() => { try { return JSON.parse(localStorage.getItem("echo_jira_config") || "null"); } catch { return null; } })();
+        const allCached = getJiraCache();
+        if (!jiraCfg || allCached.length === 0) return null;
+        const myEmail = (jiraCfg.email || "").toLowerCase();
+        const myTickets = allCached.filter(t =>
+          (t.assigneeEmail || "").toLowerCase() === myEmail &&
+          (t.statusCategory || "").toLowerCase() !== "done"
+        );
+        if (myTickets.length === 0) return null;
+        const blocked = myTickets.filter(t => (t.status || "").toLowerCase().includes("block")).length;
+        return (
+          <div className="card mb-16" style={{ marginBottom: 20, borderLeft: `3px solid ${blocked > 0 ? T.coral : T.accent}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.text1, flex: 1 }}>🎯 My Sprint Tickets</div>
+              {blocked > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.coral, background: `${T.coral}12`, border: `1px solid ${T.coral}30`, borderRadius: 12, padding: "2px 8px" }}>🔴 {blocked} blocked</span>}
+              <span style={{ fontSize: 11, color: T.text3 }}>{myTickets.length} active</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {myTickets.map(t => {
+                const isBlocked = (t.status || "").toLowerCase().includes("block");
+                const col = isBlocked ? T.coral : t.statusCategory === "In Progress" ? T.accent : T.text3;
+                return (
+                  <div key={t.key} style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 10px", background: T.navy2, borderRadius: 8, borderLeft: `2px solid ${col}` }}>
+                    {jiraCfg
+                      ? <a href={`${jiraCfg.baseUrl.replace(/\/$/, "")}/browse/${t.key}`} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: 11, fontWeight: 700, color: T.accent2, textDecoration: "none", flexShrink: 0 }}>{t.key}</a>
+                      : <span style={{ fontSize: 11, fontWeight: 700, color: T.accent2, flexShrink: 0 }}>{t.key}</span>
+                    }
+                    <span style={{ fontSize: 12, color: T.text1, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.summary}</span>
+                    {t.components?.length > 0 && <span style={{ fontSize: 10, color: T.amber, flexShrink: 0 }}>{t.components[0]}</span>}
+                    <span style={{ fontSize: 10, fontWeight: 700, color: col, flexShrink: 0, background: `${col}12`, border: `1px solid ${col}28`, borderRadius: 12, padding: "2px 7px" }}>{t.status}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Monthly Diary Calendar ── */}
       {(() => {
@@ -3581,6 +3785,39 @@ function OneOnOneModal({ teammate, user, onClose }) {
               </div>
             )}
 
+            {/* ── JIRA Sprint Tickets ── */}
+            {(() => {
+              const sprintTickets = getJiraCache().filter(t =>
+                t.assigneeName?.toLowerCase() === teammate.name.toLowerCase() &&
+                (t.statusCategory || "").toLowerCase() !== "done"
+              );
+              if (sprintTickets.length === 0) return null;
+              const jiraCfg = (() => { try { return JSON.parse(localStorage.getItem("echo_jira_config") || "null"); } catch { return null; } })();
+              return (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.accent, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>🎯 Sprint Tickets</div>
+                  {sprintTickets.slice(0, 5).map(t => {
+                    const isBlocked = (t.status || "").toLowerCase().includes("block");
+                    const col = isBlocked ? T.coral : t.statusCategory === "In Progress" ? T.accent : T.text3;
+                    return (
+                      <div key={t.key} style={{ background: T.navy3, borderRadius: 7, padding: "6px 9px", marginBottom: 5, borderLeft: `2px solid ${col}` }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          {jiraCfg
+                            ? <a href={`${jiraCfg.baseUrl.replace(/\/$/, "")}/browse/${t.key}`} target="_blank" rel="noopener noreferrer"
+                                style={{ fontSize: 10, fontWeight: 700, color: T.accent2, textDecoration: "none", flexShrink: 0 }}>{t.key}</a>
+                            : <span style={{ fontSize: 10, fontWeight: 700, color: T.accent2, flexShrink: 0 }}>{t.key}</span>
+                          }
+                          <span style={{ fontSize: 11, color: T.text2, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.summary}</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: col, flexShrink: 0 }}>{t.status}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {sprintTickets.length > 5 && <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>+{sprintTickets.length - 5} more — see Sprint Board</div>}
+                </div>
+              );
+            })()}
+
             {/* ── Last Session ── */}
             {sessions.length > 0 && (
               <div style={{ marginBottom: 16 }}>
@@ -3909,6 +4146,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
 
   const [tab, setTab] = useState("day");
   const [jiraInput, setJiraInput] = useState("");
+  const [jiraSuggestions, setJiraSuggestions] = useState([]);
   const [collabInput, setCollabInput] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [teamForm, setTeamForm] = useState({ name: "", update: "", status: "on_track" });
@@ -3922,10 +4160,91 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
   const [attDbOk, setAttDbOk] = useState(null);
+  const [zohoSyncing, setZohoSyncing] = useState(false);
+  const [zohoError, setZohoError]     = useState("");
+  const [zohoShowCfg, setZohoShowCfg] = useState(false);
+  const [zohoCookieInput, setZohoCookieInput] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("echo_zoho_config") || "null")?.cookies || ""; } catch { return ""; }
+  });
 
   useEffect(() => { probeAttendance().then(setAttDbOk); }, []);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const syncFromZoho = async () => {
+    const cookies = zohoCookieInput.trim();
+    if (!cookies) { setZohoShowCfg(true); return; }
+    const csrfMatch = cookies.match(/(?:^|;\s*)(?:CT_)?CSRF_TOKEN=([^;]+)/);
+    const csrf = csrfMatch ? csrfMatch[1].trim() : "";
+    if (!csrf) { setZohoError("Could not find CSRF_TOKEN in the cookie string. Make sure you pasted the full cookie."); return; }
+    setZohoSyncing(true); setZohoError("");
+    try {
+      const r = await fetch("/api/zoho-attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cookies, csrf }),
+      });
+      const data = await r.json();
+      if (!r.ok || data.error) {
+        setZohoError(data.error || "Zoho API error"); setZohoSyncing(false); return;
+      }
+      // Extract empList from reporteeCircleData → find the REPORTEES group
+      const circleData = data?.reporteeCircleData || [];
+      const reportees = circleData.find(g => g.mode === "REPORTEES") || circleData[0];
+      const empList = reportees?.empList;
+      if (!empList || !Array.isArray(empList) || empList.length === 0) {
+        setZohoError("No team data in response. Session may have expired — paste fresh cookies.");
+        setZohoShowCfg(true); setZohoSyncing(false); return;
+      }
+      // Map Zoho leaveAttStat values → ATT_STATUSES keys
+      const mapStatus = (v) => {
+        if (!v) return null;
+        const s = String(v).toLowerCase().trim();
+        if (s === "in" || s === "present" || s.includes("in office") || s.includes("check-in")) return "office";
+        if (s === "wfh" || s.includes("work from home") || s.includes("remote") || s.includes("home")) return "wfh";
+        if (s === "leave" || s.includes("leave") || s === "absent") return "leave";
+        if (s.includes("half")) return "half";
+        // "Yet to check-in" → treat as in office (they'll check in, not on leave)
+        if (s.includes("yet to")) return "office";
+        return null;
+      };
+      const teammates = loadTeammates().filter(t => (t.relationship || "direct") === "direct");
+      const updated = [...(form.team_attendance || [])];
+      let matched = 0;
+      empList.forEach(emp => {
+        const zohoFullName = (emp.EMPLOYEENAME || "").trim();
+        if (!zohoFullName) return;
+        const status = mapStatus(emp.leaveAttStatUnEncoded || emp.leaveAttStat);
+        // Match: compare each word in the Zoho full name against the teammate name
+        // e.g. "Rohit Mangasule" matches "Rohit"; "Banu Banu" matches "Banu"
+        const zohoWords = zohoFullName.toLowerCase().split(/\s+/);
+        const teammate = teammates.find(t => {
+          const tn = t.name.toLowerCase().trim();
+          return tn === zohoFullName.toLowerCase() ||
+            zohoWords.includes(tn) ||
+            zohoWords.some(w => tn.startsWith(w) && w.length >= 3);
+        });
+        if (teammate) {
+          const rest = updated.filter(a => a.name !== teammate.name);
+          if (status) {
+            updated.splice(0, updated.length, ...rest, { name: teammate.name, status });
+          } else {
+            // Status unknown / WFO variant — keep existing or clear
+            updated.splice(0, updated.length, ...rest);
+          }
+          matched++;
+        }
+      });
+      set("team_attendance", updated);
+      if (matched === 0) {
+        const zohoNames = empList.slice(0, 5).map(e => e.EMPLOYEENAME).join(", ");
+        setZohoError(`Synced but names didn't match. Zoho names: ${zohoNames}. Your team list uses: ${teammates.map(t => t.name).join(", ")}.`);
+      }
+      // Persist cookies for next time
+      localStorage.setItem("echo_zoho_config", JSON.stringify({ cookies }));
+    } catch (err) { setZohoError(err.message); }
+    setZohoSyncing(false);
+  };
 
   const categorise = async () => {
     const bullets = (form.content || "").split("\n").filter(b => b.trim());
@@ -3986,9 +4305,17 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
     : _isToday ? "What did you get done today? Tasks, PRs, decisions, wins…"
     : "What did you work on? Tasks, PRs, decisions…";
 
-  const addJira = () => {
-    const t = jiraInput.trim();
-    if (t && !form.jira_links.includes(t)) { set("jira_links", [...form.jira_links, t]); setJiraInput(""); }
+  const addJira = (val) => {
+    const t = (val || jiraInput).trim();
+    if (t && !form.jira_links.includes(t)) { set("jira_links", [...form.jira_links, t]); setJiraInput(""); setJiraSuggestions([]); }
+  };
+  const onJiraInputChange = (v) => {
+    setJiraInput(v);
+    if (v.length >= 2) {
+      const q = v.toLowerCase();
+      const cache = getJiraCache();
+      setJiraSuggestions(cache.filter(t => !form.jira_links.includes(t.key) && (t.key.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q))).slice(0, 5));
+    } else { setJiraSuggestions([]); }
   };
   const addCollab = () => {
     const t = collabInput.trim();
@@ -4303,11 +4630,57 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
               <div style={{ marginTop: 12 }}>
                 <div className="form-group">
                   <label className="form-label">Jira Tickets</label>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input type="text" className="form-input" placeholder="Ticket ID or URL (e.g. PROJ-123)" value={jiraInput}
-                      onChange={e => setJiraInput(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addJira())} />
-                    <button className="btn btn-ghost btn-sm" onClick={addJira}>Add</button>
+                  {/* Pre-fill from JIRA sprint — only for new entries */}
+                  {!entry && (() => {
+                    const jiraConfig = (() => { try { return JSON.parse(localStorage.getItem("echo_jira_config") || "null"); } catch { return null; } })();
+                    if (!jiraConfig) return null;
+                    const myTickets = getJiraCache().filter(t => {
+                      const status = (t.status || "").toLowerCase();
+                      return !status.includes("done") && !status.includes("closed") && !status.includes("resolved");
+                    });
+                    if (myTickets.length === 0) return null;
+                    const unlinked = myTickets.filter(t => !form.jira_links.includes(t.key));
+                    if (unlinked.length === 0) return null;
+                    return (
+                      <div style={{ marginBottom: 8, padding: "8px 12px", background: `${T.accent}08`, border: `1px solid ${T.accent}25`, borderRadius: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 12, color: T.text2, flex: 1 }}>
+                          📋 {unlinked.length} active sprint ticket{unlinked.length !== 1 ? "s" : ""} from your JIRA
+                        </span>
+                        <button onClick={() => set("jira_links", [...new Set([...form.jira_links, ...unlinked.map(t => t.key)])])}
+                          style={{ padding: "4px 12px", borderRadius: 7, cursor: "pointer", fontSize: 11, fontWeight: 700, background: T.accent, color: "#fff", border: "none" }}>
+                          Pre-fill all
+                        </button>
+                        <button onClick={() => {
+                          const pick = unlinked[0];
+                          if (pick) set("jira_links", [...form.jira_links, pick.key]);
+                        }} style={{ padding: "4px 12px", borderRadius: 7, cursor: "pointer", fontSize: 11, fontWeight: 600, background: "transparent", color: T.accent2, border: `1px solid ${T.accent}40` }}>
+                          Pick one
+                        </button>
+                      </div>
+                    );
+                  })()}
+                  <div style={{ position: "relative" }}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input type="text" className="form-input" placeholder="Ticket ID or keyword (e.g. DN-123 or login bug)" value={jiraInput}
+                        onChange={e => onJiraInputChange(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addJira(); } if (e.key === "Escape") setJiraSuggestions([]); }}
+                        onBlur={() => setTimeout(() => setJiraSuggestions([]), 150)} />
+                      <button className="btn btn-ghost btn-sm" onClick={() => addJira()}>Add</button>
+                    </div>
+                    {jiraSuggestions.length > 0 && (
+                      <div style={{ position: "absolute", top: "100%", left: 0, right: 40, zIndex: 50, background: "#1a1a26", border: `1px solid ${T.border}`, borderRadius: 8, marginTop: 3, overflow: "hidden", boxShadow: "0 6px 20px rgba(0,0,0,0.4)" }}>
+                        {jiraSuggestions.map(s => (
+                          <div key={s.key} onMouseDown={() => addJira(s.key)}
+                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", cursor: "pointer", borderBottom: `1px solid ${T.border}` }}
+                            onMouseEnter={e => e.currentTarget.style.background = `${T.accent}12`}
+                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: T.accent2, fontFamily: "'Syne', sans-serif", flexShrink: 0 }}>{s.key}</span>
+                            <span style={{ fontSize: 12, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{s.summary}</span>
+                            <span style={{ fontSize: 10, color: T.text3, flexShrink: 0 }}>{s.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   {form.jira_links.length > 0 && (
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
@@ -4590,8 +4963,55 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
         {/* ── Attendance ── */}
         {tab === "attendance" && (
           <div>
-            <div className="diary-section-heading">Team Attendance</div>
-            <div style={{ fontSize: 12, color: T.text3, marginBottom: 14 }}>Log who's in office, WFH, or on leave today. Click again to clear.</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+              <div className="diary-section-heading" style={{ marginBottom: 0 }}>Team Attendance</div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <button onClick={syncFromZoho} disabled={zohoSyncing}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", fontSize: 11, borderRadius: 6, cursor: zohoSyncing ? "wait" : "pointer", background: `${T.teal}15`, border: `1px solid ${T.teal}40`, color: T.teal, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>
+                  {zohoSyncing ? "⏳ Syncing…" : "⚡ Sync from Zoho"}
+                </button>
+                <button onClick={() => setZohoShowCfg(v => !v)} title="Zoho cookie settings"
+                  style={{ padding: "4px 8px", fontSize: 11, borderRadius: 6, cursor: "pointer", background: "transparent", border: `1px solid ${T.border}`, color: T.text3, fontFamily: "'DM Sans', sans-serif" }}>
+                  ⚙
+                </button>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: T.text3, marginBottom: zohoShowCfg ? 8 : 14 }}>Log who's in office, WFH, or on leave today. Sync auto-fills from Zoho People.</div>
+            {/* ── Zoho config panel ── */}
+            {zohoShowCfg && (
+              <div style={{ background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 14px", marginBottom: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.text2, marginBottom: 6 }}>Zoho People Session Cookies</div>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 8, lineHeight: 1.6 }}>
+                  1. Open <strong style={{ color: T.text2 }}>people.zoho.in</strong> in Chrome and log in.<br/>
+                  2. Press <strong style={{ color: T.text2 }}>F12</strong> → Network tab → click any request to Zoho.<br/>
+                  3. Under "Request Headers", find <strong style={{ color: T.text2 }}>Cookie:</strong> and copy the entire value.<br/>
+                  4. Paste it below. Cookies expire every few days — re-paste if sync fails.
+                </div>
+                <textarea
+                  value={zohoCookieInput}
+                  onChange={e => setZohoCookieInput(e.target.value)}
+                  placeholder="Paste full cookie string here: JSESSIONID=...; CSRF_TOKEN=...; ..."
+                  rows={4}
+                  style={{ width: "100%", boxSizing: "border-box", background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 11, color: T.text1, fontFamily: "monospace", resize: "vertical" }}
+                />
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button onClick={() => { localStorage.setItem("echo_zoho_config", JSON.stringify({ cookies: zohoCookieInput })); setZohoShowCfg(false); }}
+                    style={{ padding: "5px 12px", fontSize: 12, borderRadius: 6, cursor: "pointer", background: T.accent, border: "none", color: "#fff", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>
+                    Save
+                  </button>
+                  <button onClick={() => setZohoShowCfg(false)}
+                    style={{ padding: "5px 12px", fontSize: 12, borderRadius: 6, cursor: "pointer", background: "transparent", border: `1px solid ${T.border}`, color: T.text3, fontFamily: "'DM Sans', sans-serif" }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {zohoError && (
+              <div style={{ background: `${T.coral}18`, border: `1px solid ${T.coral}40`, borderRadius: 8, padding: "8px 12px", marginBottom: 10, fontSize: 12, color: T.coral, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <span>{zohoError}</span>
+                <button onClick={() => setZohoError("")} style={{ flexShrink: 0, background: "none", border: "none", color: T.coral, cursor: "pointer", fontSize: 14, lineHeight: 1 }}>✕</button>
+              </div>
+            )}
             {attDbOk === false && (
               <div style={{ background: `${T.coral}18`, border: `1px solid ${T.coral}40`, borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: T.coral }}>
                 ⚠️ Attendance data won't save until you run this in Supabase SQL editor:
@@ -7520,7 +7940,7 @@ create policy "own" on commitments for all using (auth.uid()=user_id);`}
 // ─── Incident Log ─────────────────────────────────────────────────────────────
 function IncidentLog({ user }) {
   const [incidents, setIncidents] = useState([]);
-  const [form, setForm] = useState({ date: today(), type: "escaped_defect", module: "", root_cause: "", test_gap: "", severity: "medium", notes: "" });
+  const [form, setForm] = useState({ date: today(), type: "escaped_defect", module: "", root_cause: "", test_gap: "", severity: "medium", notes: "", jira_ticket: "" });
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -7538,8 +7958,10 @@ function IncidentLog({ user }) {
   const save = async () => {
     if (!form.root_cause.trim()) return;
     setSaving(true);
-    await db.from("incidents").insert({ user_id: user.id, ...form });
-    setForm({ date: today(), type: "escaped_defect", module: "", root_cause: "", test_gap: "", severity: "medium", notes: "" });
+    const { jira_ticket, ...dbForm } = form;
+    const notesWithJira = jira_ticket ? `🔗 JIRA: ${jira_ticket}\n${dbForm.notes}`.trim() : dbForm.notes;
+    await db.from("incidents").insert({ user_id: user.id, ...dbForm, notes: notesWithJira });
+    setForm({ date: today(), type: "escaped_defect", module: "", root_cause: "", test_gap: "", severity: "medium", notes: "", jira_ticket: "" });
     setAdding(false); setSaving(false); load();
   };
 
@@ -7651,6 +8073,27 @@ create policy "own" on incidents for all using (auth.uid()=user_id);`}
             <label className="form-label">What test would have caught it?</label>
             <input className="form-input" placeholder="e.g. Integration test for 3DS redirect flow" value={form.test_gap} onChange={e => setForm(f => ({ ...f, test_gap: e.target.value }))} />
           </div>
+          {/* JIRA ticket link — picks from sprint cache, no API call */}
+          {(() => {
+            const cached = getJiraCache();
+            if (cached.length === 0) return null;
+            return (
+              <div className="form-group" style={{ margin: "0 0 12px" }}>
+                <label className="form-label">Linked JIRA Ticket (optional)</label>
+                <select className="form-input" value={form.jira_ticket} onChange={e => {
+                  const t = cached.find(x => x.key === e.target.value);
+                  setForm(f => ({
+                    ...f, jira_ticket: e.target.value,
+                    module: t?.components?.[0] || f.module,
+                  }));
+                }}>
+                  <option value="">— select from current sprint —</option>
+                  {cached.map(t => <option key={t.key} value={t.key}>{t.key} — {t.summary?.slice(0, 60)}</option>)}
+                </select>
+                {form.jira_ticket && <div style={{ fontSize: 10, color: T.text3, marginTop: 3 }}>Will be saved in incident notes. Module auto-filled from ticket component.</div>}
+              </div>
+            );
+          })()}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button className="btn btn-ghost" onClick={() => setAdding(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={save} disabled={saving || !form.root_cause.trim()}>{saving ? "Saving…" : "Log Incident"}</button>
@@ -7978,8 +8421,11 @@ function ReleaseTracker({ user }) {
   const [addingItemFor, setAddingItemFor] = useState(null);
   const [copied, setCopied] = useState(false);
   const [rlTableMissing, setRlTableMissing] = useState(false);
+  const [rlBannerDismissed, setRlBannerDismissed] = useState(() => localStorage.getItem("echo_rl_banner_dismissed") === "1");
   const [manualOwnerName, setManualOwnerName] = useState("");
   const [boardOpen, setBoardOpen] = useState(true);
+  const [jiraPickerOpen, setJiraPickerOpen] = useState(false);
+  const [jiraPickerFilter, setJiraPickerFilter] = useState("");
 
   // Check if an item in today's view was also present yesterday (not yet released) = carry-over
   const isCarryOver = (item) => {
@@ -8161,12 +8607,24 @@ function ReleaseTracker({ user }) {
   return (
     <div className="echo-content fade-in">
 
-      {rlTableMissing && (
+      {rlTableMissing && !rlBannerDismissed && (
         <div style={{ marginBottom: 16, padding: "12px 16px", background: "rgba(240,117,98,0.1)", border: `1px solid ${T.coral}`, borderRadius: 10, fontSize: 12 }}>
-          <div style={{ color: T.coral, fontWeight: 700, marginBottom: 6 }}>⚠️ Release Status table not set up — data is being saved locally only</div>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
+            <div style={{ color: T.coral, fontWeight: 700 }}>⚠️ Release Status table not set up — data is being saved locally only</div>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              <button onClick={() => { _rlSupported = null; probeReleaseTable().then(ok => { if (ok) setRlTableMissing(false); }); }}
+                style={{ padding: "3px 9px", fontSize: 11, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.teal, border: `1px solid ${T.teal}50`, fontWeight: 600 }}>
+                ↻ Check again
+              </button>
+              <button onClick={() => { setRlBannerDismissed(true); localStorage.setItem("echo_rl_banner_dismissed", "1"); }}
+                style={{ padding: "3px 9px", fontSize: 11, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, fontWeight: 600 }}>
+                ✕ Dismiss
+              </button>
+            </div>
+          </div>
           <div style={{ color: T.text2, marginBottom: 8 }}>Run this once in your <strong>Supabase SQL editor</strong> to enable cloud saving:</div>
           <pre style={{ background: T.navy1, borderRadius: 7, padding: "8px 12px", fontSize: 11, color: T.teal, overflowX: "auto", margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{`create table release_logs (id uuid primary key default gen_random_uuid(), user_id uuid not null, release_date date not null, owners jsonb default '[]', updated_at timestamptz default now(), unique(user_id, release_date));\nalter table release_logs enable row level security;\ncreate policy "own" on release_logs for all using (auth.uid()=user_id);`}</pre>
-          <div style={{ color: T.text3, fontSize: 11, marginTop: 6 }}>After running, reload the page. Your locally saved data will sync automatically.</div>
+          <div style={{ color: T.text3, fontSize: 11, marginTop: 6 }}>Already ran the SQL? Click "Check again" above — or just dismiss this if your data is saving fine.</div>
         </div>
       )}
 
@@ -8376,237 +8834,1491 @@ function ReleaseTracker({ user }) {
               )}
 
               {/* Inline add form */}
-              {addingItemFor === oi && (
-                <div style={{ padding: "12px 16px", background: `${T.accent}07`, borderTop: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 11, color: T.text3, fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Adding item for {owner.name}</div>
-                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                    <input autoFocus className="form-input" style={{ flex: 1 }} placeholder="Ticket / task (e.g. DN-1234)"
-                      value={itemForm.ticket} onChange={e => setItemForm(f => ({ ...f, ticket: e.target.value }))}
-                      onKeyDown={e => e.key === "Enter" && addItem(oi)} />
-                    <select className="form-select" style={{ width: 150 }} value={itemForm.status} onChange={e => setItemForm(f => ({ ...f, status: e.target.value }))}>
-                      {RELEASE_STATUSES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
-                    </select>
+              {addingItemFor === oi && (() => {
+                const jiraCache = getJiraCache();
+                const filteredJira = jiraCache.filter(t => {
+                  const q = jiraPickerFilter.toLowerCase();
+                  return !q || t.key.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q);
+                });
+                return (
+                  <div style={{ padding: "12px 16px", background: `${T.accent}07`, borderTop: `1px solid ${T.border}` }}>
+                    <div style={{ fontSize: 11, color: T.text3, fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Adding item for {owner.name}</div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: jiraPickerOpen ? 0 : 8, flexWrap: "wrap" }}>
+                      <input autoFocus className="form-input" style={{ flex: 1, minWidth: 160 }} placeholder="Ticket / task (e.g. DN-1234)"
+                        value={itemForm.ticket} onChange={e => setItemForm(f => ({ ...f, ticket: e.target.value }))}
+                        onKeyDown={e => e.key === "Enter" && addItem(oi)} />
+                      <select className="form-select" style={{ width: 150 }} value={itemForm.status} onChange={e => setItemForm(f => ({ ...f, status: e.target.value }))}>
+                        {RELEASE_STATUSES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
+                      </select>
+                      {jiraCache.length > 0 && (
+                        <button onClick={() => { setJiraPickerOpen(o => !o); setJiraPickerFilter(""); }}
+                          style={{ padding: "6px 12px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 600, background: jiraPickerOpen ? `${T.accent}20` : "transparent", color: jiraPickerOpen ? T.accent : T.text3, border: `1px solid ${jiraPickerOpen ? T.accent + "50" : T.border}`, whiteSpace: "nowrap" }}>
+                          📋 From JIRA
+                        </button>
+                      )}
+                    </div>
+                    {jiraPickerOpen && jiraCache.length > 0 && (
+                      <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 8, marginTop: 6, overflow: "hidden" }}>
+                        <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
+                          <input className="form-input" style={{ fontSize: 12, padding: "5px 9px" }} placeholder="Search sprint tickets…"
+                            value={jiraPickerFilter} onChange={e => setJiraPickerFilter(e.target.value)} autoFocus={false} />
+                        </div>
+                        <div style={{ maxHeight: 180, overflowY: "auto" }}>
+                          {filteredJira.slice(0, 20).map(t => (
+                            <div key={t.key} onClick={() => { setItemForm(f => ({ ...f, ticket: t.key, note: f.note || t.summary })); setJiraPickerOpen(false); setJiraPickerFilter(""); }}
+                              style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", cursor: "pointer", borderBottom: `1px solid ${T.border}` }}
+                              onMouseEnter={e => e.currentTarget.style.background = `${T.accent}10`}
+                              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: T.accent2, fontFamily: "'Syne', sans-serif", flexShrink: 0 }}>{t.key}</span>
+                              <span style={{ fontSize: 12, color: T.text2, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.summary}</span>
+                              <span style={{ fontSize: 10, color: T.text3, flexShrink: 0 }}>{t.status}</span>
+                            </div>
+                          ))}
+                          {filteredJira.length === 0 && <div style={{ padding: "12px", textAlign: "center", color: T.text3, fontSize: 12 }}>No tickets found</div>}
+                        </div>
+                      </div>
+                    )}
+                    <input className="form-input" style={{ marginBottom: 8 }} placeholder={`What does ${owner.name} need to do? (action required)`}
+                      value={itemForm.action} onChange={e => setItemForm(f => ({ ...f, action: e.target.value }))} />
+                    <textarea className="form-textarea" style={{ minHeight: 50, marginBottom: 8 }} placeholder="Release note / context… (optional)"
+                      value={itemForm.note} onChange={e => setItemForm(f => ({ ...f, note: e.target.value }))} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button className="btn btn-primary btn-sm" onClick={() => { addItem(oi); setJiraPickerOpen(false); setJiraPickerFilter(""); }}>Add Item</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => { setAddingItemFor(null); setItemForm({ ticket: "", note: "", status: "today", action: "" }); setJiraPickerOpen(false); }}>Cancel</button>
+                    </div>
                   </div>
-                  <input className="form-input" style={{ marginBottom: 8 }} placeholder={`What does ${owner.name} need to do? (action required)`}
-                    value={itemForm.action} onChange={e => setItemForm(f => ({ ...f, action: e.target.value }))} />
-                  <textarea className="form-textarea" style={{ minHeight: 50, marginBottom: 8 }} placeholder="Release note / context… (optional)"
-                    value={itemForm.note} onChange={e => setItemForm(f => ({ ...f, note: e.target.value }))} />
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button className="btn btn-primary btn-sm" onClick={() => addItem(oi)}>Add Item</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => { setAddingItemFor(null); setItemForm({ ticket: "", note: "", status: "today", action: "" }); }}>Cancel</button>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           );
         })}
       </div>
 
-      {/* ── QA Release Board (two-panel) ─────────────────────────────────── */}
-      {owners.some(o => o.items.length > 0) && (
-        <div style={{ marginTop: 24, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+      {/* ── QA Release Board ─────────────────────────────────── */}
+      {owners.some(o => o.items.length > 0) && (() => {
+        const flat = owners.flatMap((o, oi) => o.items.map((it, ii) => ({ it, oi, ii, owner: o, co: isCarryOver(it) })));
+        const grpBlocked  = flat.filter(x => x.it.status === "blocked");
+        const grpReleased = flat.filter(x => x.it.status === "released");
+        const grpActive   = flat.filter(x => x.it.status !== "blocked" && x.it.status !== "released");
+        const sortedActive = [...grpActive.filter(x => x.co), ...grpActive.filter(x => !x.co)];
 
-          {/* ── Header ── */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: `1px solid ${T.border}`, background: T.navy1 }}>
-            <span style={{ fontSize: 16 }}>📊</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>QA Release Board</div>
-              <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>Team progress tracker + flat release view</div>
-            </div>
-            {(() => {
-              const flat = owners.flatMap(o => o.items);
-              const blocked  = flat.filter(x => x.status === "blocked").length;
-              const carried  = flat.filter(x => isCarryOver(x)).length;
-              const released = flat.filter(x => x.status === "released").length;
-              return (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {blocked > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.coral, background: `${T.coral}15`, border: `1px solid ${T.coral}30`, borderRadius: 20, padding: "3px 10px" }}>🔴 {blocked} blocked</span>}
-                  {carried > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, background: `${T.amber}15`, border: `1px solid ${T.amber}30`, borderRadius: 20, padding: "3px 10px" }}>↻ {carried} carried</span>}
-                  <span style={{ fontSize: 11, color: T.text3, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 20, padding: "3px 10px" }}>{flat.length - released} active · {released} done</span>
-                </div>
-              );
-            })()}
-            <button onClick={() => setBoardOpen(b => !b)}
-              style={{ padding: "5px 12px", fontSize: 12, borderRadius: 7, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, fontWeight: 600, whiteSpace: "nowrap" }}>
-              {boardOpen ? "▲ Collapse" : "▼ Expand"}
-            </button>
-          </div>
+        const renderCard = ({ it, oi, ii, owner, co }, cardKey) => {
+          const rs         = RELEASE_STATUSES.find(s => s.key === it.status);
+          const prog       = PROGRESS_OPTIONS.find(p => p.key === (it.progress || "not-started")) || PROGRESS_OPTIONS[0];
+          const isBlocked  = it.status === "blocked";
+          const isReleased = it.status === "released";
+          const accentColor = ownerAccent(owner.items);
+          const borderColor = isBlocked ? T.coral : co ? T.amber : rs?.color || T.accent;
+          return (
+            <div key={cardKey} style={{ display: "flex", gap: 12, padding: "13px 16px", background: isBlocked ? `${T.coral}08` : isReleased ? T.navy2 : T.navy3, border: `1px solid ${isBlocked ? T.coral + "30" : co ? T.amber + "28" : T.border}`, borderLeft: `3px solid ${borderColor}`, borderRadius: 10, opacity: isReleased ? 0.55 : 1, transition: "opacity 0.15s" }}>
 
-          {boardOpen && (() => {
-            const flat = owners.flatMap((o, oi) => o.items.map((it, ii) => ({ it, oi, ii, owner: o, co: isCarryOver(it) })));
-            const sorted = [
-              ...flat.filter(x => x.it.status === "blocked"),
-              ...flat.filter(x => x.co && x.it.status !== "blocked" && x.it.status !== "released"),
-              ...flat.filter(x => !x.co && x.it.status !== "blocked" && x.it.status !== "released"),
-              ...flat.filter(x => x.it.status === "released"),
-            ];
-            return (
-              <div style={{ display: "flex", minHeight: 0 }}>
-
-                {/* ══ LEFT: Team Progress Panel ══ */}
-                <div style={{ width: 252, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.navy1, overflowY: "auto" }}>
-                  {/* Panel header */}
-                  <div style={{ padding: "9px 14px", borderBottom: `1px solid ${T.border}`, background: T.navy0 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.07em" }}>👥 Team Progress</div>
-                  </div>
-
-                  {owners.filter(o => o.items.length > 0).map((owner, listIdx) => {
-                    const oi = owners.indexOf(owner);
-                    const doneCount   = owner.items.filter(it => it.progress === "done" || it.status === "released").length;
-                    const blockedCount = owner.items.filter(it => it.status === "blocked").length;
-                    const pct         = owner.items.length ? Math.round((doneCount / owner.items.length) * 100) : 0;
-                    const accentColor = ownerAccent(owner.items);
-                    return (
-                      <div key={listIdx} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
-                        {/* Owner row */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                          <div style={{ width: 30, height: 30, borderRadius: "50%", background: `${accentColor}22`, border: `2px solid ${accentColor}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: accentColor, flexShrink: 0 }}>
-                            {owner.name[0].toUpperCase()}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{owner.name}</div>
-                            <div style={{ fontSize: 10, color: T.text3 }}>
-                              {doneCount}/{owner.items.length} done
-                              {blockedCount > 0 && <span style={{ color: T.coral, marginLeft: 6 }}>· {blockedCount} blocked</span>}
-                            </div>
-                          </div>
-                          <div style={{ fontSize: 11, fontWeight: 800, color: pct === 100 ? T.emerald : T.text3, fontFamily: "'Syne', sans-serif" }}>{pct}%</div>
-                        </div>
-
-                        {/* Progress bar */}
-                        <div style={{ height: 4, background: T.border, borderRadius: 3, marginBottom: 10, overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${pct}%`, background: pct === 100 ? T.emerald : accentColor, borderRadius: 3, transition: "width 0.35s ease" }} />
-                        </div>
-
-                        {/* Task list with progress selectors */}
-                        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                          {owner.items.map((it, ii) => {
-                            const prog = PROGRESS_OPTIONS.find(p => p.key === (it.progress || "not-started")) || PROGRESS_OPTIONS[0];
-                            const isBlocked  = it.status === "blocked";
-                            const isReleased = it.status === "released";
-                            return (
-                              <div key={ii} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "7px 9px", borderRadius: 8, background: isBlocked ? `${T.coral}09` : isReleased ? "transparent" : `${T.accent}05`, border: `1px solid ${isBlocked ? T.coral + "25" : T.border}`, opacity: isReleased ? 0.55 : 1 }}>
-                                {/* Task label */}
-                                <div style={{ fontSize: 11, fontWeight: 600, color: isReleased ? T.text3 : T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isReleased ? "line-through" : "none" }}>
-                                  {it.ticket || it.note?.slice(0, 28) || "—"}
-                                  {isCarryOver(it) && <span style={{ marginLeft: 5, fontSize: 9, color: T.amber, fontWeight: 700 }}>↻</span>}
-                                </div>
-                                {/* Progress badge — click to cycle */}
-                                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                                  <button
-                                    onClick={() => cycleProgress(oi, ii)}
-                                    title="Click to update progress"
-                                    disabled={isReleased}
-                                    style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 12, cursor: isReleased ? "default" : "pointer", fontSize: 10, fontWeight: 700, background: `${prog.color}18`, color: prog.color, border: `1px solid ${prog.color}35`, transition: "all 0.15s", opacity: isReleased ? 0.5 : 1 }}>
-                                    {prog.icon} {prog.label}
-                                  </button>
-                                  {isBlocked && <span style={{ fontSize: 9, color: T.coral, fontWeight: 700 }}>BLOCKED</span>}
-                                  {isReleased && <span style={{ fontSize: 9, color: T.emerald, fontWeight: 700 }}>RELEASED</span>}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* ══ RIGHT: Flat Release Board ══ */}
-                <div style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
-                  {sorted.length === 0 ? (
-                    <div style={{ padding: "28px 20px", fontSize: 13, color: T.text3, textAlign: "center", fontStyle: "italic" }}>No items yet</div>
-                  ) : (
-                    <div>
-                      {/* Column headers */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 16px", borderBottom: `1px solid ${T.border}`, background: T.navy0 }}>
-                        <div style={{ width: 112, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>Release Status</div>
-                        <div style={{ width: 108, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>Progress</div>
-                        <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em" }}>Ticket / Note</div>
-                        <div style={{ width: 80, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>QA</div>
-                        <div style={{ width: 138, fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0, textAlign: "right" }}>Actions</div>
-                      </div>
-
-                      {sorted.map(({ it, oi, ii, owner, co }, rowIdx) => {
-                        const rs   = RELEASE_STATUSES.find(s => s.key === it.status);
-                        const prog = PROGRESS_OPTIONS.find(p => p.key === (it.progress || "not-started")) || PROGRESS_OPTIONS[0];
-                        const isBlocked  = it.status === "blocked";
-                        const isReleased = it.status === "released";
-                        const rowBg      = isBlocked ? `${T.coral}09` : co ? `${T.amber}07` : "transparent";
-                        const rowBgHover = isBlocked ? `${T.coral}16` : co ? `${T.amber}13` : `${T.accent}06`;
-                        return (
-                          <div key={`board-${oi}-${ii}-${rowIdx}`}
-                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderBottom: `1px solid ${T.border}`, background: rowBg, opacity: isReleased ? 0.52 : 1, transition: "background 0.12s" }}
-                            onMouseEnter={e => { e.currentTarget.style.background = rowBgHover; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = rowBg; }}
-                          >
-                            {/* Release status badge — click to cycle */}
-                            <button onClick={() => cycleStatus(oi, ii)} title="Click to cycle release status"
-                              style={{ width: 112, display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 9px", borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", background: `${rs?.color || T.text3}18`, color: rs?.color || T.text3, border: `1px solid ${rs?.color || T.text3}30` }}>
-                              {rs?.icon} {rs?.label || it.status}
-                            </button>
-
-                            {/* Progress badge — click to cycle */}
-                            <button onClick={() => cycleProgress(oi, ii)} title="Click to update progress" disabled={isReleased}
-                              style={{ width: 108, display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 9px", borderRadius: 20, cursor: isReleased ? "default" : "pointer", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, transition: "all 0.15s", background: `${prog.color}15`, color: prog.color, border: `1px solid ${prog.color}32`, opacity: isReleased ? 0.5 : 1 }}>
-                              {prog.icon} {prog.label}
-                            </button>
-
-                            {/* Ticket + Note */}
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                                {it.ticket && <span style={{ fontSize: 13, fontWeight: 700, color: isReleased ? T.text3 : T.text1, textDecoration: isReleased ? "line-through" : "none" }}>{it.ticket}</span>}
-                                {co && <span title="Not released yesterday" style={{ fontSize: 10, fontWeight: 700, color: T.amber, background: `${T.amber}18`, border: `1px solid ${T.amber}40`, padding: "1px 6px", borderRadius: 8 }}>↻ carried</span>}
-                              </div>
-                              {it.note && <div style={{ fontSize: 11, color: T.text3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.note}</div>}
-                              {it.action && <div style={{ fontSize: 11, color: T.amber, marginTop: 1 }}>→ {it.action}</div>}
-                            </div>
-
-                            {/* QA owner chip */}
-                            <div style={{ width: 80, flexShrink: 0 }}>
-                              <span style={{ fontSize: 11, color: T.accent2, background: `${T.accent}12`, border: `1px solid ${T.accent}25`, padding: "3px 8px", borderRadius: 20, fontWeight: 600, display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{owner.name}</span>
-                            </div>
-
-                            {/* Actions */}
-                            <div style={{ width: 138, display: "flex", gap: 5, flexShrink: 0, justifyContent: "flex-end" }}>
-                              {!isReleased && (
-                                <button onClick={() => { setItemStatus(oi, ii, "released"); setItemProgress(oi, ii, "done"); }} title="Mark released & done"
-                                  style={{ padding: "4px 11px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", background: "rgba(76,175,80,0.12)", color: T.emerald, border: "1px solid rgba(76,175,80,0.3)", whiteSpace: "nowrap" }}>
-                                  ✅ Done
-                                </button>
-                              )}
-                              {isReleased && (
-                                <button onClick={() => { setItemStatus(oi, ii, "review"); setItemProgress(oi, ii, "in-review"); }} title="Reopen this item"
-                                  style={{ padding: "4px 11px", fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>
-                                  ↩ Reopen
-                                </button>
-                              )}
-                              {!isBlocked && !isReleased && (
-                                <button onClick={() => setItemStatus(oi, ii, "blocked")} title="Mark as blocked"
-                                  style={{ padding: "4px 9px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", background: `${T.coral}12`, color: T.coral, border: `1px solid ${T.coral}35`, whiteSpace: "nowrap" }}>
-                                  🔴 Block
-                                </button>
-                              )}
-                              {isBlocked && (
-                                <button onClick={() => setItemStatus(oi, ii, "review")} title="Unblock — move to In Review"
-                                  style={{ padding: "4px 11px", fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>
-                                  ↩ Unblock
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
+              {/* Owner avatar */}
+              <div style={{ width: 34, height: 34, borderRadius: "50%", background: `${accentColor}20`, border: `2px solid ${accentColor}45`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: accentColor, flexShrink: 0, marginTop: 2 }}>
+                {owner.name[0].toUpperCase()}
               </div>
-            );
-          })()}
+
+              {/* Main content */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {/* Task name + meta */}
+                <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginBottom: 3 }}>
+                  {it.ticket && <span style={{ fontSize: 13, fontWeight: 700, color: isReleased ? T.text3 : T.text1, textDecoration: isReleased ? "line-through" : "none" }}>{it.ticket}</span>}
+                  {co && <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, background: `${T.amber}18`, border: `1px solid ${T.amber}38`, padding: "1px 7px", borderRadius: 8 }}>↻ carried</span>}
+                  <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: accentColor, background: `${accentColor}12`, border: `1px solid ${accentColor}25`, padding: "1px 8px", borderRadius: 20 }}>{owner.name}</span>
+                </div>
+                {it.note && <div style={{ fontSize: 11, color: T.text3, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.note}</div>}
+                {it.action && <div style={{ fontSize: 11, color: T.amber }}>→ {it.action}</div>}
+
+                {/* Status + progress row */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                  {/* Release status — click to cycle */}
+                  <button onClick={() => cycleStatus(oi, ii)} title="Click to change release status"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 700, background: `${rs?.color || T.text3}16`, color: rs?.color || T.text3, border: `1px solid ${rs?.color || T.text3}30`, transition: "all 0.15s", fontFamily: "'DM Sans', sans-serif" }}>
+                    {rs?.icon} {rs?.label || it.status}
+                  </button>
+                  {/* Progress — click to cycle */}
+                  {!isReleased && (
+                    <button onClick={() => cycleProgress(oi, ii)} title="Click to update progress"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 700, background: `${prog.color}14`, color: prog.color, border: `1px solid ${prog.color}30`, transition: "all 0.15s" }}>
+                      {prog.icon} {prog.label}
+                    </button>
+                  )}
+                  {isReleased && <span style={{ fontSize: 10, fontWeight: 700, color: T.emerald, letterSpacing: "0.04em" }}>✓ RELEASED</span>}
+                </div>
+              </div>
+
+              {/* Action buttons (right column) */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 5, flexShrink: 0, justifyContent: "center" }}>
+                {!isReleased && (
+                  <button onClick={() => { setItemStatus(oi, ii, "released"); setItemProgress(oi, ii, "done"); }} title="Mark as released"
+                    style={{ padding: "5px 12px", fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: "pointer", background: "rgba(76,175,80,0.12)", color: T.emerald, border: "1px solid rgba(76,175,80,0.28)", whiteSpace: "nowrap" }}>
+                    ✅ Release
+                  </button>
+                )}
+                {isReleased && (
+                  <button onClick={() => { setItemStatus(oi, ii, "review"); setItemProgress(oi, ii, "in-review"); }} title="Reopen this item"
+                    style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, borderRadius: 7, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>
+                    ↩ Reopen
+                  </button>
+                )}
+                {!isBlocked && !isReleased && (
+                  <button onClick={() => setItemStatus(oi, ii, "blocked")} title="Mark as blocked"
+                    style={{ padding: "5px 12px", fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: "pointer", background: `${T.coral}10`, color: T.coral, border: `1px solid ${T.coral}30`, whiteSpace: "nowrap" }}>
+                    🔴 Block
+                  </button>
+                )}
+                {isBlocked && (
+                  <button onClick={() => setItemStatus(oi, ii, "today")} title="Unblock — move to Today"
+                    style={{ padding: "5px 12px", fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: "pointer", background: `${T.teal}10`, color: T.teal, border: `1px solid ${T.teal}30`, whiteSpace: "nowrap" }}>
+                    ↩ Unblock
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        return (
+          <div style={{ marginTop: 24, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", borderBottom: `1px solid ${T.border}`, background: T.navy1 }}>
+              <span style={{ fontSize: 15 }}>📊</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>QA Release Board</div>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {grpBlocked.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.coral, background: `${T.coral}15`, border: `1px solid ${T.coral}30`, borderRadius: 20, padding: "3px 10px" }}>🔴 {grpBlocked.length} blocked</span>}
+                {flat.filter(x => x.co).length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, background: `${T.amber}15`, border: `1px solid ${T.amber}30`, borderRadius: 20, padding: "3px 10px" }}>↻ {flat.filter(x => x.co).length} carried</span>}
+                {grpReleased.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.emerald, background: `${T.emerald}12`, border: `1px solid ${T.emerald}28`, borderRadius: 20, padding: "3px 10px" }}>✅ {grpReleased.length} released</span>}
+                <span style={{ fontSize: 11, color: T.text3, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 20, padding: "3px 10px" }}>{sortedActive.length} active</span>
+              </div>
+              <button onClick={() => setBoardOpen(b => !b)}
+                style={{ padding: "5px 12px", fontSize: 11, borderRadius: 7, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, fontWeight: 600, whiteSpace: "nowrap" }}>
+                {boardOpen ? "▲ Collapse" : "▼ Expand"}
+              </button>
+            </div>
+
+            {boardOpen && (
+              <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 20 }}>
+
+                {/* ── Blocked group ── */}
+                {grpBlocked.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.coral, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 9, display: "flex", alignItems: "center", gap: 7 }}>
+                      🔴 Blocked <span style={{ background: `${T.coral}18`, border: `1px solid ${T.coral}30`, borderRadius: 10, padding: "1px 7px", fontSize: 10 }}>{grpBlocked.length}</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {grpBlocked.map((item, i) => renderCard(item, `bl-${i}`))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Active group ── */}
+                {sortedActive.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.accent2, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 9, display: "flex", alignItems: "center", gap: 7 }}>
+                      ⚡ Active <span style={{ background: `${T.accent}15`, border: `1px solid ${T.accent}28`, borderRadius: 10, padding: "1px 7px", fontSize: 10, color: T.accent }}>{sortedActive.length}</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {sortedActive.map((item, i) => renderCard(item, `ac-${i}`))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Released group ── */}
+                {grpReleased.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.emerald, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 9, display: "flex", alignItems: "center", gap: 7 }}>
+                      ✅ Released <span style={{ background: `${T.emerald}14`, border: `1px solid ${T.emerald}28`, borderRadius: 10, padding: "1px 7px", fontSize: 10 }}>{grpReleased.length}</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {grpReleased.map((item, i) => renderCard(item, `rl-${i}`))}
+                    </div>
+                  </div>
+                )}
+
+                {flat.length === 0 && (
+                  <div style={{ padding: "20px 0", textAlign: "center", color: T.text3, fontSize: 13, fontStyle: "italic" }}>No items yet</div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+    </div>
+  );
+}
+
+// ─── Sprint Board ─────────────────────────────────────────────────────────────
+// Returns cached sprint tickets for cross-feature use (diary autocomplete, release picker)
+function getJiraCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem("echo_jira_tickets_cache") || "null");
+    return (c && Array.isArray(c.tickets)) ? c.tickets : [];
+  } catch { return []; }
+}
+
+// Count working days (Mon–Fri) between two timestamps, skipping weekends.
+function workingDays(startMs, endMs) {
+  if (endMs <= startMs) return 0;
+  const MS = 86400000;
+  let count = 0;
+  const cur = new Date(startMs);
+  cur.setHours(0, 0, 0, 0);
+  const end = new Date(endMs);
+  while (cur.getTime() < end.getTime()) {
+    const dow = cur.getDay();
+    if (dow !== 0 && dow !== 6) {
+      const dayEnd = Math.min(cur.getTime() + MS, endMs);
+      const dayStart = Math.max(cur.getTime(), startMs);
+      count += (dayEnd - dayStart) / MS;
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return Math.max(0, count);
+}
+
+// Returns the date when `assigneeEmail` was most recently assigned to this ticket.
+// If they were the original assignee (no assignment change) and the ticket predates the
+// sprint start, uses the sprint start so we don't count stale pre-sprint time.
+function findAssignedAt(assigneeChanges, assigneeEmail, created, sprintStart) {
+  if (!assigneeEmail) return sprintStart || created;
+  const em = assigneeEmail.toLowerCase();
+  const assignments = (assigneeChanges || []).filter(c => (c.toEmail || "").toLowerCase() === em);
+  let assignedDate = assignments.length > 0
+    ? assignments[assignments.length - 1].created
+    : created; // original assignee
+  // Cap: if assigned before this sprint started, use sprint start
+  if (sprintStart && new Date(assignedDate) < new Date(sprintStart)) {
+    assignedDate = sprintStart;
+  }
+  return assignedDate;
+}
+
+// Computes time-in-status breakdown (working days only) from when the ticket was
+// assigned to the current person.
+function calcTicketTime(assignedAt, statusChanges) {
+  const now = Date.now();
+  const startMs = new Date(assignedAt).getTime();
+
+  // Find what status the ticket was in at the moment of assignment
+  const priorChanges = (statusChanges || []).filter(c => new Date(c.created).getTime() < startMs);
+  const statusAtAssignment = priorChanges.length > 0 ? priorChanges[priorChanges.length - 1].to : "To Do";
+
+  // Only count status transitions after assignment
+  const relevantChanges = (statusChanges || []).filter(c => new Date(c.created).getTime() >= startMs);
+  const events = [
+    { created: assignedAt, to: statusAtAssignment },
+    ...relevantChanges,
+  ].sort((a, b) => new Date(a.created) - new Date(b.created));
+
+  const timeByStatus = {};
+  events.forEach((ev, i) => {
+    const start = new Date(ev.created).getTime();
+    const end = i < events.length - 1 ? new Date(events[i + 1].created).getTime() : now;
+    const days = workingDays(start, end);
+    timeByStatus[ev.to] = (timeByStatus[ev.to] || 0) + days;
+  });
+
+  const last = events[events.length - 1];
+  // Dev = time actively being worked on by a developer
+  const DEV_KEYS = ["In Progress", "In Development", "Development", "In Dev", "Analysis", "In Analysis"];
+  // QA = time in QA hands (waiting or actively testing/reviewing)
+  const QA_KEYS = ["Ready for QA", "In Review", "Code Review", "Review", "In QA", "Testing", "QA In Progress", "QA", "UAT", "Ready for Testing"];
+  // Everything else = idle (To Do, Backlog, Reopened, etc.)
+  const devDays  = DEV_KEYS.reduce((acc, k) => acc + (timeByStatus[k] || 0), 0);
+  const qaDays   = QA_KEYS.reduce((acc, k) => acc + (timeByStatus[k] || 0), 0);
+  const idleDays = Object.entries(timeByStatus)
+    .filter(([k]) => !DEV_KEYS.includes(k) && !QA_KEYS.includes(k))
+    .reduce((acc, [, v]) => acc + v, 0);
+  const currentStatusLower = (last.to || "").toLowerCase();
+  // Smart stale flag: thresholds vary by current status phase
+  const currentDays = workingDays(new Date(last.created).getTime(), now);
+  const isStale = (
+    (QA_KEYS.some(k => k.toLowerCase() === currentStatusLower) && qaDays > 3) ||   // in QA queue > 3 days
+    (DEV_KEYS.some(k => k.toLowerCase() === currentStatusLower) && devDays > 5) ||  // in dev > 5 days
+    (idleDays > 2 && devDays === 0 && qaDays === 0)                                 // not started > 2 days
+  );
+  return {
+    timeByStatus, currentStatus: last.to, currentDays,
+    devDays, qaDays, idleDays, isStale,
+    daysAssigned: workingDays(startMs, now),
+  };
+}
+
+const ISSUE_TYPE_ICON = { Bug: "🐛", Story: "📖", Task: "✓", "Sub-task": "↳", Epic: "⚡", Test: "🧪" };
+const PRIORITY_ICON   = { Critical: "🔴", Highest: "🔴", High: "🟠", Medium: "🟡", Low: "🟢", Lowest: "🔵", P1: "🔴", P2: "🟠", P3: "🟡", P4: "🟢", P5: "🔵" };
+const PRIORITY_COLOR_MAP = { Critical: "#EF4444", Highest: "#EF4444", High: "#F97316", Medium: "#F5C243", Low: "#34D9B3", Lowest: "#9A99AD", P1: "#EF4444", P2: "#F97316", P3: "#F5C243", P4: "#34D9B3", P5: "#9A99AD" };
+
+function jiraStatusColor(status, category) {
+  const s = (status || "").toLowerCase();
+  if (s.includes("block")) return T.coral;
+  if (category === "Done") return T.emerald;
+  if (category === "In Progress") return T.accent;
+  if (s.includes("review")) return T.amber;
+  return T.text3;
+}
+
+function SprintBoard({ user }) {
+  const [config, setConfig] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("echo_jira_config") || "null"); } catch { return null; }
+  });
+  const [showSettings, setShowSettings] = useState(!config);
+  const [form, setForm] = useState(() => config || {
+    baseUrl: "", email: "", token: "", projectKey: "",
+    teamMembers: [{ name: "", jiraEmail: "" }],
+  });
+  const [metaLoaded, setMetaLoaded] = useState(false);
+  const [tickets, setTickets]       = useState([]);
+  const [sprintName, setSprintName] = useState("");
+  const [sprintStartIso, setSprintStartIso] = useState("");
+  const [sprintDates, setSprintDates] = useState({ start: "", end: "" });
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState("");
+  const [filter, setFilter]         = useState("all");
+  const [notes, setNotes]           = useState(() => {
+    try { return JSON.parse(localStorage.getItem("echo_jira_notes") || "{}"); } catch { return {}; }
+  });
+  const [editingNote, setEditingNote] = useState(null);
+  const [noteText, setNoteText]       = useState("");
+  const [copied, setCopied]           = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
+
+  // ── OPS Coaching state
+  const [opsCoaching, setOpsCoaching] = useState(null);
+  const [opsLoading, setOpsLoading]   = useState(false);
+  const [opsError, setOpsError]       = useState("");
+  const [opsOpen, setOpsOpen]         = useState(true);
+
+  // ── Time Report state
+  const [showTimeReport, setShowTimeReport] = useState(false);
+  const [timeData, setTimeData]             = useState(null);
+  const [timeLoading, setTimeLoading]       = useState(false);
+  const [timeCopied, setTimeCopied]         = useState(false);
+
+  // ── Sprint Notes state
+  const [sprintNotes, setSprintNotes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("echo_sprint_notes") || "[]"); } catch { return []; }
+  });
+  const [notesOpen, setNotesOpen]       = useState(true);
+  const [addingNote, setAddingNote]     = useState(false);
+  const [sprintNoteText, setSprintNoteText] = useState("");
+  const [sprintNoteTicket, setSprintNoteTicket] = useState("");
+  const saveSprintNotes = (n) => { setSprintNotes(n); localStorage.setItem("echo_sprint_notes", JSON.stringify(n)); };
+
+  // ── Sprint Retro state
+  const [retroOpen, setRetroOpen]         = useState(true);
+  const [retroEditMode, setRetroEditMode] = useState(false);
+  const [retroDraft, setRetroDraft]       = useState({ went_well: "", to_improve: "", guidance: "", shout_outs: "" });
+  const [savedRetro, setSavedRetro]       = useState(null);
+  const retroKey = `echo_sprint_retro_${sprintName || "default"}`;
+  const saveRetro = () => {
+    localStorage.setItem(retroKey, JSON.stringify(retroDraft));
+    setSavedRetro(retroDraft);
+    setRetroEditMode(false);
+  };
+
+  const saveNotes = (n) => { setNotes(n); localStorage.setItem("echo_jira_notes", JSON.stringify(n)); };
+
+  // Load saved retro when sprint changes
+  useEffect(() => {
+    if (!sprintName) return;
+    try {
+      const d = JSON.parse(localStorage.getItem(`echo_sprint_retro_${sprintName}`) || "null");
+      setSavedRetro(d);
+      if (d) setRetroDraft(d);
+      else setRetroDraft({ went_well: "", to_improve: "", guidance: "", shout_outs: "" });
+    } catch {}
+  }, [sprintName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // On mount: if no local JIRA config, try to restore base config (not token) from Supabase user_metadata
+  useEffect(() => {
+    if (config || metaLoaded) return;
+    const token = localStorage.getItem("echo_token");
+    if (!token) { setMetaLoaded(true); return; }
+    fetch(`${_AUTH()}/user`, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(u => {
+        const meta = u?.user_metadata;
+        if (meta?.jira_baseUrl) {
+          setForm(f => ({
+            ...f,
+            baseUrl: meta.jira_baseUrl || "",
+            email: meta.jira_email || "",
+            projectKey: meta.jira_projectKey || "",
+            teamMembers: Array.isArray(meta.jira_teamMembers) && meta.jira_teamMembers.length
+              ? meta.jira_teamMembers : [{ name: "", jiraEmail: "" }],
+          }));
+        }
+        setMetaLoaded(true);
+      }).catch(() => setMetaLoaded(true));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fetchSprint = async (cfg) => {
+    const c = cfg || config;
+    if (!c) return;
+    setLoading(true); setError("");
+    try {
+      const teamEmails = [c.email, ...(c.teamMembers || []).map(m => m.jiraEmail).filter(Boolean)];
+      const assigneeFilter = teamEmails.length ? ` AND assignee in (${teamEmails.map(e => `"${e}"`).join(",")})` : "";
+      const jql = `sprint in openSprints() AND project = "${c.projectKey}"${assigneeFilter} ORDER BY assignee, status`;
+      const r = await fetch("/api/jira", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseUrl: c.baseUrl, email: c.email, token: c.token, jql,
+          fields: "summary,assignee,status,priority,issuetype,customfield_10016,customfield_10020,labels,components,duedate,timespent,timeoriginalestimate,parent,fixVersions",
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) { setError(data.error || data.errorMessages?.join(", ") || "JIRA API error"); setLoading(false); return; }
+      const issues = data.issues || [];
+      // Extract sprint name + dates from first issue's sprint field
+      for (const issue of issues) {
+        const sprints = issue.fields.customfield_10020;
+        if (Array.isArray(sprints)) {
+          const active = sprints.find(s => s.state === "active") || sprints[0];
+          if (active) {
+            setSprintName(active.name || "");
+            setSprintStartIso(active.startDate || "");
+            setSprintDates({
+              start: active.startDate ? new Date(active.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "",
+              end:   active.endDate   ? new Date(active.endDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "",
+            });
+            break;
+          }
+        }
+      }
+      const fmtSeconds = (s) => {
+        if (!s) return null;
+        const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60);
+        return h > 0 ? `${h}h ${m > 0 ? m + "m" : ""}`.trim() : `${m}m`;
+      };
+      const mapped = issues.map(issue => {
+        const f = issue.fields;
+        return {
+          key:            issue.key,
+          summary:        f.summary,
+          assigneeEmail:  f.assignee?.emailAddress || "",
+          assigneeName:   f.assignee?.displayName || "Unassigned",
+          status:         f.status?.name || "Unknown",
+          statusCategory: f.status?.statusCategory?.name || "",
+          priority:       f.priority?.name || "",
+          issueType:      f.issuetype?.name || "Task",
+          storyPoints:    f.customfield_10016 || null,
+          url:            `${c.baseUrl.replace(/\/$/, "")}/browse/${issue.key}`,
+          labels:         f.labels || [],
+          components:     (f.components || []).map(x => x.name),
+          dueDate:        f.duedate || null,
+          timeSpent:      fmtSeconds(f.timespent),
+          timeEstimate:   fmtSeconds(f.timeoriginalestimate),
+          parent:         f.parent ? { key: f.parent.key, summary: f.parent.fields?.summary || "" } : null,
+          fixVersions:    (f.fixVersions || []).map(v => v.name),
+        };
+      });
+      setTickets(mapped);
+      // Cache for cross-feature use (diary, release status, 1:1 brief, etc.)
+      try {
+        localStorage.setItem("echo_jira_tickets_cache", JSON.stringify({
+          ts: Date.now(), projectKey: c.projectKey,
+          tickets: mapped.map(t => ({
+            key: t.key, summary: t.summary, status: t.status,
+            statusCategory: t.statusCategory, assigneeName: t.assigneeName,
+            assigneeEmail: t.assigneeEmail, labels: t.labels,
+            components: t.components, dueDate: t.dueDate, parent: t.parent,
+          })),
+        }));
+      } catch (_) {}
+    } catch (err) { setError(err.message); }
+    setLoading(false);
+  };
+
+  useEffect(() => { if (config) fetchSprint(config); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveConfig = () => {
+    const c = { ...form, teamMembers: form.teamMembers.filter(m => m.name || m.jiraEmail) };
+    setConfig(c); localStorage.setItem("echo_jira_config", JSON.stringify(c));
+    // Persist non-sensitive fields to Supabase user_metadata (token stays local only)
+    const authToken = localStorage.getItem("echo_token");
+    if (authToken) {
+      fetch(`${_AUTH()}/user`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ data: {
+          jira_baseUrl: c.baseUrl,
+          jira_email: c.email,
+          jira_projectKey: c.projectKey,
+          jira_teamMembers: c.teamMembers,
+        }}),
+      }).catch(() => {});
+    }
+    setShowSettings(false); fetchSprint(c);
+  };
+
+  const fetchOpsCoaching = async () => {
+    setOpsLoading(true); setOpsError(""); setOpsCoaching(null);
+    try {
+      const myTickets = tickets.filter(t => {
+        const em = t.assigneeEmail.toLowerCase();
+        return em && em === (config?.email || "").toLowerCase() && t.statusCategory !== "Done";
+      });
+      if (!myTickets.length) { setOpsError("No active tickets assigned to you."); setOpsLoading(false); return; }
+      const result = await callGroqOPS(myTickets);
+      setOpsCoaching(result);
+      setOpsOpen(true);
+    } catch (err) { setOpsError(err.message); }
+    setOpsLoading(false);
+  };
+
+  // Match ticket to configured team member by email; user's own email → "Me"
+  const memberForTicket = (ticket) => {
+    if (!config) return null;
+    const em = ticket.assigneeEmail.toLowerCase();
+    if (em && em === (config.email || "").toLowerCase()) return { name: "Me" };
+    return config.teamMembers.find(m => m.jiraEmail?.toLowerCase() === em) || null;
+  };
+  const memberLabel = (ticket) => {
+    const m = memberForTicket(ticket);
+    return m ? m.name : ticket.assigneeName;
+  };
+
+  // Group tickets by team member (hide Done tickets unless user opts in)
+  const visibleTickets = showCompleted ? tickets : tickets.filter(t => t.statusCategory !== "Done");
+  const filtered = filter === "all" ? visibleTickets : visibleTickets.filter(t => memberLabel(t) === filter);
+  const groups = {};
+  filtered.forEach(t => {
+    const lbl = memberLabel(t);
+    if (!groups[lbl]) groups[lbl] = [];
+    groups[lbl].push(t);
+  });
+
+  // Stats across ALL tickets
+  const allBlocked   = tickets.filter(t => (t.status || "").toLowerCase().includes("block")).length;
+  const allDone      = tickets.filter(t => t.statusCategory === "Done").length;
+  const allInProg    = tickets.filter(t => t.statusCategory === "In Progress" && !(t.status || "").toLowerCase().includes("block")).length;
+  const allTodo      = tickets.filter(t => t.statusCategory === "To Do").length;
+  const members      = config ? [...new Set(tickets.map(t => memberLabel(t)))] : [];
+
+  // Fetch JIRA changelogs to build the time report
+  const fetchTimeReport = async () => {
+    if (!config || tickets.length === 0) return;
+    setTimeLoading(true); setTimeData(null); setShowTimeReport(true);
+    try {
+      const r = await fetch("/api/jira-time", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ baseUrl: config.baseUrl, email: config.email, token: config.token, issueKeys: tickets.map(t => t.key) }),
+      });
+      const data = await r.json();
+      setTimeData(data);
+    } catch (err) {
+      setTimeData({ error: err.message });
+    }
+    setTimeLoading(false);
+  };
+
+  const copyTimeReport = () => {
+    if (!timeData) return;
+    const now = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    let txt = `⏱ Time in Status Report — ${sprintName || "Current Sprint"}\nGenerated: ${now}\n\n`;
+    Object.entries(groups).forEach(([member, memberTickets]) => {
+      txt += `👤 ${member.toUpperCase()}\n${"─".repeat(40)}\n`;
+      memberTickets.forEach(t => {
+        const td = timeData[t.key];
+        if (!td || td.error) { txt += `  ${t.key}  ${t.summary}  [data unavailable]\n`; return; }
+        const assignedAt = findAssignedAt(td.assigneeChanges, t.assigneeEmail, td.created, sprintStartIso);
+        const tt = calcTicketTime(assignedAt, td.statusChanges);
+        const flag = t.statusCategory === "Done" ? "✅" : tt.isStale && tt.qaDays > 3 ? "⏳" : tt.isStale && tt.devDays > 5 ? "🐌" : tt.isStale ? "💤" : "";
+        txt += `  ${flag ? flag + " " : ""}${t.key}  ${t.summary}  [${tt.currentStatus}]\n`;
+        const parts = [`Assigned: ${tt.daysAssigned.toFixed(1)}d`];
+        if (tt.devDays > 0) parts.push(`Dev: ${tt.devDays.toFixed(1)}d`);
+        if (tt.qaDays > 0) parts.push(`QA: ${tt.qaDays.toFixed(1)}d`);
+        if (tt.idleDays > 0.1) parts.push(`Idle: ${tt.idleDays.toFixed(1)}d`);
+        txt += `    ${parts.join("  ·  ")}\n`;
+      });
+      txt += "\n";
+    });
+    txt += "─".repeat(40) + "\nGenerated from Echo Workspace";
+    navigator.clipboard.writeText(txt).then(() => { setTimeCopied(true); setTimeout(() => setTimeCopied(false), 2200); });
+  };
+
+  // Copy report
+  const copyReport = () => {
+    const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    let txt = `📊 Sprint Report — ${sprintName || "Current Sprint"}\n`;
+    txt += `Date: ${dateStr}`;
+    if (sprintDates.start && sprintDates.end) txt += `  |  ${sprintDates.start} – ${sprintDates.end}`;
+    txt += `\nProject: ${config?.projectKey || ""}\n\n`;
+    txt += `Summary: ${allDone} done · ${allInProg} in progress · ${allBlocked} blocked · ${allTodo} to do\n`;
+    txt += "─".repeat(48) + "\n";
+    Object.entries(groups).forEach(([member, memberTickets]) => {
+      txt += `\n👤 ${member.toUpperCase()} (${memberTickets.length} ticket${memberTickets.length !== 1 ? "s" : ""})\n`;
+      memberTickets.forEach(t => {
+        const icon = t.statusCategory === "Done" ? "✅" : t.status.toLowerCase().includes("block") ? "🔴" : t.statusCategory === "In Progress" ? "🔵" : "⚪";
+        txt += `  ${icon} ${t.key}  ${t.summary}  [${t.status}]`;
+        if (t.storyPoints) txt += `  ${t.storyPoints}pts`;
+        txt += "\n";
+        const meta = [];
+        if (t.components?.length) meta.push(`Component: ${t.components.join(", ")}`);
+        if (t.labels?.length) meta.push(`Labels: ${t.labels.join(", ")}`);
+        if (t.dueDate) {
+          const diff = Math.round((new Date(t.dueDate + "T00:00:00") - new Date()) / 86400000);
+          meta.push(`Due: ${t.dueDate}${diff < 0 ? " ⚠️ OVERDUE" : diff === 0 ? " (today)" : ""}`);
+        }
+        if (t.timeSpent) meta.push(`Logged: ${t.timeSpent}${t.timeEstimate ? " / " + t.timeEstimate : ""}`);
+        if (t.parent) meta.push(`Epic: ${t.parent.key}`);
+        if (meta.length) txt += `      ${meta.join("  ·  ")}\n`;
+        const note = notes[t.key];
+        if (note) txt += `      📝 ${note}\n`;
+      });
+    });
+    txt += "\n─".repeat(48) + "\nGenerated from Echo Workspace";
+    navigator.clipboard.writeText(txt).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2200); });
+  };
+
+  // ── Settings panel ──
+  if (showSettings) return (
+    <div className="echo-content fade-in">
+      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif", marginBottom: 4 }}>Connect to JIRA</div>
+          <div style={{ fontSize: 13, color: T.text3 }}>One-time setup — credentials stored only in your browser.</div>
+        </div>
+
+        {[
+          { label: "JIRA Domain", key: "baseUrl", placeholder: "https://yourcompany.atlassian.net", type: "text" },
+          { label: "Your Email",  key: "email",   placeholder: "you@company.com", type: "email" },
+          { label: "API Token",   key: "token",   placeholder: "••••••••", type: "password", hint: "Generate at: atlassian.com/manage-profile/security/api-tokens" },
+          { label: "Project Key", key: "projectKey", placeholder: "DAT or DATMAN", type: "text" },
+        ].map(f => (
+          <div key={f.key} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.text2, marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em" }}>{f.label}</div>
+            <input type={f.type} value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
+              placeholder={f.placeholder}
+              style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.navy2, color: T.text1, fontSize: 13, outline: "none", fontFamily: "'DM Sans', sans-serif" }} />
+            {f.hint && <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>{f.hint}</div>}
+          </div>
+        ))}
+
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text2, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Team Members</div>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 10 }}>Map people to their JIRA email so tickets group by name.</div>
+          {form.teamMembers.map((m, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+              <input placeholder="Display name (e.g. Rohit)" value={m.name} onChange={e => {
+                const t = [...form.teamMembers]; t[i] = { ...t[i], name: e.target.value }; setForm(p => ({ ...p, teamMembers: t }));
+              }} style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.navy2, color: T.text1, fontSize: 12, outline: "none" }} />
+              <input placeholder="JIRA email" value={m.jiraEmail} onChange={e => {
+                const t = [...form.teamMembers]; t[i] = { ...t[i], jiraEmail: e.target.value }; setForm(p => ({ ...p, teamMembers: t }));
+              }} style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.navy2, color: T.text1, fontSize: 12, outline: "none" }} />
+              <button onClick={() => setForm(p => ({ ...p, teamMembers: p.teamMembers.filter((_, j) => j !== i) }))}
+                style={{ padding: "5px 9px", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, borderRadius: 7, cursor: "pointer", fontSize: 13 }}>✕</button>
+            </div>
+          ))}
+          <button onClick={() => setForm(p => ({ ...p, teamMembers: [...p.teamMembers, { name: "", jiraEmail: "" }] }))}
+            style={{ padding: "6px 14px", fontSize: 12, borderRadius: 7, cursor: "pointer", background: "transparent", color: T.accent2, border: `1px solid ${T.accent}40`, fontWeight: 600 }}>
+            + Add member
+          </button>
+        </div>
+
+        {error && <div style={{ padding: "10px 14px", background: `${T.coral}12`, border: `1px solid ${T.coral}35`, borderRadius: 8, color: T.coral, fontSize: 12, marginBottom: 16 }}>{error}</div>}
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={saveConfig}
+            style={{ flex: 1, padding: "11px 20px", borderRadius: 9, cursor: "pointer", fontWeight: 700, fontSize: 13, background: T.accent, color: "#fff", border: "none", fontFamily: "'DM Sans', sans-serif" }}>
+            {loading ? "Connecting…" : "Save & Connect to JIRA"}
+          </button>
+          {config && <button onClick={() => setShowSettings(false)}
+            style={{ padding: "11px 16px", borderRadius: 9, cursor: "pointer", fontWeight: 600, fontSize: 13, background: "transparent", color: T.text2, border: `1px solid ${T.border}` }}>
+            Cancel
+          </button>}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Main board ──
+  return (
+    <div className="echo-content fade-in">
+
+      {/* Top bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {sprintName && <div style={{ fontSize: 15, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>{sprintName}</div>}
+          {sprintDates.start && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{sprintDates.start} – {sprintDates.end} · {config?.projectKey}</div>}
+        </div>
+        <button onClick={() => fetchSprint()} disabled={loading}
+          style={{ padding: "7px 14px", fontSize: 12, borderRadius: 8, cursor: loading ? "default" : "pointer", background: "transparent", color: T.text2, border: `1px solid ${T.border}`, fontWeight: 600, opacity: loading ? 0.5 : 1 }}>
+          {loading ? "Loading…" : "↻ Refresh"}
+        </button>
+        <button onClick={copyReport} disabled={tickets.length === 0}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: "pointer", background: copied ? `${T.emerald}14` : T.navy3, color: copied ? T.emerald : T.text1, border: `1px solid ${copied ? T.emerald + "40" : T.border}`, transition: "all 0.2s" }}>
+          {copied ? "✓ Copied!" : "📋 Copy Report"}
+        </button>
+        <button onClick={fetchTimeReport} disabled={tickets.length === 0}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: tickets.length === 0 ? "not-allowed" : "pointer", background: showTimeReport ? `${T.accent}18` : T.navy3, color: showTimeReport ? T.accent : T.text2, border: `1px solid ${showTimeReport ? T.accent + "50" : T.border}`, opacity: tickets.length === 0 ? 0.5 : 1 }}>
+          ⏱ Time Report
+        </button>
+        <button onClick={() => setShowSettings(true)}
+          style={{ padding: "7px 12px", fontSize: 12, borderRadius: 8, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>
+          ⚙ Settings
+        </button>
+      </div>
+
+      {/* Stats strip */}
+      {tickets.length > 0 && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+          {[
+            { label: `${allDone} done`,        color: T.emerald, icon: "✅" },
+            { label: `${allInProg} in progress`, color: T.accent,  icon: "🔵" },
+            { label: `${allBlocked} blocked`,   color: T.coral,   icon: "🔴" },
+            { label: `${allTodo} to do`,        color: T.text3,   icon: "⚪" },
+          ].filter(s => parseInt(s.label) > 0).map(s => (
+            <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 20, background: `${s.color}12`, border: `1px solid ${s.color}28`, fontSize: 11, fontWeight: 700, color: s.color }}>
+              {s.icon} {s.label}
+            </div>
+          ))}
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 11, color: T.text3 }}>{tickets.length} tickets total</span>
+            {allDone > 0 && (
+              <button onClick={() => setShowCompleted(o => !o)}
+                style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 12, cursor: "pointer", background: showCompleted ? `${T.emerald}14` : "transparent", color: showCompleted ? T.emerald : T.text3, border: `1px solid ${showCompleted ? T.emerald + "40" : T.border}`, transition: "all 0.15s" }}>
+                {showCompleted ? "✓ Showing completed" : `Show ${allDone} completed`}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
+      {/* Member filter chips */}
+      {members.length > 1 && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
+          {["all", ...members].map(m => (
+            <button key={m} onClick={() => setFilter(m)}
+              style={{ padding: "5px 13px", fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: "pointer", transition: "all 0.15s", background: filter === m ? T.accent : "transparent", color: filter === m ? "#fff" : T.text2, border: `1px solid ${filter === m ? T.accent : T.border}` }}>
+              {m === "all" ? "All members" : m}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Sprint Notes (top, collapsible) ──────────────────────── */}
+      {tickets.length > 0 && (
+        <div style={{ marginBottom: 16, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", background: T.navy1, borderBottom: notesOpen ? `1px solid ${T.border}` : "none", cursor: "pointer" }} onClick={() => setNotesOpen(o => !o)}>
+            <span style={{ fontSize: 13 }}>📝</span>
+            <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
+              Sprint Notes {sprintNotes.length > 0 && <span style={{ fontSize: 11, color: T.text3, fontWeight: 400 }}>· {sprintNotes.length} note{sprintNotes.length !== 1 ? "s" : ""}</span>}
+            </div>
+            <button onClick={e => { e.stopPropagation(); setAddingNote(true); setNotesOpen(true); }}
+              style={{ padding: "4px 12px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 700, background: `${T.accent}18`, color: T.accent, border: `1px solid ${T.accent}40` }}>
+              + Add Note
+            </button>
+            <span style={{ color: T.text3, fontSize: 12, marginLeft: 4 }}>{notesOpen ? "▲" : "▼"}</span>
+          </div>
+
+          {notesOpen && (
+            <div style={{ padding: "14px 18px" }}>
+              {addingNote && (
+                <div style={{ background: `${T.accent}07`, border: `1px solid ${T.accent}25`, borderRadius: 10, padding: "14px", marginBottom: 14 }}>
+                  <textarea
+                    autoFocus
+                    placeholder="Write your note… (planning thoughts, context for ticket assignments, decisions)"
+                    value={sprintNoteText}
+                    onChange={e => setSprintNoteText(e.target.value)}
+                    style={{ width: "100%", boxSizing: "border-box", minHeight: 80, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.navy1, color: T.text1, fontSize: 13, outline: "none", fontFamily: "'DM Sans', sans-serif", resize: "vertical" }}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
+                    <select value={sprintNoteTicket} onChange={e => setSprintNoteTicket(e.target.value)}
+                      style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.navy2, color: sprintNoteTicket ? T.text1 : T.text3, fontSize: 12, outline: "none" }}>
+                      <option value="">Link to a ticket (optional)</option>
+                      {tickets.map(t => <option key={t.key} value={t.key}>{t.key} — {t.summary.slice(0, 50)}</option>)}
+                    </select>
+                    <button onClick={() => {
+                      if (!sprintNoteText.trim()) return;
+                      const note = { id: Date.now().toString(), text: sprintNoteText.trim(), linkedTicket: sprintNoteTicket || null, linkedSummary: sprintNoteTicket ? tickets.find(t => t.key === sprintNoteTicket)?.summary : null, createdAt: new Date().toISOString() };
+                      saveSprintNotes([note, ...sprintNotes]);
+                      setSprintNoteText(""); setSprintNoteTicket(""); setAddingNote(false);
+                    }} style={{ padding: "7px 18px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, background: T.accent, color: "#fff", border: "none", whiteSpace: "nowrap" }}>Save Note</button>
+                    <button onClick={() => { setAddingNote(false); setSprintNoteText(""); setSprintNoteTicket(""); }}
+                      style={{ padding: "7px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13, background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+              {sprintNotes.length === 0 && !addingNote && (
+                <div style={{ textAlign: "center", padding: "24px", color: T.text3, fontSize: 12 }}>
+                  No notes yet. Add planning notes, assignment decisions, or context you want to refer back to.
+                </div>
+              )}
+              {sprintNotes.map(n => (
+                <div key={n.id} style={{ padding: "12px 14px", background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 10, position: "relative" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      {n.linkedTicket && (
+                        <div style={{ marginBottom: 6 }}>
+                          <a href={`${config?.baseUrl?.replace(/\/$/, "")}/browse/${n.linkedTicket}`} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: 10, fontWeight: 700, color: T.accent2, fontFamily: "'Syne', sans-serif", textDecoration: "none", background: `${T.accent}14`, border: `1px solid ${T.accent}30`, borderRadius: 12, padding: "2px 9px" }}>
+                            {n.linkedTicket}
+                          </a>
+                          {n.linkedSummary && <span style={{ fontSize: 11, color: T.text3, marginLeft: 7 }}>{n.linkedSummary.slice(0, 60)}{n.linkedSummary.length > 60 ? "…" : ""}</span>}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 13, color: T.text1, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{n.text}</div>
+                      <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>
+                        {new Date(n.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                    </div>
+                    <button onClick={() => saveSprintNotes(sprintNotes.filter(x => x.id !== n.id))}
+                      style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: "0 4px", flexShrink: 0, lineHeight: 1 }}
+                      title="Delete note">✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Sprint Retro (collapsible) ──────────────────────── */}
+      {tickets.length > 0 && (
+        <div style={{ marginBottom: 16, background: T.navy2, border: `1px solid ${T.amber}35`, borderRadius: 14, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", background: T.navy1, borderBottom: retroOpen ? `1px solid ${T.border}` : "none", cursor: "pointer" }} onClick={() => setRetroOpen(o => !o)}>
+            <span style={{ fontSize: 13 }}>🔄</span>
+            <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
+              Sprint Retro {savedRetro && sprintName && <span style={{ fontSize: 11, color: T.text3, fontWeight: 400 }}>· {sprintName}</span>}
+            </div>
+            {!retroEditMode && (
+              <button onClick={e => { e.stopPropagation(); setRetroEditMode(true); setRetroOpen(true); if (!savedRetro) setRetroDraft({ went_well: "", to_improve: "", guidance: "", shout_outs: "" }); }}
+                style={{ padding: "4px 12px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 700, background: `${T.amber}18`, color: T.amber, border: `1px solid ${T.amber}45` }}>
+                {savedRetro ? "✏️ Edit" : "+ Add Retro"}
+              </button>
+            )}
+            <span style={{ color: T.text3, fontSize: 12, marginLeft: 4 }}>{retroOpen ? "▲" : "▼"}</span>
+          </div>
+
+          {retroOpen && (
+            <div style={{ padding: "14px 18px" }}>
+              {/* Empty state */}
+              {!savedRetro && !retroEditMode && (
+                <div style={{ textAlign: "center", padding: "28px 16px", color: T.text3, fontSize: 12 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>📋</div>
+                  <div style={{ fontWeight: 600, color: T.text2, marginBottom: 4 }}>No retro written yet</div>
+                  <div>Capture what went well, what to improve, and your guidance for the team next sprint.</div>
+                </div>
+              )}
+
+              {/* Edit mode */}
+              {retroEditMode && (
+                <div>
+                  {[
+                    { key: "went_well",   label: "✅ What went well this sprint?",         placeholder: "Wins, smooth processes, strong execution, team highlights…",                    color: T.teal   },
+                    { key: "to_improve",  label: "❌ What didn't go well / blockers?",      placeholder: "Delays, process gaps, repeated issues, things that need to change…",           color: T.coral  },
+                    { key: "guidance",    label: "🎯 My guidance for next sprint",          placeholder: "Specific actions, process changes, focus areas I'm recommending to the team…", color: T.accent },
+                    { key: "shout_outs",  label: "🌟 Shout-outs & individual feedback",    placeholder: "Recognise great work, call out growth moments, personal guidance per member…",  color: T.amber  },
+                  ].map(({ key, label, placeholder, color }) => (
+                    <div key={key} style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color, marginBottom: 6, letterSpacing: "0.03em" }}>{label}</div>
+                      <textarea
+                        value={retroDraft[key]}
+                        onChange={e => setRetroDraft(d => ({ ...d, [key]: e.target.value }))}
+                        placeholder={placeholder}
+                        style={{ width: "100%", boxSizing: "border-box", minHeight: 70, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.navy1, color: T.text1, fontSize: 13, outline: "none", fontFamily: "'DM Sans', sans-serif", resize: "vertical", lineHeight: 1.55 }}
+                      />
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    <button onClick={saveRetro} style={{ padding: "7px 20px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, background: T.amber, color: "#111", border: "none", fontFamily: "'DM Sans', sans-serif" }}>Save Retro</button>
+                    {savedRetro && (
+                      <button onClick={() => { if (window.confirm("Delete this retro?")) { localStorage.removeItem(retroKey); setSavedRetro(null); setRetroDraft({ went_well: "", to_improve: "", guidance: "", shout_outs: "" }); setRetroEditMode(false); } }}
+                        style={{ padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13, background: "transparent", color: T.coral, border: `1px solid ${T.coral}40` }}>Delete</button>
+                    )}
+                    <button onClick={() => { setRetroEditMode(false); if (savedRetro) setRetroDraft(savedRetro); else setRetroDraft({ went_well: "", to_improve: "", guidance: "", shout_outs: "" }); }}
+                      style={{ padding: "7px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13, background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Saved view */}
+              {savedRetro && !retroEditMode && (
+                <div>
+                  {[
+                    { key: "went_well",  label: "✅ What went well",            color: T.teal   },
+                    { key: "to_improve", label: "❌ What didn't go well",        color: T.coral  },
+                    { key: "guidance",   label: "🎯 Guidance for next sprint",   color: T.accent },
+                    { key: "shout_outs", label: "🌟 Shout-outs",                color: T.amber  },
+                  ].filter(s => savedRetro[s.key]?.trim()).map(({ key, label, color }) => (
+                    <div key={key} style={{ marginBottom: 12, padding: "12px 14px", background: T.navy3, border: `1px solid ${color}18`, borderLeft: `3px solid ${color}`, borderRadius: "0 10px 10px 0" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color, marginBottom: 6, letterSpacing: "0.03em" }}>{label}</div>
+                      <div style={{ fontSize: 13, color: T.text1, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{savedRetro[key]}</div>
+                    </div>
+                  ))}
+                  <button onClick={() => {
+                    const sections = [
+                      { key: "went_well",  lbl: "✅ What went well" },
+                      { key: "to_improve", lbl: "❌ What didn't go well" },
+                      { key: "guidance",   lbl: "🎯 Guidance for next sprint" },
+                      { key: "shout_outs", lbl: "🌟 Shout-outs" },
+                    ];
+                    const lines = [`🔄 Sprint Retro — ${sprintName || "Current Sprint"}`, ""];
+                    sections.forEach(({ key, lbl }) => { if (savedRetro[key]?.trim()) { lines.push(lbl); lines.push(savedRetro[key]); lines.push(""); } });
+                    navigator.clipboard.writeText(lines.join("\n"));
+                  }} style={{ marginTop: 4, padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 700, background: T.navy3, color: T.text2, border: `1px solid ${T.border}` }}>
+                    📋 Copy Retro
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Time Report Panel (top, collapsible) ──────────────── */}
+      {showTimeReport && (
+        <div style={{ marginBottom: 16, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", background: T.navy1, borderBottom: `1px solid ${T.border}` }}>
+            <span style={{ fontSize: 15 }}>⏱</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>Time in Status Report</div>
+              {sprintName && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{sprintName} · days counted from assignment, not ticket creation</div>}
+            </div>
+            {timeData && !timeData.error && (
+              <button onClick={copyTimeReport}
+                style={{ padding: "5px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 700, background: timeCopied ? `${T.emerald}14` : T.navy3, color: timeCopied ? T.emerald : T.text1, border: `1px solid ${timeCopied ? T.emerald + "40" : T.border}`, transition: "all 0.2s" }}>
+                {timeCopied ? "✓ Copied!" : "📋 Copy"}
+              </button>
+            )}
+            <button onClick={() => setShowTimeReport(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>✕</button>
+          </div>
+
+          {timeLoading && (
+            <div style={{ padding: "40px", textAlign: "center", color: T.text3, fontSize: 13 }}>
+              <div style={{ fontSize: 24, marginBottom: 10 }}>⏳</div>
+              Fetching JIRA status history for {tickets.length} tickets…
+            </div>
+          )}
+
+          {timeData?.error && (
+            <div style={{ padding: "20px", color: T.coral, fontSize: 13 }}>Error: {timeData.error}</div>
+          )}
+
+          {timeData && !timeData.error && !timeLoading && (
+            <div style={{ padding: "16px 18px" }}>
+              {/* Legend */}
+              <div style={{ display: "flex", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
+                {[
+                  { color: T.accent, label: "Dev = time in In Progress / Development" },
+                  { color: T.teal,   label: "QA = time in Ready for QA / Review / Testing" },
+                  { color: T.text3,  label: "Idle = time in To Do / not started" },
+                ].map(l => (
+                  <span key={l.label} style={{ fontSize: 10, color: T.text3, display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: l.color, flexShrink: 0, display: "inline-block" }} />
+                    {l.label}
+                  </span>
+                ))}
+              </div>
+              {Object.entries(groups).map(([member, memberTickets]) => {
+                // Per-member summary
+                const timeRows = memberTickets.map(t => {
+                  const td = timeData[t.key];
+                  if (!td || td.error) return null;
+                  const assignedAt = findAssignedAt(td.assigneeChanges, t.assigneeEmail, td.created, sprintStartIso);
+                  return { t, tt: calcTicketTime(assignedAt, td.statusChanges) };
+                }).filter(Boolean);
+                const totalDev  = timeRows.reduce((a, r) => a + r.tt.devDays, 0);
+                const totalQA   = timeRows.reduce((a, r) => a + r.tt.qaDays, 0);
+                const totalIdle = timeRows.reduce((a, r) => a + r.tt.idleDays, 0);
+                const staleCount = timeRows.filter(r => r.tt.isStale && r.t.statusCategory !== "Done").length;
+                return (
+                  <div key={member} style={{ marginBottom: 24 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: T.text2, letterSpacing: 1.2, textTransform: "uppercase", flex: 1 }}>
+                        {member} · {memberTickets.length} ticket{memberTickets.length !== 1 ? "s" : ""}
+                      </div>
+                      {/* Member summary pills */}
+                      {totalDev > 0  && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: `${T.accent}10`, border: `1px solid ${T.accent}28`, borderRadius: 10, padding: "2px 8px" }}>Dev {totalDev.toFixed(1)}d</span>}
+                      {totalQA > 0   && <span style={{ fontSize: 10, fontWeight: 700, color: T.teal,   background: `${T.teal}10`,   border: `1px solid ${T.teal}28`,   borderRadius: 10, padding: "2px 8px" }}>QA {totalQA.toFixed(1)}d</span>}
+                      {totalIdle > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.text3,  background: T.navy3,          border: `1px solid ${T.border}`,   borderRadius: 10, padding: "2px 8px" }}>Idle {totalIdle.toFixed(1)}d</span>}
+                      {staleCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.coral, background: `${T.coral}10`, border: `1px solid ${T.coral}28`, borderRadius: 10, padding: "2px 8px" }}>⚠️ {staleCount} stale</span>}
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr style={{ color: T.text3, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                            <th style={{ textAlign: "left",   padding: "4px 8px", fontWeight: 700 }}>Ticket</th>
+                            <th style={{ textAlign: "left",   padding: "4px 8px", fontWeight: 700 }}>Summary</th>
+                            <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700 }}>Status</th>
+                            <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700 }}>Assigned</th>
+                            <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700, color: T.accent }}>Dev</th>
+                            <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700, color: T.teal }}>QA</th>
+                            <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700 }}>Idle</th>
+                            <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700 }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {memberTickets.map((t, ti) => {
+                            const td = timeData[t.key];
+                            if (!td || td.error) return (
+                              <tr key={t.key} style={{ borderTop: `1px solid ${T.border}` }}>
+                                <td style={{ padding: "7px 8px", fontFamily: "'Syne', sans-serif", fontSize: 11, fontWeight: 700 }}>
+                                  <a href={t.url} target="_blank" rel="noopener noreferrer" style={{ color: T.accent2, textDecoration: "none" }}>{t.key}</a>
+                                </td>
+                                <td style={{ padding: "7px 8px", color: T.text2 }} colSpan={7}>data unavailable</td>
+                              </tr>
+                            );
+                            const assignedAt = findAssignedAt(td.assigneeChanges, t.assigneeEmail, td.created, sprintStartIso);
+                            const tt = calcTicketTime(assignedAt, td.statusChanges);
+                            const isDone = t.statusCategory === "Done";
+                            const sc = isDone ? T.emerald : jiraStatusColor(t.status, t.statusCategory);
+                            // Flag: per-phase stale reason
+                            const flag = isDone ? { icon: "✅", color: T.emerald, tip: "Done" }
+                              : tt.isStale && tt.qaDays > 3 ? { icon: "⏳", color: T.coral, tip: "In QA queue too long" }
+                              : tt.isStale && tt.devDays > 5 ? { icon: "🐌", color: T.amber, tip: "Dev stuck" }
+                              : tt.isStale ? { icon: "💤", color: T.text3, tip: "Not started" }
+                              : null;
+                            return (
+                              <tr key={t.key} style={{ borderTop: `1px solid ${T.border}`, background: (tt.isStale && !isDone) ? `${T.coral}04` : ti % 2 === 0 ? "transparent" : `${T.accent}02` }}>
+                                <td style={{ padding: "7px 8px", fontFamily: "'Syne', sans-serif", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
+                                  <a href={t.url} target="_blank" rel="noopener noreferrer" style={{ color: T.accent2, textDecoration: "none" }}>{t.key}</a>
+                                </td>
+                                <td style={{ padding: "7px 8px", color: isDone ? T.text3 : T.text2, textDecoration: isDone ? "line-through" : "none", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {t.summary}
+                                </td>
+                                <td style={{ padding: "7px 8px", textAlign: "center" }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: sc, background: `${sc}14`, border: `1px solid ${sc}28`, padding: "2px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>{tt.currentStatus}</span>
+                                </td>
+                                <td style={{ padding: "7px 8px", textAlign: "center", color: T.text2, fontWeight: 600, whiteSpace: "nowrap" }}>
+                                  {tt.daysAssigned.toFixed(1)}d
+                                </td>
+                                <td style={{ padding: "7px 8px", textAlign: "center", color: tt.devDays > 0 ? T.accent : T.text3, fontWeight: tt.devDays > 0 ? 700 : 400 }}>
+                                  {tt.devDays > 0 ? `${tt.devDays.toFixed(1)}d` : <span style={{ color: T.navy3 }}>—</span>}
+                                </td>
+                                <td style={{ padding: "7px 8px", textAlign: "center", color: tt.qaDays > 0 ? T.teal : T.text3, fontWeight: tt.qaDays > 0 ? 700 : 400 }}>
+                                  {tt.qaDays > 0 ? `${tt.qaDays.toFixed(1)}d` : <span style={{ color: T.navy3 }}>—</span>}
+                                </td>
+                                <td style={{ padding: "7px 8px", textAlign: "center", color: tt.idleDays > 2 ? T.amber : T.text3 }}>
+                                  {tt.idleDays > 0.1 ? `${tt.idleDays.toFixed(1)}d` : <span style={{ color: T.navy3 }}>—</span>}
+                                </td>
+                                <td style={{ padding: "7px 8px", textAlign: "center", fontSize: 14 }} title={flag?.tip || ""}>
+                                  {flag ? <span style={{ color: flag.color }}>{flag.icon}</span> : ""}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div style={{ padding: "12px 16px", background: `${T.coral}10`, border: `1px solid ${T.coral}30`, borderRadius: 10, color: T.coral, fontSize: 12, marginBottom: 16 }}>
+          <strong>JIRA error:</strong> {error}
+          <button onClick={() => setShowSettings(true)} style={{ marginLeft: 12, color: T.accent2, background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Check settings →</button>
+        </div>
+      )}
+
+      {/* Loading skeleton */}
+      {loading && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {[1,2,3].map(i => <div key={i} style={{ height: 72, borderRadius: 10, background: T.navy2, animation: "pulse 1.4s ease infinite" }} />)}
+        </div>
+      )}
+
+      {/* Not connected yet */}
+      {!loading && tickets.length === 0 && !error && (
+        <div style={{ textAlign: "center", padding: "48px 20px", color: T.text3, fontSize: 13 }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🏃</div>
+          <div style={{ fontWeight: 700, color: T.text2, marginBottom: 6 }}>No sprint data yet</div>
+          <div style={{ marginBottom: 16 }}>Connect to JIRA to pull your team's current sprint.</div>
+          <button onClick={() => setShowSettings(true)}
+            style={{ padding: "9px 22px", borderRadius: 9, cursor: "pointer", fontWeight: 700, fontSize: 13, background: T.accent, color: "#fff", border: "none" }}>
+            Connect to JIRA
+          </button>
+        </div>
+      )}
+
+      {/* Ticket groups */}
+      {!loading && Object.entries(groups).map(([member, memberTickets]) => {
+        const done    = memberTickets.filter(t => t.statusCategory === "Done").length;
+        const blocked = memberTickets.filter(t => (t.status || "").toLowerCase().includes("block")).length;
+        const pct     = memberTickets.length ? Math.round((done / memberTickets.length) * 100) : 0;
+        const groupAccent = blocked > 0 ? T.coral : pct === 100 ? T.emerald : T.accent;
+        return (
+          <div key={member} style={{ marginBottom: 20, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+
+            {/* Group header */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: T.navy1, borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${groupAccent}20`, border: `2px solid ${groupAccent}45`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: groupAccent, flexShrink: 0 }}>
+                {member[0].toUpperCase()}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>{member}</div>
+                <div style={{ fontSize: 11, color: T.text3 }}>
+                  {done}/{memberTickets.length} done
+                  {blocked > 0 && <span style={{ color: T.coral, marginLeft: 8 }}>· {blocked} blocked</span>}
+                </div>
+              </div>
+              {/* Mini progress bar */}
+              <div style={{ width: 80, height: 5, background: T.border, borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: pct === 100 ? T.emerald : groupAccent, borderRadius: 3, transition: "width 0.35s ease" }} />
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: pct === 100 ? T.emerald : T.text3, fontFamily: "'Syne', sans-serif", minWidth: 34, textAlign: "right" }}>{pct}%</div>
+            </div>
+
+            {/* OPS Coaching panel — only for "Me" group */}
+            {member === "Me" && (
+              <div style={{ borderTop: `2px solid ${T.accent}50`, borderBottom: `1px solid ${T.accent}25`, background: "linear-gradient(135deg, #1a1830 0%, #16142e 100%)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent }} />
+                    <span style={{ fontSize: 11, fontWeight: 800, color: T.accent2, letterSpacing: "0.08em", textTransform: "uppercase" }}>OPS Coaching</span>
+                  </div>
+                  {!opsCoaching && !opsLoading && (
+                    <button onClick={fetchOpsCoaching}
+                      style={{ fontSize: 12, fontWeight: 700, padding: "5px 14px", borderRadius: 20, cursor: "pointer", background: T.accent, border: "none", color: "#fff", fontFamily: "'DM Sans', sans-serif", boxShadow: `0 2px 8px ${T.accent}40` }}>
+                      ✨ Analyse my tickets
+                    </button>
+                  )}
+                  {opsLoading && (
+                    <span style={{ fontSize: 12, color: T.accent2, display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", border: `2px solid ${T.accent}`, borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
+                      Analysing tickets…
+                    </span>
+                  )}
+                  {opsCoaching && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+                      <button onClick={() => setOpsOpen(o => !o)}
+                        style={{ fontSize: 11, color: T.text3, background: "transparent", border: `1px solid ${T.border}`, cursor: "pointer", padding: "3px 10px", borderRadius: 20, fontFamily: "'DM Sans', sans-serif" }}>{opsOpen ? "▲ Hide" : "▼ Show"}</button>
+                      <button onClick={() => { setOpsCoaching(null); setOpsError(""); }}
+                        style={{ fontSize: 11, color: T.text3, background: "transparent", border: `1px solid ${T.border}`, cursor: "pointer", padding: "3px 10px", borderRadius: 20, fontFamily: "'DM Sans', sans-serif" }}>↺ Refresh</button>
+                    </div>
+                  )}
+                  {opsError && <span style={{ fontSize: 11, color: T.coral, marginLeft: 8 }}>⚠ {opsError}</span>}
+                </div>
+                {opsCoaching && opsOpen && (
+                  <div style={{ padding: "4px 16px 14px" }}>
+                    {(opsCoaching.priority_actions || []).length > 0 && (
+                      <div style={{ background: "#0d0b1e", border: `1px solid ${T.accent}28`, borderRadius: 10, padding: "10px 14px" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: T.accent, letterSpacing: "0.08em", marginBottom: 8, textTransform: "uppercase" }}>🎯 Top priority actions this sprint</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {(opsCoaching.priority_actions || []).map((a, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: T.text2, lineHeight: 1.5 }}>
+                              <span style={{ minWidth: 18, height: 18, borderRadius: "50%", background: `${T.accent}25`, border: `1px solid ${T.accent}45`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: T.accent, flexShrink: 0 }}>{i + 1}</span>
+                              <span>{a}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Ticket rows */}
+            <div>
+              {memberTickets.map((ticket, ti) => {
+                const sc        = jiraStatusColor(ticket.status, ticket.statusCategory);
+                const isBlocked = (ticket.status || "").toLowerCase().includes("block");
+                const isDone    = ticket.statusCategory === "Done";
+                const note      = notes[ticket.key] || "";
+                const isEditing = editingNote === ticket.key;
+                return (
+                  <div key={ticket.key} style={{ padding: "11px 16px", borderBottom: ti < memberTickets.length - 1 ? `1px solid ${T.border}` : "none", background: isBlocked ? `${T.coral}07` : "transparent", borderLeft: `3px solid ${sc}`, transition: "background 0.12s" }}
+                    onMouseEnter={e => { if (!isBlocked) e.currentTarget.style.background = `${T.accent}05`; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = isBlocked ? `${T.coral}07` : "transparent"; }}>
+
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <span style={{ fontSize: 13, marginTop: 1, flexShrink: 0, opacity: 0.75 }}>{ISSUE_TYPE_ICON[ticket.issueType] || "✓"}</span>
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginBottom: 5 }}>
+                          <a href={ticket.url} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: 11, fontWeight: 700, color: T.accent2, textDecoration: "none", fontFamily: "'Syne', sans-serif", flexShrink: 0 }}>
+                            {ticket.key}
+                          </a>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: isDone ? T.text3 : T.text1, textDecoration: isDone ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                            {ticket.summary}
+                          </span>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: sc, background: `${sc}14`, border: `1px solid ${sc}30`, padding: "2px 8px", borderRadius: 20 }}>
+                            {ticket.status}
+                          </span>
+                          {ticket.priority && (() => {
+                            const pc = PRIORITY_COLOR_MAP[ticket.priority] || "#9A99AD";
+                            return <span style={{ fontSize: 10, fontWeight: 700, color: pc, background: `${pc}18`, border: `1px solid ${pc}45`, padding: "2px 8px", borderRadius: 20 }}>{PRIORITY_ICON[ticket.priority] || "○"} {ticket.priority}</span>;
+                          })()}
+                          {ticket.storyPoints && <span style={{ fontSize: 10, color: T.text3, background: T.navy3, padding: "2px 7px", borderRadius: 10, border: `1px solid ${T.border}` }}>{ticket.storyPoints} pts</span>}
+                          {ticket.parent && (
+                            <a href={`${config?.baseUrl?.replace(/\/$/, "")}/browse/${ticket.parent.key}`} target="_blank" rel="noopener noreferrer"
+                              style={{ fontSize: 10, color: T.teal, background: `${T.teal}10`, border: `1px solid ${T.teal}28`, padding: "2px 8px", borderRadius: 10, textDecoration: "none", fontWeight: 600 }}
+                              title={ticket.parent.summary}>↑ {ticket.parent.key}</a>
+                          )}
+                          {ticket.components.slice(0, 2).map(cmp => (
+                            <span key={cmp} style={{ fontSize: 10, color: T.amber, background: `${T.amber}10`, border: `1px solid ${T.amber}28`, padding: "2px 7px", borderRadius: 10 }}>{cmp}</span>
+                          ))}
+                          {ticket.labels.slice(0, 2).map(lbl => (
+                            <span key={lbl} style={{ fontSize: 10, color: T.text3, background: T.navy3, border: `1px solid ${T.border}`, padding: "2px 7px", borderRadius: 10 }}>{lbl}</span>
+                          ))}
+                          {ticket.dueDate && (() => {
+                            const due = new Date(ticket.dueDate + "T00:00:00");
+                            const now = new Date(); now.setHours(0,0,0,0);
+                            const diff = Math.round((due - now) / 86400000);
+                            const color = diff < 0 ? T.coral : diff <= 3 ? T.amber : T.text3;
+                            const label = diff < 0 ? `Overdue ${Math.abs(diff)}d` : diff === 0 ? "Due today" : `Due in ${diff}d`;
+                            return <span style={{ fontSize: 10, fontWeight: diff <= 3 ? 700 : 400, color, background: diff < 0 ? `${T.coral}10` : "transparent", padding: "2px 7px", borderRadius: 10, border: `1px solid ${color}28` }}>{label}</span>;
+                          })()}
+                          {ticket.timeSpent && <span style={{ fontSize: 10, color: T.text3 }}>⏱ {ticket.timeSpent}{ticket.timeEstimate ? ` / ${ticket.timeEstimate}` : ""}</span>}
+                          <button onClick={() => { setEditingNote(ticket.key); setNoteText(note); }}
+                            style={{ fontSize: 10, color: note ? T.amber : T.text3, background: note ? `${T.amber}12` : "transparent", border: `1px solid ${note ? T.amber + "35" : T.border}`, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontWeight: note ? 700 : 400 }}>
+                            {note ? "📝 Note" : "+ Note"}
+                          </button>
+                        </div>
+
+                        {note && !isEditing && (
+                          <div style={{ marginTop: 6, padding: "5px 10px", background: `${T.amber}10`, border: `1px solid ${T.amber}25`, borderRadius: 7, fontSize: 11, color: T.amber }}>
+                            {note}
+                          </div>
+                        )}
+                        {isEditing && (
+                          <div style={{ marginTop: 8, display: "flex", gap: 7 }}>
+                            <input autoFocus value={noteText} onChange={e => setNoteText(e.target.value)}
+                              placeholder="Add a note (blocker, context, update)…"
+                              onKeyDown={e => { if (e.key === "Enter") { const n = { ...notes }; if (noteText.trim()) n[ticket.key] = noteText.trim(); else delete n[ticket.key]; saveNotes(n); setEditingNote(null); } if (e.key === "Escape") setEditingNote(null); }}
+                              style={{ flex: 1, padding: "6px 10px", borderRadius: 7, border: `1px solid ${T.amber}40`, background: T.navy1, color: T.text1, fontSize: 12, outline: "none" }} />
+                            <button onClick={() => { const n = { ...notes }; if (noteText.trim()) n[ticket.key] = noteText.trim(); else delete n[ticket.key]; saveNotes(n); setEditingNote(null); }}
+                              style={{ padding: "5px 12px", borderRadius: 7, cursor: "pointer", background: T.amber, color: T.navy0, fontSize: 12, fontWeight: 700, border: "none" }}>Save</button>
+                            <button onClick={() => setEditingNote(null)}
+                              style={{ padding: "5px 10px", borderRadius: 7, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, fontSize: 12 }}>✕</button>
+                          </div>
+                        )}
+
+                        {/* OPS inline flags — only for "Me" group, active tickets */}
+                        {member === "Me" && !isDone && (() => {
+                          const aiTip = opsCoaching?.tips?.find(t => t.key === ticket.key);
+                          const flags = [];
+                          if (!ticket.dueDate) flags.push({ color: T.amber, icon: "📅", text: "No due date — DPS won't score this ticket. Set one in JIRA." });
+                          if (!ticket.storyPoints) flags.push({ color: T.amber, icon: "📊", text: "No story points — VS can't count this work. Raise in planning." });
+                          if (ticket.statusCategory === "To Do") flags.push({ color: "#F97316", icon: "⏰", text: "Not started — leave a comment to protect your RS score." });
+                          if (flags.length === 0 && !aiTip) return null;
+                          return (
+                            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 5 }}>
+                              {flags.map((f, i) => (
+                                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: f.color, background: `${f.color}10`, border: `1px solid ${f.color}28`, padding: "3px 8px", borderRadius: 20 }}>
+                                  {f.icon} {f.text}
+                                </div>
+                              ))}
+                              {aiTip && (
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: aiTip.urgency === "high" ? T.coral : aiTip.urgency === "medium" ? T.amber : T.teal, background: aiTip.urgency === "high" ? `${T.coral}10` : aiTip.urgency === "medium" ? `${T.amber}10` : `${T.teal}10`, border: `1px solid ${aiTip.urgency === "high" ? T.coral : aiTip.urgency === "medium" ? T.amber : T.teal}28`, padding: "3px 8px", borderRadius: 20 }}>
+                                  ✨ {aiTip.tip}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+    </div>
+  );
+}
+
+// ─── Retro Modal ─────────────────────────────────────────────────────────────
+function RetroModal({ entries, incidents, onClose }) {
+  const [retro, setRetro]       = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [copied, setCopied]     = useState(false);
+
+  useEffect(() => {
+    callGroqRetro(entries, incidents)
+      .then(r => { setRetro(r); setLoading(false); })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const copyText = () => {
+    if (!retro) return;
+    const lines = [
+      `🔄 SPRINT RETROSPECTIVE${retro.theme ? ` — ${retro.theme}` : ""}`,
+      "",
+      "✅ What went well",
+      ...(retro.went_well || []).map(s => `• ${s}`),
+      "",
+      "❌ What didn't go well",
+      ...(retro.didnt_go_well || []).map(s => `• ${s}`),
+      "",
+      "🎯 Actions for next sprint",
+      ...(retro.actions || []).map(s => `• ${s}`),
+      "",
+      ...(retro.shout_out ? [`🌟 ${retro.shout_out}`] : []),
+    ].join("\n");
+    navigator.clipboard.writeText(lines).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); });
+  };
+
+  const sections = retro ? [
+    { label: "✅ What went well",       items: retro.went_well || [],      color: T.teal  },
+    { label: "❌ What didn't go well",  items: retro.didnt_go_well || [],  color: T.coral },
+    { label: "🎯 Actions for next sprint", items: retro.actions || [],     color: T.accent },
+  ] : [];
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+        <div className="modal-title">
+          <div>
+            <div style={{ fontWeight: 600 }}>🔄 Sprint Retrospective</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>AI-generated from your last 14 days of diary data</div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+
+        {loading && (
+          <div style={{ textAlign: "center", padding: "44px 0", color: T.text3 }}>
+            <div style={{ fontSize: 28, marginBottom: 12 }}>🔄</div>
+            <div style={{ fontSize: 13 }}>Generating your retrospective…</div>
+          </div>
+        )}
+        {error && (
+          <div style={{ padding: "12px 16px", background: `${T.coral}15`, border: `1px solid ${T.coral}40`, borderRadius: 8, fontSize: 13, color: T.coral, marginBottom: 16 }}>{error}</div>
+        )}
+        {retro && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {retro.theme && (
+              <div style={{ textAlign: "center", padding: "6px 0 2px" }}>
+                <div style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Sprint Theme</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: T.accent2, fontFamily: "'Syne', sans-serif" }}>{retro.theme}</div>
+              </div>
+            )}
+            {sections.map(sec => (
+              <div key={sec.label} style={{ background: T.navy2, borderRadius: 10, padding: "12px 16px", borderLeft: `3px solid ${sec.color}` }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: sec.color, marginBottom: 8 }}>{sec.label}</div>
+                {sec.items.length > 0
+                  ? sec.items.map((s, i) => <div key={i} style={{ fontSize: 13, color: T.text1, lineHeight: 1.6, marginBottom: 3 }}>• {s}</div>)
+                  : <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>Nothing flagged</div>
+                }
+              </div>
+            ))}
+            {retro.shout_out && (
+              <div style={{ background: `${T.gold}10`, border: `1px solid ${T.gold}30`, borderRadius: 10, padding: "12px 16px", display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <span style={{ fontSize: 18, flexShrink: 0 }}>🌟</span>
+                <div style={{ fontSize: 13, color: T.text1, lineHeight: 1.6, fontStyle: "italic" }}>"{retro.shout_out}"</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+          {retro && (
+            <button className="btn btn-primary" onClick={copyText} style={{ minWidth: 150 }}>
+              {copied ? "✓ Copied!" : "📋 Copy Retro"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Career Coach Modal ───────────────────────────────────────────────────────
+function CareerCoachModal({ entries, bragWins, onClose }) {
+  const [coaching, setCoaching] = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+
+  useEffect(() => {
+    callGroqCareerCoach(entries, bragWins)
+      .then(r => { setCoaching(r); setLoading(false); })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stageColor = { early: T.teal, mid: T.accent, senior: T.gold };
+
+  const sections = coaching ? [
+    { label: "💪 Strengths demonstrated",       items: coaching.strengths || [],     color: T.teal  },
+    { label: "📈 Growth areas",                 items: coaching.growth_areas || [],  color: T.amber },
+    { label: "🎯 Actions for next 30 days",     items: coaching.next_30_days || [],  color: T.accent },
+  ] : [];
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+        <div className="modal-title">
+          <div>
+            <div style={{ fontWeight: 600 }}>🤖 AI Career Coach</div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Personalised coaching from your work history</div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+
+        {loading && (
+          <div style={{ textAlign: "center", padding: "44px 0", color: T.text3 }}>
+            <div style={{ fontSize: 28, marginBottom: 12 }}>🤖</div>
+            <div style={{ fontSize: 13 }}>Analysing your career data…</div>
+          </div>
+        )}
+        {error && (
+          <div style={{ padding: "12px 16px", background: `${T.coral}15`, border: `1px solid ${T.coral}40`, borderRadius: 8, fontSize: 13, color: T.coral, marginBottom: 16 }}>{error}</div>
+        )}
+        {coaching && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {coaching.career_stage && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>Assessed stage</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: stageColor[coaching.career_stage] || T.accent, background: `${stageColor[coaching.career_stage] || T.accent}15`, border: `1px solid ${stageColor[coaching.career_stage] || T.accent}35`, padding: "2px 10px", borderRadius: 12 }}>{coaching.career_stage}</span>
+              </div>
+            )}
+            {coaching.coach_note && (
+              <div style={{ background: `${T.accent}10`, border: `1px solid ${T.accent}25`, borderRadius: 10, padding: "14px 16px", fontSize: 13, color: T.text1, lineHeight: 1.7, fontStyle: "italic" }}>
+                "{coaching.coach_note}"
+              </div>
+            )}
+            {sections.map(sec => (
+              <div key={sec.label} style={{ background: T.navy2, borderRadius: 10, padding: "12px 16px", borderLeft: `3px solid ${sec.color}` }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: sec.color, marginBottom: 8 }}>{sec.label}</div>
+                {sec.items.length > 0
+                  ? sec.items.map((s, i) => <div key={i} style={{ fontSize: 13, color: T.text1, lineHeight: 1.6, marginBottom: 3 }}>• {s}</div>)
+                  : <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>Keep logging to build more insight</div>
+                }
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Premium Gate ─────────────────────────────────────────────────────────────
+function PremiumGate({ onBack }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 400, padding: 48, textAlign: "center" }}>
+      <div style={{ fontSize: 48, marginBottom: 16 }}>✨</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif", marginBottom: 8 }}>Premium Feature</div>
+      <div style={{ fontSize: 14, color: T.text3, maxWidth: 320, lineHeight: 1.6, marginBottom: 24 }}>
+        This section is only available to premium accounts.
+      </div>
+      <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ color: T.accent, border: `1px solid ${T.accent}40`, padding: "6px 20px", borderRadius: 20 }}>← Back to Dashboard</button>
     </div>
   );
 }
@@ -8620,6 +10332,7 @@ const NAV = [
   { id: "incidents",   label: "Incident Log",    icon: "🐛", dot: T.coral,  section: "Modules" },
   { id: "decisions",   label: "Decision Log",    icon: "🧠", dot: T.teal,   section: "Modules" },
   { id: "releases",   label: "Release Status",  icon: "🚀", dot: T.teal,   section: "Modules" },
+  { id: "sprint",     label: "Sprint Board",     icon: "🎯", dot: T.accent, section: "Modules" },
   { id: "team",        label: "My Team",         icon: "👥", section: "Insights" },
   { id: "brag",        label: "Brag Doc",        icon: "🏆", dot: T.gold,   section: "Insights" },
   { id: "resume",      label: "Shadow Resume",   icon: "📋", dot: T.gold,   section: "Insights" },
@@ -8636,6 +10349,7 @@ const PAGE_META = {
   incidents:   { title: "Incident Log",    sub: "Escaped defects and prod issues — patterns over time" },
   decisions:   { title: "Decision Log",    sub: "Dated record of what was decided and why" },
   releases:    { title: "Release Status",  sub: "Track team ticket and release status by date" },
+  sprint:      { title: "Sprint Board",    sub: "Live JIRA sprint tracker for your team" },
   team:        { title: "My Team",         sub: "Saved teammates for quick collaborator selection" },
   brag:        { title: "Brag Doc",        sub: "Your wins, tagged by impact — appraisal evidence on demand" },
   resume:      { title: "Shadow Resume",   sub: "Auto-built from your diary — your work in numbers" },
@@ -8898,6 +10612,11 @@ export default function Echo() {
   const [paletteOpen, setPaletteOpen]         = useState(false);
   const [shortcutsOpen, setShortcutsOpen]     = useState(false);
   const [overdueCount, setOverdueCount]       = useState(0);
+  // Premium top-bar quick actions
+  const [premiumStandupEntry, setPremiumStandupEntry]   = useState(null);
+  const [premiumWeeklyEntries, setPremiumWeeklyEntries] = useState(null);
+  const [premiumRetroData, setPremiumRetroData]         = useState(null);
+  const [premiumCoachData, setPremiumCoachData]         = useState(null);
   const [teamDueBadge, setTeamDueBadge]       = useState(false);
   const [todayEntryMissing, setTodayEntryMissing] = useState(false);
 
@@ -8905,17 +10624,15 @@ export default function Echo() {
     db.auth.getUser().then(u => {
       if (u?.id) {
         setUser(u);
-        // Seed display name from Supabase user_metadata (cross-device safe)
-        const metaName = u.user_metadata?.display_name;
-        if (metaName) {
-          setDisplayName(metaName);
-          localStorage.setItem("echo_display_name", metaName);
-        }
-        const metaAvatar = u.user_metadata?.avatar;
-        if (metaAvatar) {
-          setAvatarData(metaAvatar);
-          localStorage.setItem("echo_avatar", metaAvatar);
-        }
+        // Always sync profile from Supabase metadata — clears stale data from any previous session
+        const metaName   = u.user_metadata?.display_name || "";
+        const metaAvatar = u.user_metadata?.avatar || "";
+        setDisplayName(metaName);
+        setAvatarData(metaAvatar);
+        if (metaName)   localStorage.setItem("echo_display_name", metaName);
+        else            localStorage.removeItem("echo_display_name");
+        if (metaAvatar) localStorage.setItem("echo_avatar", metaAvatar);
+        else            localStorage.removeItem("echo_avatar");
       }
       setAuthLoading(false);
     }).catch(() => setAuthLoading(false));
@@ -9018,6 +10735,45 @@ export default function Echo() {
   }, [user]);
 
 
+  const openPremiumStandup = async () => {
+    const uidOk = await probeUserIdDiary();
+    const dOpts = { order: "date.desc", limit: 1, ...(uidOk && user?.id ? { match: { user_id: user.id } } : {}) };
+    const rows = await db.from("diary_entries").select("*", dOpts);
+    if (rows && rows.length > 0) setPremiumStandupEntry(rows[0]);
+    else toast("No diary entries found — log today first.", "info");
+  };
+  const openPremiumWeekly = async () => {
+    const uidOk = await probeUserIdDiary();
+    const dOpts = { order: "date.desc", ...(uidOk && user?.id ? { match: { user_id: user.id } } : {}) };
+    const rows = await db.from("diary_entries").select("*", dOpts);
+    if (rows && rows.length > 0) setPremiumWeeklyEntries(rows.slice(0, 14));
+    else toast("No diary entries found.", "info");
+  };
+  const openPremiumRetro = async () => {
+    const uidOk = await probeUserIdDiary();
+    const dOpts = { order: "date.desc", ...(uidOk && user?.id ? { match: { user_id: user.id } } : {}) };
+    const rows = await db.from("diary_entries").select("*", dOpts);
+    if (!rows || rows.length === 0) { toast("No diary entries found — log some entries first.", "info"); return; }
+    let incidents = [];
+    try {
+      const incR = await fetch(`${_REST()}/incidents?select=*&order=occurred_at.desc&limit=10`, { headers: h() });
+      if (incR.ok) incidents = await incR.json();
+    } catch {}
+    setPremiumRetroData({ entries: rows.slice(0, 14), incidents });
+  };
+  const openPremiumCoach = async () => {
+    const uidOk = await probeUserIdDiary();
+    const dOpts = { order: "date.desc", ...(uidOk && user?.id ? { match: { user_id: user.id } } : {}) };
+    const rows = await db.from("diary_entries").select("*", dOpts);
+    if (!rows || rows.length === 0) { toast("No diary entries found — log some entries first.", "info"); return; }
+    let bragWins = [];
+    try {
+      const bragR = await fetch(`${_REST()}/user_credits?select=*&order=inserted_at.desc&limit=20`, { headers: h() });
+      if (bragR.ok) bragWins = await bragR.json();
+    } catch {}
+    setPremiumCoachData({ entries: rows.slice(0, 60), bragWins });
+  };
+
   const openProfile = () => {
     setProfileDraft({ name: displayName, avatar: avatarData });
     setProfileOpen(true);
@@ -9041,15 +10797,34 @@ export default function Echo() {
   const handleAvatarFile = e => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => setProfileDraft(d => ({ ...d, avatar: ev.target.result }));
-    reader.readAsDataURL(file);
+    const url = URL.createObjectURL(file);
+    const img = new window.Image();
+    img.onload = () => {
+      const MAX = 200;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      setProfileDraft(d => ({ ...d, avatar: canvas.toDataURL("image/jpeg", 0.8) }));
+    };
+    img.src = url;
   };
 
   const logout = async () => {
     await db.auth.signOut();
     setUser(null);
-    localStorage.removeItem("echo_view");
+    // Clear every key that belongs to a user session
+    ["echo_view", "echo_display_name", "echo_avatar",
+     "echo_zoho_config", "echo_jira_config", "echo_sprint_notes",
+     "echo_diary_draft", "echo_diary_jump", "echo_diary_new",
+     "echo_rl_v2", "echo_release_logs", "echo_rl_banner_dismissed",
+     "echo_ai_insight", "echo_pi_dismissed",
+    ].forEach(k => localStorage.removeItem(k));
+    setDisplayName("");
+    setAvatarData("");
     setView("dashboard");
     setDiaryCount(0);
     setDocCount(0);
@@ -9066,10 +10841,26 @@ export default function Echo() {
     </div>
   );
 
-  if (!user) return <AuthPage onLogin={u => { setUser(u); }} />;
+  if (!user) return <AuthPage onLogin={u => {
+    // Wipe all user-scoped localStorage so no data bleeds across accounts
+    ["echo_display_name", "echo_avatar", "echo_zoho_config", "echo_jira_config",
+     "echo_sprint_notes", "echo_diary_draft", "echo_diary_jump", "echo_diary_new",
+     "echo_view", "echo_rl_v2", "echo_release_logs", "echo_rl_banner_dismissed",
+     "echo_ai_insight", "echo_pi_dismissed",
+    ].forEach(k => localStorage.removeItem(k));
+    setDisplayName(u.user_metadata?.display_name || "");
+    setAvatarData(u.user_metadata?.avatar || "");
+    setUser(u);
+  }} />;
 
-  const isOwner = user.email === OWNER_EMAIL;
-  const visibleNav = NAV.filter(n => n.id !== "locker" || isOwner);
+  const isOwner   = user.email === OWNER_EMAIL;
+  const isPremium = user.email === PREMIUM_EMAIL;
+  const PREMIUM_IDS = new Set(["sprint", "resume", "resolve"]);
+  const visibleNav = NAV.filter(n => {
+    if (n.id === "locker") return isOwner;
+    if (PREMIUM_IDS.has(n.id)) return isPremium;
+    return true;
+  });
   const sections   = [...new Set(visibleNav.map(n => n.section))];
   const NAV_SHORTCUT = { dashboard: "1", diary: "2", commitments: "3", incidents: "4", decisions: "5", releases: "6", team: "7", brag: "8", resume: "9" };
 
@@ -9128,7 +10919,8 @@ export default function Echo() {
               <div style={{ fontSize: 10, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</div>
             </div>
           </div>
-          {isOwner && <div style={{ fontSize: 10, color: T.teal, marginBottom: 4, paddingLeft: 8 }}>Owner</div>}
+          {isOwner   && <div style={{ fontSize: 10, color: T.teal,   marginBottom: 4, paddingLeft: 8 }}>Owner</div>}
+          {isPremium && <div style={{ fontSize: 10, color: T.gold,   marginBottom: 4, paddingLeft: 8 }}>✨ Premium</div>}
 
 
           <div style={{ display: "flex", gap: 6, marginBottom: 0 }}>
@@ -9181,6 +10973,30 @@ export default function Echo() {
                 📓 Log today
               </button>
             )}
+            {isPremium && (
+              <>
+                <button onClick={openPremiumStandup}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: `${T.accent}18`, border: `1px solid ${T.accent}40`, color: T.accent2, fontFamily: "'DM Sans', sans-serif" }}
+                  title="Generate AI standup from your latest diary entry">
+                  ⚡ Standup
+                </button>
+                <button onClick={openPremiumWeekly}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: `${T.teal}15`, border: `1px solid ${T.teal}35`, color: T.teal, fontFamily: "'DM Sans', sans-serif" }}
+                  title="Generate weekly wrap report">
+                  📋 Weekly
+                </button>
+                <button onClick={openPremiumRetro}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: `${T.amber}15`, border: `1px solid ${T.amber}35`, color: T.amber, fontFamily: "'DM Sans', sans-serif" }}
+                  title="Generate AI sprint retrospective from last 14 days">
+                  🔄 Retro
+                </button>
+                <button onClick={openPremiumCoach}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: `${T.coral}15`, border: `1px solid ${T.coral}35`, color: T.coral, fontFamily: "'DM Sans', sans-serif" }}
+                  title="Get personalised AI career coaching">
+                  🤖 Coach
+                </button>
+              </>
+            )}
             <button onClick={() => setPaletteOpen(true)} style={{
               display: "flex", alignItems: "center", gap: 7,
               background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 8,
@@ -9206,7 +11022,7 @@ export default function Echo() {
           </div>
         </div>
 
-        {view === "dashboard"   && <Dashboard setView={setView} diaryCount={diaryCount} docCount={docCount} user={user} displayName={displayName} />}
+        {view === "dashboard"   && <Dashboard setView={setView} diaryCount={diaryCount} docCount={docCount} user={user} displayName={displayName} isPremium={isPremium} />}
         {view === "diary"       && <Diary onCountChange={setDiaryCount} user={user} />}
         {view === "locker"      && isOwner && <DigiLocker onCountChange={setDocCount} />}
         {view === "locker"      && !isOwner && (
@@ -9219,15 +11035,22 @@ export default function Echo() {
         {view === "incidents"   && <IncidentLog user={user} />}
         {view === "decisions"   && <DecisionLog user={user} />}
         {view === "releases"    && <ReleaseTracker user={user} />}
+        {view === "sprint"     && (isPremium ? <SprintBoard user={user} /> : <PremiumGate onBack={() => setView("dashboard")} />)}
         {view === "team"        && <MyTeam user={user} />}
         {view === "brag"        && <BragDoc user={user} />}
-        {view === "resume"      && <ShadowResume user={user} />}
+        {view === "resume"      && (isPremium ? <ShadowResume user={user} /> : <PremiumGate onBack={() => setView("dashboard")} />)}
         {view === "workmap"     && <WorkMap user={user} />}
         {view === "credits"     && <CreditTracker user={user} />}
-        {view === "resolve"     && <Resolve user={user} />}
+        {view === "resolve"     && (isPremium ? <Resolve user={user} /> : <PremiumGate onBack={() => setView("dashboard")} />)}
       </main>
 
       {/* ── Command Palette ── */}
+      {/* ── Premium quick-action modals ── */}
+      {premiumStandupEntry && <StandupModal entry={premiumStandupEntry} onClose={() => setPremiumStandupEntry(null)} />}
+      {premiumWeeklyEntries && <WeeklyReportModal entries={premiumWeeklyEntries} onClose={() => setPremiumWeeklyEntries(null)} />}
+      {premiumRetroData && <RetroModal entries={premiumRetroData.entries} incidents={premiumRetroData.incidents} onClose={() => setPremiumRetroData(null)} />}
+      {premiumCoachData && <CareerCoachModal entries={premiumCoachData.entries} bragWins={premiumCoachData.bragWins} onClose={() => setPremiumCoachData(null)} />}
+
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} setView={setView} user={user} />}
 
       {/* ── Keyboard Shortcuts ── */}
