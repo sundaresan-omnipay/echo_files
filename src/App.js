@@ -13571,7 +13571,9 @@ function SprintBoard({ user }) {
 
       {/* ── Team Leaderboard ─────────────────────────────────────── */}
       {tickets.length > 0 && (() => {
-        const memberStats = Object.entries(allGroups).map(([name, mTickets]) => {
+        // Always exclude "Me" (manager) from the team leaderboard — manager's work shouldn't compete with team
+        const leaderboardGroups = Object.fromEntries(Object.entries(allGroups).filter(([name]) => name !== "Me"));
+        const memberStats = Object.entries(leaderboardGroups).map(([name, mTickets]) => {
           const done    = mTickets.filter(t => t.statusCategory === "Done").length;
           const inProg  = mTickets.filter(t => t.statusCategory === "In Progress" && !(t.status || "").toLowerCase().includes("block")).length;
           const blocked = mTickets.filter(t => (t.status || "").toLowerCase().includes("block")).length;
@@ -13638,16 +13640,19 @@ function SprintBoard({ user }) {
         const nowMs    = Date.now();
         const totalDays   = Math.max(1, workingDays(startMs, endMs));
         const elapsedDays = Math.min(workingDays(startMs, nowMs), totalDays);
-        const doneSP      = tickets.filter(t => t.statusCategory === "Done").reduce((a, t) => a + (t.storyPoints || 0), 0);
-        const currentTotalSP = tickets.reduce((a, t) => a + (t.storyPoints || 0), 0);
-        const scopeCreep  = currentTotalSP - sprintStartSP;
+        // In Team View, scope burndown to team-only tickets (exclude manager's own work)
+        const burnTickets = teamView ? baseTickets : tickets;
+        const doneSP      = burnTickets.filter(t => t.statusCategory === "Done").reduce((a, t) => a + (t.storyPoints || 0), 0);
+        const currentTotalSP = burnTickets.reduce((a, t) => a + (t.storyPoints || 0), 0);
+        const baselineSP  = teamView ? currentTotalSP : sprintStartSP;
+        const scopeCreep  = teamView ? 0 : currentTotalSP - sprintStartSP;
         const remainingSP = Math.max(0, currentTotalSP - doneSP);
-        const idealRemaining = Math.max(0, sprintStartSP * (1 - elapsedDays / totalDays));
+        const idealRemaining = Math.max(0, baselineSP * (1 - elapsedDays / totalDays));
         // SVG coordinate helpers (400×80 canvas, y=0 = top = all SP remaining, y=H = no SP remaining)
         const W = 400; const H = 80;
         const todayX  = Math.min((elapsedDays / totalDays) * W, W);
-        const actualY = sprintStartSP > 0 ? H - (remainingSP  / sprintStartSP) * H : H;
-        const idealY  = sprintStartSP > 0 ? H - (idealRemaining / sprintStartSP) * H : H;
+        const actualY = baselineSP > 0 ? H - (remainingSP  / baselineSP) * H : H;
+        const idealY  = baselineSP > 0 ? H - (idealRemaining / baselineSP) * H : H;
         const isAhead = actualY >= idealY; // lower in SVG space = less remaining = ahead
         const allDone = remainingSP === 0;
         const statusColor = allDone ? T.emerald : isAhead ? T.teal : T.coral;
@@ -13666,9 +13671,9 @@ function SprintBoard({ user }) {
         const othersRemaining = Math.max(0, othersStartSP - othersDoneSP);
         const otherAssignees = [...new Set(othersTickets.map(t => t.assigneeName || "Unassigned"))].filter(n => n !== "Unassigned");
         // Normalized chart positions (% done → Y coord, 0=nothing done=top, H=all done=bottom)
-        const myTeamChartY   = sprintStartSP > 0      ? H - (remainingSP  / sprintStartSP)      * H : H;
+        const myTeamChartY   = baselineSP > 0         ? H - (remainingSP  / baselineSP)          * H : H;
         const allChartY      = (allSprintStartSP || 0) > 0 ? H - (allRemaining / allSprintStartSP) * H : H;
-        const myTeamPctDone  = sprintStartSP > 0          ? Math.round((doneSP        / sprintStartSP)      * 100) : 0;
+        const myTeamPctDone  = baselineSP > 0             ? Math.round((doneSP        / baselineSP)         * 100) : 0;
         const othersPctDone  = othersStartSP > 0           ? Math.round((othersDoneSP  / othersStartSP)       * 100) : 0;
         const allPctDone     = (allSprintStartSP || 0) > 0 ? Math.round((allDoneSP    / allSprintStartSP)    * 100) : 0;
 
@@ -13706,7 +13711,7 @@ function SprintBoard({ user }) {
             {/* Stats row */}
             <div style={{ display: "flex", gap: 20, marginBottom: 12, flexWrap: "wrap" }}>
               {[
-                { label: "Committed", value: `${sprintStartSP} SP`, color: T.text2 },
+                { label: teamView ? "Team Total" : "Committed", value: `${baselineSP} SP`, color: T.text2 },
                 { label: "Done",      value: `${doneSP} SP`,        color: T.teal },
                 { label: "Remaining", value: `${remainingSP} SP`,   color: remainingSP > idealRemaining ? T.coral : T.teal },
                 { label: "Ideal now", value: `${Math.round(idealRemaining)} SP`, color: T.text3 },
@@ -14561,18 +14566,20 @@ CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`
       });
   const teamTickets = tickets.filter(t => (t.assigneeEmail || "").toLowerCase() !== managerEmail);
 
-  // Burndown calculation
-  const sprintStartSP = sprintData.committed_sp || 0;
+  // Burndown calculation — fall back to current total SP when committed_sp not stored
+  const committedSP = sprintData.committed_sp || 0;
   const sprintStartDate = sprintData.sprint_start_date || "";
   const sprintEndDate = sprintData.sprint_end_date || "";
   const doneSP = teamTickets.filter(t => t.statusCategory === "Done").reduce((a, t) => a + (t.storyPoints || 0), 0);
   const totalSP = teamTickets.reduce((a, t) => a + (t.storyPoints || 0), 0);
+  const sprintStartSP = committedSP > 0 ? committedSP : totalSP; // fallback to current total if not set
   const remainingSP = Math.max(0, totalSP - doneSP);
   const startMs = sprintStartDate ? new Date(sprintStartDate).getTime() : 0;
   const endMs = sprintEndDate ? new Date(sprintEndDate).getTime() : 0;
   const nowMs = Date.now();
-  const totalDays = startMs && endMs ? Math.max(1, Math.round((endMs - startMs) / 86400000 * 5 / 7)) : 10;
-  const elapsedDays = startMs ? Math.min(Math.round((nowMs - startMs) / 86400000 * 5 / 7), totalDays) : 0;
+  const hasDates = startMs > 0 && endMs > 0;
+  const totalDays = hasDates ? Math.max(1, Math.round((endMs - startMs) / 86400000 * 5 / 7)) : 10;
+  const elapsedDays = hasDates ? Math.min(Math.round((nowMs - startMs) / 86400000 * 5 / 7), totalDays) : 5;
   const idealRemaining = sprintStartSP > 0 ? Math.max(0, sprintStartSP * (1 - elapsedDays / totalDays)) : 0;
   const isAhead = remainingSP <= idealRemaining;
   const statusColor = remainingSP === 0 ? T.teal : isAhead ? T.teal : T.coral;
@@ -14748,13 +14755,15 @@ CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`
       </div>
 
       {/* Team Burndown */}
-      {sprintStartSP > 0 && startMs > 0 && (
+      {sprintStartSP > 0 && (
         <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
             <span style={{ fontSize: 13 }}>📉</span>
             <div style={{ flex: 1, minWidth: 120 }}>
               <div style={{ fontSize: 13, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>Team Burndown</div>
-              <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>Day {Math.round(elapsedDays)} of {Math.round(totalDays)}</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>
+                {hasDates ? `Day ${Math.round(elapsedDays)} of ${Math.round(totalDays)}` : "Sprint progress"}
+              </div>
             </div>
             <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, background: `${statusColor}12`, border: `1px solid ${statusColor}30`, borderRadius: 20, padding: "3px 10px" }}>
               {remainingSP === 0 ? "All done!" : isAhead ? "Ahead of schedule" : "Behind schedule"}
