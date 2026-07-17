@@ -14336,6 +14336,14 @@ function MemberSprintView({ user }) {
   const [memberName, setMemberName]       = useState("");
   const [editingEmail, setEditingEmail]   = useState(false);
   const [emailDraft, setEmailDraft]       = useState("");
+  // Member's own JIRA credentials (stored in localStorage, never sent to server except JIRA)
+  const [memberJiraConfig, setMemberJiraConfig] = useState(() => { try { return JSON.parse(localStorage.getItem("echo_member_jira_config") || "null"); } catch { return null; } });
+  const [showMemberJiraSetup, setShowMemberJiraSetup] = useState(false);
+  const [memberJiraForm, setMemberJiraForm] = useState({ baseUrl: "", email: "", token: "", projectKey: "" });
+  const [memberFetchedTickets, setMemberFetchedTickets] = useState(null); // null = not yet fetched via own JIRA
+  const [memberFetchLoading, setMemberFetchLoading] = useState(false);
+  const [memberFetchError, setMemberFetchError] = useState("");
+  const [memberSprintName, setMemberSprintName] = useState("");
 
   const SQL_MIGRATION = `-- Run once in Supabase SQL editor, then ask your manager to reload their Sprint Board:
 
@@ -14412,6 +14420,62 @@ CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`
     })();
   }, [user]);
 
+  // Auto-fetch member's own JIRA tickets if they have credentials stored
+  useEffect(() => {
+    if (memberJiraConfig) fetchMemberTickets(memberJiraConfig);
+  }, []);
+
+  const fetchMemberTickets = async (cfg) => {
+    const c = cfg || memberJiraConfig;
+    if (!c) return;
+    setMemberFetchLoading(true); setMemberFetchError("");
+    try {
+      const jql = `assignee = "${c.email}" AND sprint in openSprints() AND project = "${c.projectKey}" ORDER BY status`;
+      const r = await fetch("/api/jira", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ baseUrl: c.baseUrl, email: c.email, token: c.token, jql,
+          fields: "summary,assignee,status,priority,issuetype,customfield_10016,customfield_10020,labels,components,duedate" }),
+      });
+      const data = await r.json();
+      if (!r.ok) { setMemberFetchError(data.error || (data.errorMessages || []).join(", ") || "JIRA error"); setMemberFetchLoading(false); return; }
+      const issues = data.issues || [];
+      for (const issue of issues) {
+        const sprints = issue.fields.customfield_10020;
+        if (Array.isArray(sprints)) {
+          const active = sprints.find(s => s.state === "active") || sprints[0];
+          if (active) { setMemberSprintName(active.name || ""); break; }
+        }
+      }
+      setMemberFetchedTickets(issues.map(issue => {
+        const f = issue.fields;
+        return { key: issue.key, summary: f.summary,
+          assigneeEmail: f.assignee?.emailAddress || "", assigneeName: f.assignee?.displayName || "",
+          status: f.status?.name || "Unknown", statusCategory: f.status?.statusCategory?.name || "",
+          priority: f.priority?.name || "", issueType: f.issuetype?.name || "Task",
+          storyPoints: f.customfield_10016 || null,
+          url: `${c.baseUrl.replace(/\/$/, "")}/browse/${issue.key}`,
+          labels: f.labels || [], components: (f.components || []).map(x => x.name), dueDate: f.duedate || null };
+      }));
+      setShowMemberJiraSetup(false);
+    } catch (err) { setMemberFetchError(err.message); }
+    setMemberFetchLoading(false);
+  };
+
+  const saveMemberJiraConfig = async () => {
+    const c = {
+      baseUrl: memberJiraForm.baseUrl.trim(),
+      email: memberJiraForm.email.trim().toLowerCase(),
+      token: memberJiraForm.token.trim(),
+      projectKey: memberJiraForm.projectKey.trim().toUpperCase(),
+    };
+    if (!c.baseUrl || !c.email || !c.token || !c.projectKey) { setMemberFetchError("All four fields are required."); return; }
+    localStorage.setItem("echo_member_jira_config", JSON.stringify(c));
+    setMemberJiraConfig(c);
+    setMemberFetchError("");
+    await fetchMemberTickets(c);
+  };
+
   if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Loading sprint data…</div>;
 
   if (dbReady === false) return (
@@ -14421,6 +14485,49 @@ CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`
         <div style={{ fontSize: 13, color: T.text2, marginBottom: 16 }}>Run this SQL in Supabase, then ask your manager to open the Sprint Board once to publish the data.</div>
         <pre style={{ background: T.navy0, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 16px", fontSize: 11, color: T.teal, overflowX: "auto", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{SQL_MIGRATION}</pre>
         <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => navigator.clipboard.writeText(SQL_MIGRATION)}>📋 Copy SQL</button>
+      </div>
+    </div>
+  );
+
+  // ── Member JIRA setup form ──
+  if (showMemberJiraSetup) return (
+    <div className="echo-content fade-in">
+      <div style={{ maxWidth: 520, margin: "0 auto" }}>
+        <button onClick={() => { setShowMemberJiraSetup(false); setMemberFetchError(""); }}
+          style={{ fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer", marginBottom: 16, padding: 0 }}>← Back</button>
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif", marginBottom: 4 }}>Connect your JIRA</div>
+          <div style={{ fontSize: 13, color: T.text3 }}>Credentials stay in your browser only — used only to fetch your tickets from JIRA directly.</div>
+        </div>
+        {[
+          { label: "JIRA Domain",  key: "baseUrl",     placeholder: "https://yourcompany.atlassian.net", type: "text" },
+          { label: "Your Email",   key: "email",       placeholder: "you@company.com", type: "email" },
+          { label: "API Token",    key: "token",       placeholder: "••••••••", type: "password",
+            hint: "Generate at: atlassian.com → Account settings → Security → API tokens" },
+          { label: "Project Key",  key: "projectKey",  placeholder: "DAT or DATMAN", type: "text" },
+        ].map(f => (
+          <div key={f.key} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.text2, marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em" }}>{f.label}</div>
+            <input type={f.type} value={memberJiraForm[f.key]}
+              onChange={e => setMemberJiraForm(p => ({ ...p, [f.key]: e.target.value }))}
+              placeholder={f.placeholder}
+              style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.navy2, color: T.text1, fontSize: 13, outline: "none", fontFamily: "'DM Sans', sans-serif" }} />
+            {f.hint && <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>{f.hint}</div>}
+          </div>
+        ))}
+        {memberFetchError && <div style={{ padding: "10px 14px", background: `${T.coral}12`, border: `1px solid ${T.coral}35`, borderRadius: 8, color: T.coral, fontSize: 12, marginBottom: 16 }}>{memberFetchError}</div>}
+        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+          <button onClick={saveMemberJiraConfig} disabled={memberFetchLoading}
+            style={{ flex: 1, padding: "11px 20px", borderRadius: 9, cursor: "pointer", fontWeight: 700, fontSize: 13, background: T.accent, color: "#fff", border: "none", fontFamily: "'DM Sans', sans-serif", opacity: memberFetchLoading ? 0.7 : 1 }}>
+            {memberFetchLoading ? "Connecting…" : "Save & Load My Tickets"}
+          </button>
+          {memberJiraConfig && (
+            <button onClick={() => { localStorage.removeItem("echo_member_jira_config"); setMemberJiraConfig(null); setMemberFetchedTickets(null); setMemberSprintName(""); setShowMemberJiraSetup(false); }}
+              style={{ padding: "11px 16px", borderRadius: 9, cursor: "pointer", fontSize: 12, background: "transparent", color: T.coral, border: `1px solid ${T.coral}50` }}>
+              Disconnect
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -14447,12 +14554,14 @@ CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`
 
   const tickets = sprintData.tickets || [];
   const managerEmail = (sprintData.manager_email || "").toLowerCase();
-  // Use member_email (what manager registered) as primary JIRA email; fall back to auth email
+  // If member connected their own JIRA, use those tickets directly; otherwise match from manager cache
   const effectiveMyEmail = (memberJiraEmail || user.email || "").toLowerCase();
-  const myTickets = tickets.filter(t => {
-    const ae = (t.assigneeEmail || "").toLowerCase();
-    return ae === effectiveMyEmail || (effectiveMyEmail !== (user.email||"").toLowerCase() && ae === (user.email||"").toLowerCase());
-  });
+  const myTickets = memberFetchedTickets !== null
+    ? memberFetchedTickets
+    : tickets.filter(t => {
+        const ae = (t.assigneeEmail || "").toLowerCase();
+        return ae === effectiveMyEmail || (effectiveMyEmail !== (user.email||"").toLowerCase() && ae === (user.email||"").toLowerCase());
+      });
   const teamTickets = tickets.filter(t => (t.assigneeEmail || "").toLowerCase() !== managerEmail);
 
   // Burndown calculation
@@ -14517,49 +14626,44 @@ CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`
     <div className="echo-content fade-in">
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: T.text3, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 4 }}>My Sprint</div>
-        <div style={{ fontSize: 18, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>{sprintData.sprint_name || "Active Sprint"}</div>
-        {sprintStartDate && sprintEndDate && (
-          <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{fmtDate(sprintStartDate)} – {fmtDate(sprintEndDate)}</div>
-        )}
-        <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>
-          Published by manager · {sprintData.published_at ? new Date(sprintData.published_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}
-        </div>
-        {/* JIRA email — editable override so members can fix mismatches */}
-        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          {editingEmail ? (
-            <>
-              <input
-                value={emailDraft}
-                onChange={e => setEmailDraft(e.target.value)}
-                placeholder="your-name@company.com"
-                style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: `1px solid ${T.accent}60`, background: T.navy3, color: T.text1, outline: "none", width: 220 }}
-                onKeyDown={e => {
-                  if (e.key === "Enter") { const em = emailDraft.trim().toLowerCase(); setMemberJiraEmail(em); localStorage.setItem("echo_member_jira_email", em); setEditingEmail(false); }
-                  if (e.key === "Escape") setEditingEmail(false);
-                }}
-                autoFocus
-              />
-              <button onClick={() => { const em = emailDraft.trim().toLowerCase(); setMemberJiraEmail(em); localStorage.setItem("echo_member_jira_email", em); setEditingEmail(false); }}
-                style={{ fontSize: 10, padding: "3px 9px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", cursor: "pointer" }}>Save</button>
-              <button onClick={() => setEditingEmail(false)}
-                style={{ fontSize: 10, padding: "3px 9px", borderRadius: 6, background: "transparent", color: T.text3, border: `1px solid ${T.border}`, cursor: "pointer" }}>Cancel</button>
-            </>
-          ) : (
-            <>
-              <span style={{ fontSize: 11, color: T.text3 }}>Your JIRA email:</span>
-              <span style={{ fontSize: 11, color: myTickets.length > 0 ? T.teal : T.amber, fontFamily: "'DM Mono', monospace" }}>{effectiveMyEmail || "not set"}</span>
-              <button onClick={() => { setEmailDraft(effectiveMyEmail); setEditingEmail(true); }}
-                style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: "transparent", color: T.text3, border: `1px solid ${T.border}`, cursor: "pointer" }}>
-                {myTickets.length === 0 ? (uniqueAssignees.length > 0 ? "override" : "Fix →") : "Edit"}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 11, color: T.text3, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 4 }}>My Sprint</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
+              {memberFetchedTickets !== null ? (memberSprintName || "Active Sprint") : (sprintData.sprint_name || "Active Sprint")}
+            </div>
+            {sprintStartDate && sprintEndDate && memberFetchedTickets === null && (
+              <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{fmtDate(sprintStartDate)} – {fmtDate(sprintEndDate)}</div>
+            )}
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>
+              {memberFetchedTickets !== null
+                ? <span style={{ color: T.teal }}>● Live from your JIRA · {memberJiraConfig?.projectKey}</span>
+                : `Published by manager · ${sprintData.published_at ? new Date(sprintData.published_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}`
+              }
+            </div>
+          </div>
+          {/* JIRA connect button */}
+          <div style={{ flexShrink: 0 }}>
+            {memberJiraConfig ? (
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <button onClick={() => { setMemberJiraForm({ baseUrl: memberJiraConfig.baseUrl, email: memberJiraConfig.email, token: "", projectKey: memberJiraConfig.projectKey }); setMemberFetchError(""); setShowMemberJiraSetup(true); }}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 7, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>⚙ JIRA settings</button>
+                <button onClick={() => fetchMemberTickets(memberJiraConfig)} disabled={memberFetchLoading}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 7, cursor: "pointer", background: `${T.teal}18`, color: T.teal, border: `1px solid ${T.teal}40`, opacity: memberFetchLoading ? 0.6 : 1 }}>
+                  {memberFetchLoading ? "Refreshing…" : "↺ Refresh"}
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => { setMemberJiraForm({ baseUrl: "", email: user?.email || "", token: "", projectKey: "" }); setMemberFetchError(""); setShowMemberJiraSetup(true); }}
+                style={{ fontSize: 12, fontWeight: 700, padding: "7px 16px", borderRadius: 8, cursor: "pointer", background: `${T.accent}20`, color: T.accent2, border: `1px solid ${T.accent}50`, fontFamily: "'DM Sans', sans-serif" }}>
+                🔗 Connect your JIRA
               </button>
-              {memberJiraEmail && localStorage.getItem("echo_member_jira_email") && (
-                <button onClick={() => { localStorage.removeItem("echo_member_jira_email"); setMemberJiraEmail(""); }}
-                  style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: "transparent", color: T.text3, border: `1px solid ${T.border}`, cursor: "pointer" }}>Reset</button>
-              )}
-            </>
-          )}
+            )}
+          </div>
         </div>
+        {memberFetchError && (
+          <div style={{ marginTop: 10, padding: "8px 12px", background: `${T.coral}12`, border: `1px solid ${T.coral}35`, borderRadius: 8, color: T.coral, fontSize: 12 }}>{memberFetchError}</div>
+        )}
       </div>
 
       {/* My Tickets */}
@@ -14578,15 +14682,25 @@ CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`
             })}
           </div>
         </div>
-        {myTickets.length === 0 ? (
+        {memberFetchLoading ? (
+          <div style={{ padding: "24px 18px", fontSize: 12, color: T.text3, textAlign: "center" }}>Fetching your JIRA tickets…</div>
+        ) : myTickets.length === 0 ? (
           <div style={{ padding: "18px 18px" }}>
-            {uniqueAssignees.length > 0 ? (
+            {memberFetchedTickets !== null ? (
+              // Connected to JIRA but 0 tickets assigned in current sprint
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 14, color: T.teal, marginBottom: 8 }}>✓ JIRA connected</div>
+                <div style={{ fontSize: 12, color: T.text3 }}>No tickets assigned to <span style={{ color: T.text2, fontFamily: "'DM Mono', monospace" }}>{memberJiraConfig?.email}</span> in the active sprint.</div>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>Check the project key or sprint in JIRA, then use <strong>↺ Refresh</strong>.</div>
+              </div>
+            ) : uniqueAssignees.length > 0 ? (
+              // Not connected — show name picker from manager cache
               <>
                 <div style={{ fontSize: 12, fontWeight: 700, color: T.amber, textAlign: "center", marginBottom: 6 }}>
                   👋 Who are you in this sprint?
                 </div>
                 <div style={{ fontSize: 11, color: T.text3, textAlign: "center", marginBottom: 14 }}>
-                  Tap your name — your tickets will appear instantly
+                  Tap your name — or use <strong style={{ color: T.accent2 }}>🔗 Connect your JIRA</strong> above for full access
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
                   {uniqueAssignees.map(a => (
