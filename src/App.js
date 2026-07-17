@@ -14494,6 +14494,16 @@ CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`
   });
   const topByScore = [...memberStats].sort((a, b) => (b.spDone * 2 + b.done) - (a.spDone * 2 + a.done))[0]?.name;
 
+  // Build a list of unique assignees in this sprint (excluding manager) for the identity picker
+  const uniqueAssignees = Object.values(
+    teamTickets.reduce((acc, t) => {
+      const name = (t.assigneeName || "").trim();
+      const email = (t.assigneeEmail || "").toLowerCase().trim();
+      if (name && email && email !== managerEmail && !acc[email]) acc[email] = { name, email };
+      return acc;
+    }, {})
+  ).sort((a, b) => a.name.localeCompare(b.name));
+
   const fmtDate = iso => iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
   const statusCategoryColor = (cat, status) => {
     const s = (status || "").toLowerCase();
@@ -14541,7 +14551,7 @@ CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`
               <span style={{ fontSize: 11, color: myTickets.length > 0 ? T.teal : T.amber, fontFamily: "'DM Mono', monospace" }}>{effectiveMyEmail || "not set"}</span>
               <button onClick={() => { setEmailDraft(effectiveMyEmail); setEditingEmail(true); }}
                 style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: "transparent", color: T.text3, border: `1px solid ${T.border}`, cursor: "pointer" }}>
-                {myTickets.length === 0 ? "Fix →" : "Edit"}
+                {myTickets.length === 0 ? (uniqueAssignees.length > 0 ? "override" : "Fix →") : "Edit"}
               </button>
               {memberJiraEmail && localStorage.getItem("echo_member_jira_email") && (
                 <button onClick={() => { localStorage.removeItem("echo_member_jira_email"); setMemberJiraEmail(""); }}
@@ -14569,7 +14579,33 @@ CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`
           </div>
         </div>
         {myTickets.length === 0 ? (
-          <div style={{ padding: "24px 18px", fontSize: 12, color: T.text3, textAlign: "center" }}>No tickets assigned to you in this sprint yet.</div>
+          <div style={{ padding: "18px 18px" }}>
+            {uniqueAssignees.length > 0 ? (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.amber, textAlign: "center", marginBottom: 6 }}>
+                  👋 Who are you in this sprint?
+                </div>
+                <div style={{ fontSize: 11, color: T.text3, textAlign: "center", marginBottom: 14 }}>
+                  Tap your name — your tickets will appear instantly
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                  {uniqueAssignees.map(a => (
+                    <button key={a.email}
+                      onClick={() => { setMemberJiraEmail(a.email); localStorage.setItem("echo_member_jira_email", a.email); }}
+                      style={{ fontSize: 12, fontWeight: 600, padding: "8px 18px", borderRadius: 20,
+                        background: `${T.accent}18`, color: T.accent2,
+                        border: `1px solid ${T.accent}40`, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: "6px 0" }}>
+                No tickets in this sprint yet. Ask your manager to reload Sprint Board.
+              </div>
+            )}
+          </div>
         ) : (
           <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
             {myTickets.map(t => {
