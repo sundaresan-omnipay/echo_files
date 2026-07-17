@@ -308,6 +308,7 @@ const probeCommitmentDueDate = () => {
 };
 
 const GROQ_API_KEY = process.env.REACT_APP_GROQ_API_KEY || "";
+const CLIQ_WEBHOOK_URL = localStorage.getItem("echo_cliq_webhook") || "https://cliq.zoho.in/api/v2/channelsbyname/self/message?zapikey=1001.816bb09a5ef96c744dc24dcccb7401b6.eb24b484596c5acd4c826fdfeb715c71";
 // Non-person words the AI sometimes wrongly extracts as collaborator names
 const _NAME_BLOCKLIST = new Set([
   "team","everyone","all","management","midnight","morning","evening","afternoon","night",
@@ -329,7 +330,7 @@ async function callGroq(bullets, knownPeople = []) {
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
       messages: [
-        { role: "system", content: `You are a professional work diary assistant for a QA engineer. Process each work item and return a single JSON object.
+        { role: "system", content: `You are a professional work diary assistant for a Staff SDET (Software Development Engineer in Test) with 10 years of experience who also manages a QA team. Process each work item and return a single JSON object.
 
 ATOMIC RULE (most important): Each numbered item is ONE indivisible unit. Assign the ENTIRE item to exactly ONE category. Do NOT split an item at dashes, semicolons, commas, or conjunctions — the text after a dash is a qualifier, not a separate item. Never produce more category entries than input items.
 
@@ -409,7 +410,7 @@ async function callGroqInsight(entries) {
       body: JSON.stringify({
         model: "llama-3.1-8b-instant",
         messages: [
-          { role: "system", content: "You are a professional work coach. Given a person's recent diary entries, write 2-3 sentences of insightful reflection. Focus on patterns, strengths, and one forward-looking suggestion. Be specific and encouraging. Do not use generic platitudes. Write in second person (you). Max 80 words." },
+          { role: "system", content: "You are a senior engineering career coach for a Staff SDET with 10 years of QA experience who also leads a QA team. Given their recent diary entries, write 2-3 sentences of insightful reflection. Focus on patterns, strengths, and one forward-looking suggestion. Be specific and encouraging — address them at staff engineer / team lead level, not as a junior. Write in second person (you). Max 80 words." },
           { role: "user", content: `Recent work diary entries:\n${summary}` }
         ],
         temperature: 0.7,
@@ -440,7 +441,7 @@ async function callGroqStandup(entry) {
     body: JSON.stringify({
       model: "llama-3.1-8b-instant",
       messages: [
-        { role: "system", content: `You are a standup assistant for a QA engineer. Generate a concise daily standup in exactly this format:
+        { role: "system", content: `You are a standup assistant for a Staff SDET with 10 years of experience who leads a QA team. Generate a concise daily standup in exactly this format:
 
 ✅ Done:
 • [what was completed yesterday]
@@ -481,7 +482,7 @@ async function callGroqOPS(myTickets) {
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
       messages: [
-        { role: "system", content: `You are an OPS score coach for a QA engineer. ${OPS_CONTEXT}\n\nReturn ONLY valid JSON, no markdown: {"priority_actions":["action1","action2","action3"],"tips":[{"key":"TICKET-KEY","tip":"specific actionable tip under 15 words","urgency":"high|medium|low"}]}` },
+        { role: "system", content: `You are an OPS score coach for a Staff SDET with 10 years of experience who manages a QA team. ${OPS_CONTEXT}\n\nReturn ONLY valid JSON, no markdown: {"priority_actions":["action1","action2","action3"],"tips":[{"key":"TICKET-KEY","tip":"specific actionable tip under 15 words","urgency":"high|medium|low"}]}` },
         { role: "user", content: `My current sprint tickets:\n${ticketList}\n\nGive me 3 top priority actions to maximise my OPS score and one specific tip per ticket.` }
       ],
       response_format: { type: "json_object" },
@@ -512,7 +513,7 @@ async function callGroqRetro(entries, incidents) {
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
       messages: [
-        { role: "system", content: `You are a QA engineering retrospective facilitator. Return ONLY valid JSON, no markdown: {"went_well":["item1","item2","item3"],"didnt_go_well":["item1","item2"],"actions":["SMART action1","SMART action2","SMART action3"],"shout_out":"one sentence celebrating the biggest win","theme":"one-word sprint theme e.g. Resilience"}` },
+        { role: "system", content: `You are a retrospective facilitator for a Staff SDET team lead with 10 years of QA experience. Return ONLY valid JSON, no markdown: {"went_well":["item1","item2","item3"],"didnt_go_well":["item1","item2"],"actions":["SMART action1","SMART action2","SMART action3"],"shout_out":"one sentence celebrating the biggest win","theme":"one-word sprint theme e.g. Resilience"}` },
         { role: "user", content: `Sprint data (last 2 weeks):\nWins:\n${wins || "None logged"}\n\nBlockers:\n${blockersText || "None"}\n\nMood distribution: ${moodStr || "no data"}\n\nIncidents:\n${incStr || "None"}\n\nTop focus areas: ${topFocus || "varied"}` },
       ],
       response_format: { type: "json_object" },
@@ -543,7 +544,7 @@ async function callGroqCareerCoach(entries, bragWins) {
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
       messages: [
-        { role: "system", content: `You are a senior engineering career coach. Return ONLY valid JSON, no markdown: {"strengths":["strength1","strength2","strength3"],"growth_areas":["area1","area2"],"next_30_days":["specific action1","specific action2","specific action3"],"coach_note":"2-3 sentence personalised coaching note referencing their actual data","career_stage":"early|mid|senior"}` },
+        { role: "system", content: `You are a senior engineering career coach for a Staff SDET with 10 years of QA experience and team leadership responsibilities. Return ONLY valid JSON, no markdown: {"strengths":["strength1","strength2","strength3"],"growth_areas":["area1","area2"],"next_30_days":["specific action1","specific action2","specific action3"],"coach_note":"2-3 sentence personalised coaching note addressing them as a staff-level engineer and team lead, referencing their actual data","career_stage":"early|mid|senior|staff"}` },
         { role: "user", content: `Engineer's last 60 days:\n\nBrag-worthy wins:\n${winLines || "None logged yet"}\n\nTop focus areas: ${topFocus || "varied"}\n\nMood health: ${negCount} tough days out of ${totalMoods} logged (${totalMoods > 0 ? Math.round((1 - negCount / totalMoods) * 100) : 100}% positive)\n\nRecurring blockers: ${blockersLst || "None recorded"}\n\nKey collaborators: ${collabNames || "Not tracked yet"}` },
       ],
       response_format: { type: "json_object" },
@@ -554,6 +555,298 @@ async function callGroqCareerCoach(entries, bragWins) {
   if (!res.ok) throw new Error(`Groq ${res.status}`);
   const data3 = await res.json();
   return JSON.parse(data3.choices[0].message.content);
+}
+
+async function callGroqTeamStandup(allGroupsMap, sprintName) {
+  if (!GROQ_API_KEY) throw new Error("REACT_APP_GROQ_API_KEY is not configured.");
+  const memberBlocks = Object.entries(allGroupsMap).map(([member, tickets]) => {
+    const done    = tickets.filter(t => t.statusCategory === "Done");
+    const inProg  = tickets.filter(t => t.statusCategory === "In Progress" && !(t.status || "").toLowerCase().includes("block"));
+    const blocked = tickets.filter(t => (t.status || "").toLowerCase().includes("block"));
+    const spDone  = done.reduce((s, t) => s + (t.storyPoints || 0), 0);
+    const spTotal = tickets.reduce((s, t) => s + (t.storyPoints || 0), 0);
+    const idle    = inProg.length === 0 && done.length < tickets.length;
+    return `${member}${idle ? " ⚠️ NO ACTIVE TASKS" : ""}:\n  ✅ Done: ${done.map(t => `${t.key}: ${t.summary.slice(0, 55)}`).join("; ") || "nothing yet"}\n  🔵 In Progress: ${inProg.map(t => `${t.key}: ${t.summary.slice(0, 55)}`).join("; ") || "nothing active"}\n  🔴 Blocked: ${blocked.map(t => `${t.key}: ${t.summary.slice(0, 55)}`).join("; ") || "none"}\n  📊 SP: ${spDone}/${spTotal} done`;
+  }).join("\n\n");
+  const totalSP  = Object.values(allGroupsMap).flat().reduce((s, t) => s + (t.storyPoints || 0), 0);
+  const doneSP   = Object.values(allGroupsMap).flat().filter(t => t.statusCategory === "Done").reduce((s, t) => s + (t.storyPoints || 0), 0);
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: `You are a scrum master writing a concise daily standup. Return ONLY valid JSON, no markdown:\n{"headline":"one sharp sentence — overall sprint status today","standup_text":"formatted standup per person. Use ✅ Done / 🔵 Today / 🔴 Blocked / 📊 SP format. Flag ⚠️ members with no active tasks as a concern. Keep each person under 3 lines. End with 1-sentence sprint SP summary.","action_items":["specific blocker, idle team member escalation, or risk — max 4 items, empty array if none"]}` },
+        { role: "user", content: `Sprint: ${sprintName || "Current Sprint"} | Sprint SP Progress: ${doneSP}/${totalSP} story points done\n\nTeam JIRA snapshot:\n${memberBlocks}\n\nWrite a daily standup the team lead can paste directly into Slack. Explicitly call out anyone with no active tasks.` },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 1000,
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq ${res.status}`);
+  const d = await res.json();
+  return JSON.parse(d.choices[0].message.content);
+}
+
+async function callGroqOneOnOnePrep(context, teammateName, sessions, openCommitments, jiraTickets) {
+  if (!GROQ_API_KEY) throw new Error("REACT_APP_GROQ_API_KEY is not configured.");
+  const collabLines  = context.collabs.slice(0, 4).map(e => `${e.date}: ${e.content?.slice(0, 100) || e.focus_area || "worked together"}`).join("\n");
+  const updateLines  = context.updates.slice(0, 5).map(u => `${u.date}: ${u.update} (${u.status})`).join("\n");
+  const feedbackLines = context.feedback.slice(0, 4).map(f => `${f.date}: [${f.type}] ${f.note}`).join("\n");
+  const commitLines  = openCommitments.slice(0, 3).map(c => `${c.direction === "i_owe" ? "You owe" : "They owe"}: ${c.what}`).join("\n");
+  const jiraLines    = jiraTickets.slice(0, 5).map(t => `${t.key}: ${t.summary} (${t.status})`).join("\n");
+  const lastSession  = sessions[0]
+    ? `Last session ${sessions[0].session_date}: ${sessions[0].notes?.slice(0, 150) || "no notes"}. Open actions: ${sessions[0].action_items?.filter(a => !a.done).map(a => a.text).join(", ") || "none"}`
+    : "No previous sessions";
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama-3.1-8b-instant",
+      messages: [
+        { role: "system", content: `You are a 1:1 meeting coach for an engineering manager. Given context about a team member, generate 4 specific, actionable talking points. Return ONLY valid JSON: {"talking_points":["point1","point2","point3","point4"],"tone":"positive|coaching|concerned","key_focus":"one sentence on the most important thing to address in this session"}` },
+        { role: "user", content: `Team member: ${teammateName}\n\nPrevious session: ${lastSession}\n\nOpen commitments:\n${commitLines || "None"}\n\nSprint tickets:\n${jiraLines || "None"}\n\nRecent diary collaborations:\n${collabLines || "None"}\n\nTeam updates about them:\n${updateLines || "None"}\n\nFeedback given:\n${feedbackLines || "None"}` },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.4,
+      max_tokens: 600,
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq ${res.status}`);
+  const data = await res.json();
+  return JSON.parse(data.choices[0].message.content);
+}
+
+async function callGroqIncidentRCA(module, type, pastIncidents) {
+  if (!GROQ_API_KEY) return null;
+  const pastStr = pastIncidents
+    .filter(i => (i.module || "").toLowerCase().includes((module || "").toLowerCase().slice(0, 4)) || i.type === type)
+    .slice(0, 5)
+    .map(i => `[${i.severity}] ${i.module}: ${i.root_cause}${i.test_gap ? " | Gap: " + i.test_gap : ""}`)
+    .join("\n");
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: `You are a QA root cause analysis assistant for a Staff SDET with 10 years of experience. Given an incident module and type, suggest a likely root cause and the test that would have caught it. Return ONLY valid JSON: {"root_cause":"concise root cause under 15 words","test_gap":"specific test that would have caught this under 20 words","confidence":"high|medium|low"}` },
+          { role: "user", content: `Module: ${module}\nIncident type: ${type}\n\nSimilar past incidents:\n${pastStr || "None yet"}` },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.3,
+        max_tokens: 200,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return JSON.parse(data.choices[0].message.content);
+  } catch { return null; }
+}
+
+async function callGroqEscalation(ticket, jiraCfg) {
+  if (!GROQ_API_KEY) throw new Error("REACT_APP_GROQ_API_KEY is not configured.");
+  const url = jiraCfg?.baseUrl ? `${jiraCfg.baseUrl.replace(/\/$/, "")}/browse/${ticket.key}` : "";
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama-3.1-8b-instant",
+      messages: [
+        { role: "system", content: "You are a professional engineering manager. Write a concise, polite escalation message (5-8 lines) for a blocked JIRA ticket. Use a respectful but urgent tone. Format it ready to paste into Slack or Cliq. No markdown, no code blocks." },
+        { role: "user", content: `Blocked ticket: ${ticket.key}\nSummary: ${ticket.summary}\nCurrent status: ${ticket.status}\nAssignee: ${ticket.assigneeName || "unassigned"}\nComponent: ${(ticket.components || []).join(", ") || "—"}\nDue date: ${ticket.dueDate || "not set"}\nJIRA link: ${url}\n\nWrite a professional escalation message highlighting the blockage, its impact, and requesting unblocking.` },
+      ],
+      temperature: 0.4,
+      max_tokens: 300,
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq ${res.status}`);
+  const data = await res.json();
+  return data.choices[0].message.content.trim();
+}
+
+async function callGroqTeamMemberReport(person, sessions, diaryFeedback, diaryMentions, tickets) {
+  if (!GROQ_API_KEY) throw new Error("REACT_APP_GROQ_API_KEY is not configured.");
+  const sessionCtx = sessions.length === 0
+    ? "No 1:1 sessions in last 90 days."
+    : sessions.map(s => {
+        const pending = (s.action_items || []).filter(a => !a.done).map(a => a.text).join("; ");
+        const done    = (s.action_items || []).filter(a => a.done).map(a => a.text).join("; ");
+        const fb = (s.feedback_given || []).map(f => `[${f.type}] ${f.note}`).join("; ");
+        return `${s.session_date} (${s.sentiment || "neutral"}): ${s.notes || s.topics || "No notes"}${done ? " | Completed: " + done : ""}${pending ? " | Pending: " + pending : ""}${fb ? " | Feedback: " + fb : ""}`;
+      }).join("\n");
+  const feedbackCtx = diaryFeedback.length === 0
+    ? "No explicit feedback logged."
+    : diaryFeedback.map(f => `${f.date} [${f.type}]: ${f.note}`).join("\n");
+  const mentionCtx = diaryMentions.length === 0
+    ? "No diary mentions found."
+    : diaryMentions.map(m => `${m.date}${m.mood ? " [" + m.mood + "]" : ""}${m.is_win ? " 🏆" : ""}: ${m.snippet}`).join("\n");
+  const ticketCtx = tickets.length === 0
+    ? "No JIRA tickets in current sprint."
+    : tickets.map(t => `${t.key} [${t.statusCategory || t.status}]${t.storyPoints ? " " + t.storyPoints + "SP" : ""}: ${t.summary.slice(0, 70)}${t.priority ? " (P:" + t.priority + ")" : ""}`).join("\n");
+  const prompt = `You are writing a team member progress report based on real data from three sources. Analyse ALL three and synthesise patterns across them — do not rely on just one source.
+
+Team member: ${person.name} (${person.role || "QA Engineer"}, ${person.relationship || "direct report"})
+
+── SOURCE 1: 1:1 SESSIONS (last 90 days, ${sessions.length} total) ──
+${sessionCtx}
+
+── SOURCE 2: EXPLICIT FEEDBACK logged in my diary ──
+${feedbackCtx}
+
+── SOURCE 3: DIARY MENTIONS — days where I wrote about this person ──
+${mentionCtx}
+
+── SOURCE 4: CURRENT SPRINT JIRA TICKETS (${tickets.length} total) ──
+${ticketCtx}
+
+Synthesise ALL sources. If any source shows a pattern contradicting another, flag it. Be specific — name actual tickets, dates, or notes from the data. Do not be generic.
+
+Return ONLY valid JSON (no markdown, no explanation):
+{"summary":"2-3 sentence overall progress using specific evidence from the data","strengths":["specific strength with evidence"],"watchPoints":["specific concern with evidence"],"suggestedActions":["1-2 concrete actions for next week or next 1:1"],"dataQuality":{"sessions":${sessions.length},"feedbackEntries":${diaryFeedback.length},"diaryMentions":${diaryMentions.length},"tickets":${tickets.length}}}`;
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: "You are an experienced engineering manager. Write honest, evidence-based progress reports from real data. Always cite specific examples from the data given. Return ONLY valid JSON as instructed — no markdown, no explanation outside the JSON." },
+        { role: "user", content: prompt },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.35,
+      max_tokens: 700,
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq ${res.status}`);
+  const data = await res.json();
+  return JSON.parse(data.choices[0].message.content);
+}
+
+async function callGroqPulseSummary(memberName, memberRole, entries) {
+  if (!GROQ_API_KEY) throw new Error("REACT_APP_GROQ_API_KEY is not configured.");
+  const entryCtx = entries.map(e => {
+    const updates = (e.team_updates || []).map(u => typeof u === "string" ? u : (u.text || u.note || "")).filter(Boolean).join("; ");
+    return `${e.date} [${e.mood || "neutral"}${e.is_win ? " WIN" : ""}]: ${e.title ? e.title + " — " : ""}${(e.content || updates || "(no content)").slice(0, 200)}${e.blockers ? " | Blocker: " + e.blockers.slice(0, 80) : ""}`;
+  }).join("\n");
+  const prompt = `Analyse the diary entries of a QA team member and produce a concise pulse summary for their manager.
+
+Team member: ${memberName} (${memberRole || "SDET"})
+Total entries: ${entries.length} (most recent first)
+${entryCtx}
+
+Return ONLY valid JSON:
+{"overview":"2-3 sentence summary of what this person has been working on and how they are progressing","moodPattern":"1 sentence on their mood/energy trend over this period","keyContributions":["up to 3 specific things they accomplished — use real details from the data"],"blockers":["active blockers that need manager attention — empty array if none"],"managerNote":"1 actionable thing the manager should do or bring up in the next 1:1"}`;
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: "You are an experienced engineering manager reviewing your team's diary entries. Write honest, specific summaries citing real details. Return ONLY valid JSON." },
+        { role: "user", content: prompt },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 600,
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq ${res.status}`);
+  const data = await res.json();
+  return JSON.parse(data.choices[0].message.content);
+}
+
+async function callGroqReleaseReadiness(tickets, sprintName) {
+  if (!GROQ_API_KEY) throw new Error("REACT_APP_GROQ_API_KEY is not configured.");
+  const done     = tickets.filter(t => t.statusCategory === "Done");
+  const blocked  = tickets.filter(t => (t.status || "").toLowerCase().includes("block"));
+  const inQA     = tickets.filter(t => /(qa|review|testing)/i.test(t.status || "") && t.statusCategory !== "Done");
+  const overdue  = tickets.filter(t => t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) && t.statusCategory !== "Done");
+  const noSP     = tickets.filter(t => !t.storyPoints && t.statusCategory !== "Done");
+  const totalSP  = tickets.reduce((s, t) => s + (t.storyPoints || 0), 0);
+  const doneSP   = done.reduce((s, t) => s + (t.storyPoints || 0), 0);
+  const summary  = `Sprint: ${sprintName}\nTotal tickets: ${tickets.length} | Done: ${done.length} (${totalSP > 0 ? Math.round(doneSP / totalSP * 100) : "?"}% SP)\nBlocked: ${blocked.map(t => `${t.key}: ${t.summary.slice(0, 50)}`).join("; ") || "None"}\nIn QA/Review: ${inQA.map(t => t.key).join(", ") || "None"}\nOverdue: ${overdue.map(t => `${t.key} (due ${t.dueDate})`).join(", ") || "None"}\nTickets without SP: ${noSP.length}`;
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama-3.1-8b-instant",
+      messages: [
+        { role: "system", content: `You are a release readiness advisor for a Staff SDET team lead with 10 years of QA experience. Assess release readiness and return ONLY valid JSON: {"verdict":"GO|CAUTION|NO_GO","confidence":85,"reasons":["reason1","reason2"],"release_note":"2-3 sentence professional release note if GO or CAUTION, empty string if NO_GO","action_items":["action1","action2"]}` },
+        { role: "user", content: summary },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 500,
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq ${res.status}`);
+  const data = await res.json();
+  return JSON.parse(data.choices[0].message.content);
+}
+
+async function callGroqResume(entries) {
+  if (!GROQ_API_KEY) throw new Error("REACT_APP_GROQ_API_KEY is not configured.");
+  const allFocusAreas = {}, allCollabs = {}, allTags = {}, allJiras = new Set(), wins = [];
+  entries.forEach(e => {
+    getFocusAreas(e).forEach(f => { allFocusAreas[f] = (allFocusAreas[f] || 0) + 1; });
+    (e.tags || []).forEach(t => { if (t.trim()) allTags[t.trim()] = (allTags[t.trim()] || 0) + 1; });
+    (e.collaborators || []).forEach(c => { const n = cleanCollab(c); if (n && n.trim()) allCollabs[n.trim()] = (allCollabs[n.trim()] || 0) + 1; });
+    (e.jira_links || []).forEach(j => { if (j && j.trim()) allJiras.add(j.trim()); });
+    if (e.is_win && e.content) wins.push(e.content.split("\n").filter(Boolean)[0]?.slice(0, 120) || "");
+  });
+  const topFocus   = Object.entries(allFocusAreas).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([f, c]) => `${f} (${c} days)`);
+  const topCollabs = Object.entries(allCollabs).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n, c]) => `${n} (${c} sessions)`);
+  const topTags    = Object.entries(allTags).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([t]) => t);
+  const sampleEntries = entries.slice(0, 40).map(e => {
+    const parts = [];
+    if (e.content) parts.push(e.content.split("\n").filter(Boolean).slice(0, 4).join("; "));
+    if (e.blockers) parts.push(`blocked by: ${e.blockers}`);
+    return `[${e.date}] ${getFocusAreas(e).join(", ")}: ${parts.join(" | ")}`;
+  }).join("\n");
+  const context = `Engineer profile:
+- Date range: ${entries[entries.length - 1]?.date} to ${entries[0]?.date} (${entries.length} diary entries)
+- Primary focus areas: ${topFocus.join(", ")}
+- Key collaborators: ${topCollabs.join(", ")}
+- Skills/domains: ${topTags.join(", ")}
+- JIRA tickets referenced: ${allJiras.size}
+- Wins logged: ${wins.length}${wins.length ? `\n- Recent wins: ${wins.slice(0, 5).join("; ")}` : ""}
+
+Sample diary entries:
+${sampleEntries}`;
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: `You are a professional resume writer specialising in Staff SDETs and senior QA engineering roles. Given a person's work diary data, write a compelling professional profile for a Staff SDET with 10 years of QA experience who leads a team. Return ONLY valid JSON:\n{"headline":"one-line professional headline under 12 words","summary":"3-4 sentence professional summary highlighting leadership, technical depth, impact, and team influence at staff level","competencies":["skill1","skill2"],"experience_bullets":["Achievement written in strong action verb past tense under 20 words"],"collaboration_style":"2-3 sentences about how this person works with their team and stakeholders","growth_areas":["area1","area2","area3"],"impact_statement":"one powerful sentence about their overall professional impact at staff level"}\nRules: Use concrete specific language. Do NOT invent numbers unless they appear in the data. Write 8-12 experience_bullets (mix of technical QA and leadership achievements) and 10-15 competencies appropriate for a Staff SDET resume.` },
+        { role: "user", content: context }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.4,
+      max_tokens: 1500,
+    })
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message || `Groq error ${res.status}`);
+  return JSON.parse(json.choices[0].message.content);
+}
+
+async function sendToCliq(text, channel) {
+  const baseUrl = localStorage.getItem("echo_cliq_webhook") || CLIQ_WEBHOOK_URL;
+  if (!baseUrl) throw new Error("Cliq webhook not configured.");
+  const url = channel
+    ? baseUrl.replace(/channelsbyname\/[^/]+\//, `channelsbyname/${channel}/`)
+    : baseUrl;
+  const res = await fetch("/api/send-cliq", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ webhookUrl: url, message: { text } }),
+  });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `Cliq error ${res.status}`); }
 }
 
 // Cleans a collaborator value — handles cases where Groq returned an object that got
@@ -1183,6 +1476,67 @@ const injectStyles = () => {
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
     .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    /* ── Dashboard two-column grid ── */
+    .dash-grid {
+      display: grid;
+      grid-template-columns: 1fr 364px;
+      gap: 20px;
+      align-items: start;
+      margin-bottom: 24px;
+    }
+    .dash-col { display: flex; flex-direction: column; gap: 16px; }
+    /* Section dividers */
+    .dash-divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 20px 0 14px;
+    }
+    .dash-divider-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: ${T.text3};
+      text-transform: uppercase;
+      letter-spacing: 1.8px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .dash-divider-line { flex: 1; height: 1px; background: ${T.border}; }
+    /* AI actions dropdown */
+    .ai-dropdown-wrap { position: relative; }
+    .ai-dropdown-menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      background: ${T.navy2};
+      border: 1px solid ${T.borderHover};
+      border-radius: 10px;
+      padding: 5px;
+      z-index: 1000;
+      min-width: 172px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.55);
+      animation: fadeIn 0.12s ease;
+    }
+    .ai-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      color: ${T.text2};
+      border: none;
+      background: none;
+      width: 100%;
+      font-family: 'DM Sans', sans-serif;
+      text-align: left;
+      transition: all 0.12s;
+    }
+    .ai-menu-item:hover { background: rgba(79,142,247,0.1); color: ${T.text1}; }
+    @media (max-width: 960px) { .dash-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) { .analytics-grid { grid-template-columns: 1fr !important; } }
     .mt-8 { margin-top: 8px; }
     .mt-16 { margin-top: 16px; }
     .mt-24 { margin-top: 24px; }
@@ -1744,12 +2098,13 @@ const injectStyles = () => {
       display: none;
       background: transparent; border: none;
       color: ${T.text2}; cursor: pointer;
-      font-size: 22px; padding: 4px 8px;
-      line-height: 1; border-radius: 6px;
+      padding: 6px 8px;
+      line-height: 0; border-radius: 7px;
       align-items: center; justify-content: center;
       margin-right: 8px;
+      transition: background 0.15s, color 0.15s;
     }
-    .echo-hamburger:hover { background: rgba(255,255,255,0.06); }
+    .echo-hamburger:hover { background: rgba(255,255,255,0.07); color: ${T.text1}; }
     .mobile-overlay {
       display: none;
       position: fixed; inset: 0; z-index: 199;
@@ -1776,6 +2131,235 @@ const injectStyles = () => {
       .echo-page-title { font-size: 16px; }
       .echo-page-sub { display: none; }
     }
+
+    /* ════════════════════════════════════════════════════
+       ECHO UI Polish — enhanced depth, interaction, states
+       ════════════════════════════════════════════════════ */
+
+    /* Text selection */
+    ::selection { background: rgba(79,142,247,0.28); color: ${T.text1}; }
+
+    /* Keyboard focus ring — accessibility */
+    button:focus-visible,
+    a:focus-visible,
+    [role="button"]:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
+      outline: 2px solid ${T.accent};
+      outline-offset: 2px;
+      border-radius: 6px;
+    }
+
+    /* ── Skeleton shimmer loader ── */
+    @keyframes echoShimmer {
+      from { background-position: -600px 0; }
+      to   { background-position:  600px 0; }
+    }
+    .skeleton {
+      background: linear-gradient(90deg,
+        rgba(255,255,255,0.03) 0%,
+        rgba(255,255,255,0.07) 50%,
+        rgba(255,255,255,0.03) 100%);
+      background-size: 1200px 100%;
+      animation: echoShimmer 2s linear infinite;
+      border-radius: 5px;
+      pointer-events: none;
+    }
+    .skeleton-line { height: 12px; margin-bottom: 8px; }
+    .skeleton-line.wide  { width: 75%; }
+    .skeleton-line.short { width: 40%; }
+    .skeleton-line.full  { width: 100%; }
+    .skeleton-block { height: 80px; width: 100%; border-radius: 10px; }
+
+    /* ── Enhanced card depth — subtle shadow on resting state ── */
+    .card, .stat-card, .diary-entry, .doc-card, .team-card {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.18), 0 1px 6px rgba(0,0,0,0.1);
+    }
+    .card { transition: border-color 0.2s, box-shadow 0.2s, transform 0.18s; }
+    .card:hover {
+      border-color: rgba(79,142,247,0.3);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25), 0 0 0 1px rgba(79,142,247,0.12);
+    }
+
+    /* ── Diary entry — add glow to existing lift+bar ── */
+    .diary-entry:hover {
+      box-shadow: 0 6px 28px rgba(79,142,247,0.07), 0 2px 8px rgba(0,0,0,0.22);
+    }
+
+    /* ── Doc card — stronger lift ── */
+    .doc-card:hover {
+      box-shadow: 0 14px 40px rgba(0,0,0,0.38), 0 0 0 1px rgba(79,142,247,0.14);
+    }
+
+    /* ── Button press feedback ── */
+    .btn { transition: all 0.15s ease; }
+    .btn:active {
+      transform: scale(0.97) translateY(0) !important;
+      transition-duration: 0.06s !important;
+    }
+    .btn-primary:active { box-shadow: 0 2px 8px rgba(79,142,247,0.2) !important; }
+
+    /* ── Form input — refined placeholder + transition ── */
+    .form-input, .form-textarea, .form-select {
+      transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+    }
+    .form-input::placeholder, .form-textarea::placeholder {
+      color: rgba(92,110,144,0.65);
+    }
+    .form-input:hover, .form-textarea:hover {
+      border-color: rgba(79,142,247,0.28);
+    }
+
+    /* ── Checklist items — hover feedback ── */
+    .checklist-item {
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .checklist-item:hover {
+      border-color: ${T.borderHover};
+      background: rgba(22,32,64,0.85);
+    }
+
+    /* ── Team card — hover feedback ── */
+    .team-card { transition: border-color 0.15s, box-shadow 0.15s; }
+    .team-card:hover {
+      border-color: rgba(79,142,247,0.28);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+    }
+
+    /* ── Modal — deeper shadow, ring border ── */
+    .modal, .modal-box {
+      box-shadow: 0 32px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(79,142,247,0.1);
+    }
+
+    /* ── Topbar — subtle drop shadow ── */
+    .echo-topbar {
+      box-shadow: 0 1px 0 ${T.border}, 0 2px 20px rgba(0,0,0,0.15);
+    }
+
+    /* ── Page transition — slightly more character ── */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeIn 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+
+    /* ── Stat value — tabular numbers ── */
+    .stat-value { font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
+
+    /* ── Nav active item — inner glow ── */
+    .echo-nav-item.active {
+      box-shadow: inset 0 0 0 1px rgba(79,142,247,0.2);
+    }
+
+    /* ── Scrollbar — slightly more visible ── */
+    ::-webkit-scrollbar-thumb { background: rgba(79,142,247,0.2); }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(79,142,247,0.4); }
+
+    /* ── Bottom breathing room on all pages ── */
+    .echo-content { padding-bottom: 64px; }
+
+    /* ── Empty state — consistent pattern ── */
+    .echo-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 64px 24px;
+      text-align: center;
+      gap: 10px;
+      color: ${T.text3};
+    }
+    .echo-empty-icon {
+      font-size: 40px;
+      opacity: 0.4;
+      margin-bottom: 4px;
+      filter: grayscale(0.2);
+    }
+    .echo-empty-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: ${T.text2};
+      font-family: 'Syne', sans-serif;
+      letter-spacing: -0.2px;
+    }
+    .echo-empty-body {
+      font-size: 13px;
+      line-height: 1.65;
+      max-width: 300px;
+      color: ${T.text3};
+    }
+
+    /* ── In-page section headings ── */
+    .echo-sh {
+      font-family: 'Syne', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.8px;
+      color: ${T.text3};
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid ${T.border};
+    }
+
+    /* ── Gradient divider (softer than a hard rule) ── */
+    .echo-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, ${T.border} 30%, ${T.border} 70%, transparent);
+      margin: 16px 0;
+      border: none;
+    }
+
+    /* ── Sidebar footer action buttons ── */
+    .sidebar-action-btn {
+      flex: 1;
+      background: transparent;
+      border: 1px solid ${T.border};
+      border-radius: 7px;
+      color: ${T.text3};
+      cursor: pointer;
+      font-size: 11px;
+      font-family: 'DM Sans', sans-serif;
+      padding: 6px 0;
+      transition: all 0.15s;
+      text-align: center;
+    }
+    .sidebar-action-btn:hover {
+      background: rgba(255,255,255,0.05);
+      color: ${T.text2};
+      border-color: ${T.borderHover};
+    }
+
+    /* ── Soft badge (counts, labels) ── */
+    .echo-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(79,142,247,0.15);
+      color: ${T.accent};
+      font-family: 'DM Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Highlight span ── */
+    .echo-hl { color: ${T.accent}; font-weight: 600; }
+
+    /* ── Tag interactive — subtle click feel ── */
+    .tag { transition: opacity 0.15s; cursor: default; }
+
+    /* ── Topbar "Log today" nudge — pulse attention ── */
+    @keyframes softPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(245,194,67,0.3); }
+      50%       { box-shadow: 0 0 0 5px rgba(245,194,67,0); }
+    }
+    .log-today-nudge { animation: softPulse 2.5s ease-in-out infinite; }
   `;
   document.head.appendChild(style);
 };
@@ -2058,6 +2642,10 @@ function NavIcon({ id, size = 15 }) {
     credits:     <><path key="a" d="M8 2 9.5 5.5l3.8.6-2.7 2.6.6 3.7L8 10.5l-3.2 1.9.6-3.7L2.7 6.1l3.8-.6L8 2Z" {...p}/></>,
     resolve:     <><path key="a" d="M8 1.5c.3 2.2-2.5 4-2.5 6.5a2.5 2.5 0 005 0C10.5 5.5 7.7 3.7 8 1.5Z" {...p}/><path key="b" d="M6.5 11.5c.3.8.9 1.5 1.5 1.5" {...p}/></>,
     sprint:      <><rect key="a" x="2" y="3" width="12" height="10" rx="1.5" {...p}/><path key="b" d="M7 3v10" {...p}/><path key="c" d="M4 6.5h1.5M4 9.5h1M9.5 6.5h2M9.5 9.5h1.5" {...p}/></>,
+    teamreport:  <><rect key="a" x="2" y="9" width="3" height="5" rx="0.5" {...p}/><rect key="b" x="6.5" y="5" width="3" height="9" rx="0.5" {...p}/><rect key="c" x="11" y="2" width="3" height="12" rx="0.5" {...p}/><path key="d" d="M2 14.5h12" {...p}/></>,
+    "team-pulse": <><path key="a" d="M1.5 8h2.8l1.7-4.5 2.5 9 1.7-4.5H13" {...p}/><path key="b" d="M13 8h1.5" {...p}/></>,
+    inbox:       <><rect key="a" x="2" y="2" width="12" height="12" rx="1.5" {...p}/><path key="b" d="M2 9.5h3.5l1 2h3l1-2H14" {...p}/><path key="c" d="M8 4.5v4M6.2 7 8 8.8 9.8 7" {...p}/></>,
+    story:       <><polyline key="a" points="2,13 5,8 8,10 12,4.5" {...p}/><circle key="b" cx="12" cy="4.5" r="1.2" fill="currentColor" stroke="none"/><path key="c" d="M2 13h12" {...p}/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className="echo-nav-icon" aria-hidden="true" style={{ display: "block" }}>
@@ -2105,7 +2693,6 @@ function ToastContainer() {
 function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPremium = false }) {
   const [recentEntries, setRecentEntries] = useState([]);
   const [heatEntries, setHeatEntries]     = useState([]);
-  const [recentDocs, setRecentDocs]       = useState([]);
   const [onThisDay, setOnThisDay]         = useState({ week: null, month: null, quarter: null, year: null });
   const [openCommitCount, setOpenCommitCount] = useState(null);
   const [allCommits, setAllCommits]       = useState([]);
@@ -2115,11 +2702,34 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
   });
   const [aiLoading, setAiLoading]         = useState(false);
   const [weeklyModal, setWeeklyModal]     = useState(false);
+  const [dashStandupModal, setDashStandupModal] = useState(null);
+  const [dashStandupLoading, setDashStandupLoading] = useState(false);
+  const [dashStandupError, setDashStandupError] = useState("");
+  const [dashStandupCopied, setDashStandupCopied] = useState(false);
+  const [dashCliqSent, setDashCliqSent]   = useState(false);
+  const [dashCliqError, setDashCliqError] = useState("");
+  const [sprintDigestSent, setSprintDigestSent] = useState(false);
+  const [sprintDigestErr,  setSprintDigestErr]  = useState("");
   const [calMonth, setCalMonth]           = useState(() => new Date().toISOString().slice(0, 7));
   const [calSelected, setCalSelected]     = useState(null);
   const [calEntry, setCalEntry]           = useState(null);
   const [burnoutScore, setBurnoutScore]   = useState(null);
   const [burnoutCount, setBurnoutCount]   = useState(0);
+  const [focusState, setFocusState]       = useState("idle"); // idle | running | paused | break
+  const [focusLeft, setFocusLeft]         = useState(25 * 60);
+  const [focusTopic, setFocusTopic]       = useState("");
+  const [focusDone, setFocusDone]         = useState(0);
+  const focusIntervalRef                  = useRef(null);
+  const [piHistory, setPiHistory]         = useState([]);
+  const [piOpen, setPiOpen]               = useState(false);
+
+  useEffect(() => {
+    if (!isPremium || !user?.id) return;
+    fetch(`${_REST()}/pattern_interrupts?user_id=eq.${user.id}&order=created_at.desc&limit=20`, { headers: h() })
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => setPiHistory(rows || []))
+      .catch(() => {});
+  }, [isPremium, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isConfigured()) return;
@@ -2138,7 +2748,6 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
       db.from("diary_entries").select("*", { eq: ["date", qStr], match: uid }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, quarter: d[0] })); });
       db.from("diary_entries").select("*", { eq: ["date", yStr], match: uid }).then(d => { if (d?.[0]) setOnThisDay(prev => ({ ...prev, year: d[0] })); });
     });
-    db.from("documents").select("*", { order: "created_at.desc" }).then(d => setRecentDocs((d || []).slice(0, 4)));
     db.from("commitments").select("*", { order: "inserted_at.asc" }).then(rows => {
       const arr = rows || [];
       setAllCommits(arr);
@@ -2248,6 +2857,51 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
         </div>
       </div>
 
+      {/* ── Section: Today ── */}
+      <div className="dash-divider" style={{ marginTop: 4 }}>
+        <span className="dash-divider-label">Today</span>
+        <div className="dash-divider-line" />
+      </div>
+
+      {/* ── JIRA Due-Today Alert Bar ── */}
+      {(() => {
+        const jiraCfg = (() => { try { return JSON.parse(localStorage.getItem("echo_jira_config") || "null"); } catch { return null; } })();
+        if (!jiraCfg) return null;
+        const todayStr = today();
+        const overdue = getJiraCache().filter(t =>
+          t.dueDate && t.dueDate <= todayStr && (t.statusCategory || "").toLowerCase() !== "done"
+        );
+        if (!overdue.length) return null;
+        const blocked = overdue.filter(t => (t.status || "").toLowerCase().includes("block"));
+        const accent = blocked.length > 0 ? T.coral : T.amber;
+        return (
+          <div style={{ marginBottom: 20, padding: "10px 14px", background: `${accent}0d`, border: `1px solid ${accent}35`, borderRadius: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: accent }}>{blocked.length > 0 ? "🔴" : "⏰"} {overdue.length} ticket{overdue.length !== 1 ? "s" : ""} due today or overdue</span>
+              <span style={{ fontSize: 10, color: T.text3 }}>from {jiraCfg.projectKey || "JIRA"} sprint</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {overdue.map(t => {
+                const isBlocked = (t.status || "").toLowerCase().includes("block");
+                const col = isBlocked ? T.coral : T.amber;
+                const isOverdue = t.dueDate < todayStr;
+                return (
+                  <div key={t.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", background: T.navy2, borderRadius: 7, borderLeft: `2px solid ${col}` }}>
+                    <a href={`${jiraCfg.baseUrl?.replace(/\/$/, "")}/browse/${t.key}`} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: 11, fontWeight: 700, color: T.accent2, textDecoration: "none", flexShrink: 0 }}>{t.key}</a>
+                    <span style={{ fontSize: 12, color: T.text1, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.summary}</span>
+                    {t.assigneeName && <span style={{ fontSize: 10, color: T.text3, flexShrink: 0 }}>👤 {t.assigneeName}</span>}
+                    <span style={{ fontSize: 10, fontWeight: 700, color: col, background: `${col}12`, border: `1px solid ${col}28`, borderRadius: 10, padding: "1px 7px", flexShrink: 0 }}>
+                      {isBlocked ? t.status : isOverdue ? `Due ${t.dueDate}` : "Due today"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Productivity Pulse ── */}
       {(() => {
         const todayMonth = new Date().toISOString().slice(0, 7);
@@ -2267,7 +2921,7 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
 
         const streakPts    = Math.min(diaryStreak * 3, 30);
         const winPts       = entriesThisMonth.length > 0 ? Math.round((winsThisMonth / entriesThisMonth.length) * 20) : 0;
-        const commitPts    = totalCommits > 0 ? Math.round((resolvedCommits / totalCommits) * 25) : 15;
+        const commitPts    = totalCommits > 0 ? Math.round((resolvedCommits / totalCommits) * 25) : 0;
         const qualityPts   = entriesThisMonth.length > 0 ? Math.round((richEntries / entriesThisMonth.length) * 15) : 0;
         const consistencyPts = workingDays > 0 ? Math.round(Math.min(entriesThisMonth.length / workingDays, 1) * 10) : 0;
         const score = Math.min(streakPts + winPts + commitPts + qualityPts + consistencyPts, 100);
@@ -2328,6 +2982,76 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
         );
       })()}
 
+      {/* ── Mood × Performance Correlation ── */}
+      {heatEntries.length > 0 && (() => {
+        const since = new Date(); since.setDate(since.getDate() - 30);
+        const sinceStr = since.toISOString().slice(0, 10);
+        const recent30 = heatEntries.filter(e => e.date >= sinceStr && e.mood);
+        if (recent30.length < 3) return null;
+        const moodDefs = [
+          { key: "productive",    label: "Productive",    color: T.teal,   emoji: "🟢" },
+          { key: "collaborative", label: "Collaborative", color: T.accent, emoji: "🤝" },
+          { key: "resolved",      label: "Resolved",      color: "#7bc67e", emoji: "✅" },
+          { key: "challenged",    label: "Challenged",    color: T.amber,  emoji: "⚡" },
+          { key: "frustrated",    label: "Frustrated",    color: T.coral,  emoji: "😤" },
+        ];
+        const counts = {};
+        recent30.forEach(e => { counts[e.mood] = (counts[e.mood] || 0) + 1; });
+        const maxCount = Math.max(...Object.values(counts), 1);
+        const positiveMoods = new Set(["productive", "collaborative", "resolved"]);
+        const posCount = recent30.filter(e => positiveMoods.has(e.mood)).length;
+        const negCount = recent30.length - posCount;
+        const posRatio = Math.round((posCount / recent30.length) * 100);
+        const winsByMood = {};
+        heatEntries.filter(e => e.date >= sinceStr && e.is_win && e.mood).forEach(e => {
+          winsByMood[e.mood] = (winsByMood[e.mood] || 0) + 1;
+        });
+        const totalWins = Object.values(winsByMood).reduce((a, b) => a + b, 0);
+        return (
+          <div className="card mb-16" style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+              <span style={{ fontSize: 16 }}>📊</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text1 }}>Mood × Performance</div>
+                <div style={{ fontSize: 10, color: T.text3 }}>Last 30 days · {recent30.length} entries with mood data</div>
+              </div>
+              <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: posRatio >= 60 ? T.teal : posRatio >= 40 ? T.amber : T.coral }}>{posRatio}%</div>
+                <div style={{ fontSize: 9, color: T.text3 }}>positive days</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {moodDefs.filter(m => counts[m.key]).map(m => {
+                const c = counts[m.key] || 0;
+                const wins = winsByMood[m.key] || 0;
+                return (
+                  <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ fontSize: 11, color: T.text2, width: 96, flexShrink: 0 }}>{m.emoji} {m.label}</div>
+                    <div style={{ flex: 1, height: 7, borderRadius: 4, background: T.navy3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${(c / maxCount) * 100}%`, background: m.color, borderRadius: 4 }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: T.text3, width: 20, textAlign: "right", flexShrink: 0 }}>{c}</div>
+                    {wins > 0 && <div style={{ fontSize: 10, color: T.gold, flexShrink: 0 }}>🏆{wins}</div>}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 0, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+              {[
+                { val: posCount,    label: "positive days",    color: T.teal },
+                { val: negCount,    label: "challenging days",  color: T.coral },
+                { val: totalWins,   label: "wins logged",       color: T.gold },
+              ].map((s, i) => (
+                <div key={i} style={{ flex: 1, textAlign: "center" }}>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: s.color }}>{s.val}</div>
+                  <div style={{ fontSize: 9, color: T.text3 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="grid-4 mb-16">
         {[
           { label: "Diary Entries", value: diaryCount, color: T.accent, icon: "📓", view: "diary" },
@@ -2344,30 +3068,154 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
       </div>
       {weeklyModal && <WeeklyUpdateModal user={user} onClose={() => setWeeklyModal(false)} />}
 
-      {/* ── Premium Quick Actions card ── */}
+      {/* ── Focus / Deep Work Timer ── */}
+      {(() => {
+        const WORK_MINS = 25;
+        const BREAK_MINS = 5;
+        const mins = Math.floor(focusLeft / 60);
+        const secs = focusLeft % 60;
+        const timeStr = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+        const isRunning = focusState === "running";
+        const isBreak   = focusState === "break";
+        const totalSecs = isBreak ? BREAK_MINS * 60 : WORK_MINS * 60;
+        const pct       = Math.max(0, focusLeft / totalSecs);
+        const circumference = 2 * Math.PI * 36;
+        const accent    = isBreak ? T.teal : isRunning ? T.accent : T.text3;
+
+        const startTimer = () => {
+          setFocusState("running");
+          if (focusIntervalRef.current) clearInterval(focusIntervalRef.current);
+          focusIntervalRef.current = setInterval(() => {
+            setFocusLeft(prev => {
+              if (prev <= 1) {
+                clearInterval(focusIntervalRef.current);
+                setFocusDone(d => d + 1);
+                setFocusLeft(BREAK_MINS * 60);
+                setFocusState("break");
+                return BREAK_MINS * 60;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        };
+
+        const pauseTimer = () => {
+          clearInterval(focusIntervalRef.current);
+          setFocusState("paused");
+        };
+
+        const resetTimer = () => {
+          clearInterval(focusIntervalRef.current);
+          setFocusState("idle");
+          setFocusLeft(WORK_MINS * 60);
+        };
+
+        const startBreak = () => {
+          setFocusState("break");
+          setFocusLeft(BREAK_MINS * 60);
+          if (focusIntervalRef.current) clearInterval(focusIntervalRef.current);
+          focusIntervalRef.current = setInterval(() => {
+            setFocusLeft(prev => {
+              if (prev <= 1) {
+                clearInterval(focusIntervalRef.current);
+                setFocusState("idle");
+                setFocusLeft(WORK_MINS * 60);
+                return WORK_MINS * 60;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        };
+
+        return (
+          <div className="card mb-16" style={{ marginBottom: 20, borderLeft: `3px solid ${accent}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+              {/* Ring */}
+              <div style={{ position: "relative", width: 80, height: 80, flexShrink: 0 }}>
+                <svg width="80" height="80" viewBox="0 0 80 80" style={{ transform: "rotate(-90deg)" }}>
+                  <circle cx="40" cy="40" r="36" fill="none" stroke={`${accent}20`} strokeWidth="5" />
+                  <circle cx="40" cy="40" r="36" fill="none" stroke={accent} strokeWidth="5"
+                    strokeDasharray={circumference} strokeDashoffset={circumference * (1 - pct)}
+                    strokeLinecap="round" style={{ transition: "stroke-dashoffset 0.9s linear, stroke 0.3s" }} />
+                </svg>
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: accent, fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{timeStr}</div>
+                </div>
+              </div>
+              {/* Controls */}
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text1 }}>
+                    {isBreak ? "☕ Break time" : "⚡ Focus Timer"}
+                  </span>
+                  {focusDone > 0 && (
+                    <span style={{ fontSize: 11, color: T.teal, background: `${T.teal}12`, border: `1px solid ${T.teal}30`, borderRadius: 10, padding: "1px 8px" }}>
+                      {focusDone} session{focusDone !== 1 ? "s" : ""} done
+                    </span>
+                  )}
+                </div>
+                {focusState === "idle" && (
+                  <input
+                    className="form-input"
+                    style={{ fontSize: 12, padding: "5px 10px", marginBottom: 8 }}
+                    placeholder="What are you focusing on? (optional)"
+                    value={focusTopic}
+                    onChange={e => setFocusTopic(e.target.value)}
+                  />
+                )}
+                {focusState !== "idle" && focusTopic && (
+                  <div style={{ fontSize: 12, color: T.text3, marginBottom: 8, fontStyle: "italic" }}>"{focusTopic}"</div>
+                )}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {(focusState === "idle" || focusState === "paused") && (
+                    <button onClick={startTimer} style={{
+                      fontSize: 12, padding: "5px 14px", borderRadius: 8, cursor: "pointer",
+                      background: `${T.accent}20`, border: `1px solid ${T.accent}40`, color: T.accent, fontFamily: "'DM Sans', sans-serif",
+                    }}>{focusState === "paused" ? "▶ Resume" : "▶ Start 25 min"}</button>
+                  )}
+                  {focusState === "running" && (
+                    <button onClick={pauseTimer} style={{
+                      fontSize: 12, padding: "5px 14px", borderRadius: 8, cursor: "pointer",
+                      background: `${T.amber}15`, border: `1px solid ${T.amber}40`, color: T.amber, fontFamily: "'DM Sans', sans-serif",
+                    }}>⏸ Pause</button>
+                  )}
+                  {focusState === "break" && (
+                    <button onClick={() => { clearInterval(focusIntervalRef.current); setFocusState("idle"); setFocusLeft(WORK_MINS * 60); }} style={{
+                      fontSize: 12, padding: "5px 14px", borderRadius: 8, cursor: "pointer",
+                      background: `${T.teal}15`, border: `1px solid ${T.teal}35`, color: T.teal, fontFamily: "'DM Sans', sans-serif",
+                    }}>Skip break</button>
+                  )}
+                  {focusState !== "idle" && (
+                    <button onClick={resetTimer} style={{
+                      fontSize: 12, padding: "5px 12px", borderRadius: 8, cursor: "pointer",
+                      background: "none", border: `1px solid ${T.border}`, color: T.text3, fontFamily: "'DM Sans', sans-serif",
+                    }}>↺ Reset</button>
+                  )}
+                  {(focusState === "idle" || focusState === "paused") && focusDone > 0 && (
+                    <button onClick={startBreak} style={{
+                      fontSize: 12, padding: "5px 12px", borderRadius: 8, cursor: "pointer",
+                      background: `${T.teal}12`, border: `1px solid ${T.teal}30`, color: T.teal, fontFamily: "'DM Sans', sans-serif",
+                    }}>☕ Take break</button>
+                  )}
+                </div>
+              </div>
+              {focusDone >= 2 && (
+                <div style={{ flexShrink: 0, textAlign: "center", borderLeft: `1px solid ${T.border}`, paddingLeft: 16 }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: T.gold, fontFamily: "'Syne', sans-serif" }}>{focusDone * 25}</div>
+                  <div style={{ fontSize: 10, color: T.text3 }}>focus mins</div>
+                  <div style={{ fontSize: 10, color: T.teal, marginTop: 4 }}>today</div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Section: Sprint & Team ── */}
       {isPremium && (
-        <div className="card mb-16" style={{ marginBottom: 20, background: "linear-gradient(135deg, #1a1830 0%, #16142e 100%)", border: `1px solid ${T.accent}30`, borderTop: `2px solid ${T.accent}60` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 14 }}>✨</span>
-            <span style={{ fontSize: 12, fontWeight: 800, color: T.accent2, letterSpacing: "0.08em", textTransform: "uppercase" }}>Premium Features</span>
-          </div>
-          <div style={{ fontSize: 10, color: T.text3, marginBottom: 12 }}>Use ⚡ Standup · 📋 Weekly · 🔄 Retro · 🤖 Coach in the top bar for AI-powered insights anytime.</div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {[
-              { icon: "🎯", label: "Sprint Board", desc: "Live JIRA tracker + OPS coaching", color: T.accent, view: "sprint" },
-              { icon: "📋", label: "Shadow Resume", desc: "Auto-built career profile", color: T.gold, view: "resume" },
-              { icon: "🔥", label: "Resolve", desc: "Habit streak tracker", color: T.coral, view: "resolve" },
-            ].map(f => (
-              <button key={f.view} onClick={() => setView(f.view)}
-                style={{ flex: "1 1 130px", background: `${f.color}10`, border: `1px solid ${f.color}30`, borderRadius: 10, padding: "10px 12px", cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}
-                onMouseEnter={e => { e.currentTarget.style.background = `${f.color}20`; e.currentTarget.style.borderColor = `${f.color}55`; }}
-                onMouseLeave={e => { e.currentTarget.style.background = `${f.color}10`; e.currentTarget.style.borderColor = `${f.color}30`; }}>
-                <div style={{ fontSize: 18, marginBottom: 4 }}>{f.icon}</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: f.color, marginBottom: 2 }}>{f.label}</div>
-                <div style={{ fontSize: 10, color: T.text3, lineHeight: 1.4 }}>{f.desc}</div>
-              </button>
-            ))}
-          </div>
+        <div className="dash-divider">
+          <span className="dash-divider-label">Sprint &amp; Team</span>
+          <div className="dash-divider-line" />
         </div>
       )}
 
@@ -2393,6 +3241,54 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
             {burnoutScore >= 30 && burnoutScore < 60 && "Moderate stress signals. Consider blocking focus time and surfacing blockers in your next standup."}
             {burnoutScore >= 60 && "High stress signals detected. Log a 1:1 with your manager and protect recovery time — this pattern needs attention."}
           </div>
+        </div>
+      )}
+
+      {/* ── Wellbeing Timeline — pattern interrupt history ── */}
+      {isPremium && (
+        <div className="card mb-16" style={{ marginBottom: 20, borderLeft: `3px solid ${T.coral}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: piHistory.length > 0 ? "pointer" : "default" }}
+               onClick={() => piHistory.length > 0 && setPiOpen(v => !v)}>
+            <span style={{ fontSize: 18 }}>🧘</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text1 }}>Wellbeing Timeline</div>
+              <div style={{ fontSize: 10, color: T.text3 }}>
+                {piHistory.length > 0
+                  ? `${piHistory.length} pattern interrupt${piHistory.length !== 1 ? "s" : ""} on record — click to review`
+                  : "No alerts yet — watches for 3+ consecutive stressed or frustrated days"}
+              </div>
+            </div>
+            {piHistory.length > 0 && <span style={{ fontSize: 11, color: T.text3 }}>{piOpen ? "▲" : "▼"}</span>}
+          </div>
+          {piOpen && piHistory.length > 0 && (
+            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+              {piHistory.slice(0, 8).map((pi, i) => {
+                const dLabel = new Date(pi.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+                return (
+                  <div key={pi.id || i} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                      <div style={{ width: 9, height: 9, borderRadius: "50%", background: T.coral, marginTop: 4, flexShrink: 0 }} />
+                      {i < Math.min(piHistory.length, 8) - 1 && (
+                        <div style={{ width: 1, height: 22, background: `${T.coral}30`, marginTop: 2 }} />
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: T.text3, marginBottom: 2, fontFamily: "monospace" }}>{dLabel}</div>
+                      {pi.text
+                        ? <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.55 }}>{pi.text}</div>
+                        : <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No note recorded during this pattern interrupt</div>
+                      }
+                    </div>
+                  </div>
+                );
+              })}
+              {piHistory.length > 8 && (
+                <div style={{ fontSize: 11, color: T.text3, textAlign: "center", paddingTop: 2 }}>
+                  +{piHistory.length - 8} more events — mood patterns reflected in Burnout Score above
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -2433,6 +3329,298 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
                 );
               })}
             </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Sprint Health Score + Team Workload Heatmap (premium + JIRA) ── */}
+      {isPremium && (() => {
+        const allCached = getJiraCache();
+        if (allCached.length === 0) return null;
+        const todayStr = new Date().toISOString().slice(0, 10);
+
+        // Sprint Health Score calculation
+        const total    = allCached.length;
+        const done     = allCached.filter(t => t.statusCategory === "Done").length;
+        const blocked  = allCached.filter(t => (t.status || "").toLowerCase().includes("block")).length;
+        const withSP   = allCached.filter(t => t.storyPoints).length;
+        const withDue  = allCached.filter(t => t.dueDate).length;
+        const overdue  = allCached.filter(t => t.dueDate && t.dueDate < todayStr && t.statusCategory !== "Done").length;
+        const totalSP  = allCached.reduce((s, t) => s + (t.storyPoints || 0), 0);
+        const doneSP   = allCached.filter(t => t.statusCategory === "Done").reduce((s, t) => s + (t.storyPoints || 0), 0);
+
+        const donePct      = total > 0 ? done / total : 0;
+        const blockedPct   = total > 0 ? blocked / total : 0;
+        const spCoverage   = total > 0 ? withSP / total : 1;
+        const dueCoverage  = total > 0 ? withDue / total : 1;
+        const overduePenalty = total > 0 ? overdue / total : 0;
+
+        const healthScore = Math.max(0, Math.min(100, Math.round(
+          donePct * 40 +
+          (1 - blockedPct) * 25 +
+          spCoverage * 15 +
+          dueCoverage * 10 +
+          (1 - overduePenalty) * 10
+        )));
+        const healthColor = healthScore >= 75 ? T.teal : healthScore >= 50 ? T.amber : T.coral;
+        const healthLabel = healthScore >= 80 ? "Healthy sprint" : healthScore >= 60 ? "On track" : healthScore >= 40 ? "Needs attention" : "Sprint at risk";
+
+        // Team Workload — group by assignee
+        const byMember = {};
+        allCached.forEach(t => {
+          const name = t.assigneeName || "Unassigned";
+          if (!byMember[name]) byMember[name] = { done: 0, active: 0, blocked: 0, sp: 0, total: 0 };
+          byMember[name].total++;
+          if (t.statusCategory === "Done") byMember[name].done++;
+          else if ((t.status || "").toLowerCase().includes("block")) byMember[name].blocked++;
+          else byMember[name].active++;
+          byMember[name].sp += t.storyPoints || 0;
+        });
+        const members = Object.entries(byMember).sort((a, b) => b[1].sp - a[1].sp || b[1].total - a[1].total);
+        const maxSP = Math.max(...members.map(([, m]) => m.sp), 1);
+
+        return (
+          <div style={{ marginBottom: 20 }}>
+            {/* Sprint Health Score */}
+            <div className="card mb-16" style={{ marginBottom: 12, borderLeft: `3px solid ${healthColor}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                <div style={{ flexShrink: 0, textAlign: "center", minWidth: 64 }}>
+                  <div style={{ fontSize: 32, fontWeight: 800, color: healthColor, fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{healthScore}</div>
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>sprint health</div>
+                </div>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text1 }}>🏥 Sprint Health Score</span>
+                    <span style={{ fontSize: 11, color: healthColor, fontWeight: 600 }}>{healthLabel}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {[
+                      { label: "Done", val: Math.round(donePct * 100), max: 100, color: T.teal, suffix: "%" },
+                      { label: "Blocked", val: blocked, max: total, color: T.coral, suffix: ` / ${total}`, raw: true },
+                      { label: "SP coverage", val: Math.round(spCoverage * 100), max: 100, color: T.accent, suffix: "%" },
+                      { label: "Overdue", val: overdue, max: total, color: T.amber, suffix: ` / ${total}`, raw: true },
+                    ].map(bar => (
+                      <div key={bar.label} style={{ minWidth: 70 }}>
+                        <div style={{ fontSize: 9, color: T.text3, marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.4 }}>{bar.label}</div>
+                        <div style={{ height: 3, background: `${bar.color}20`, borderRadius: 2, marginBottom: 2 }}>
+                          <div style={{ width: `${bar.raw ? (bar.val / (bar.max || 1)) * 100 : bar.val}%`, height: "100%", background: bar.color, borderRadius: 2 }} />
+                        </div>
+                        <div style={{ fontSize: 10, color: bar.color, fontWeight: 700 }}>{bar.val}{bar.suffix}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {totalSP > 0 && (
+                  <div style={{ flexShrink: 0, textAlign: "center", borderLeft: `1px solid ${T.border}`, paddingLeft: 16 }}>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: T.teal, fontFamily: "'Syne', sans-serif" }}>{doneSP}/{totalSP}</div>
+                    <div style={{ fontSize: 10, color: T.text3 }}>SP done</div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Team Workload Heatmap */}
+            {members.length > 1 && (
+              <div className="card mb-16" style={{ marginBottom: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text1, marginBottom: 12 }}>👥 Team Workload</div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr>
+                        {["Member", "Total", "Done", "Active", "Blocked", "SP load"].map(h => (
+                          <th key={h} style={{ textAlign: "left", padding: "4px 10px", fontSize: 9, color: T.text3, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {members.map(([name, m]) => {
+                        const rowColor = m.blocked > 0 ? T.coral : m.active === 0 && m.done < m.total ? T.amber : T.teal;
+                        return (
+                          <tr key={name}>
+                            <td style={{ padding: "7px 10px", fontWeight: 600, color: T.text1, borderBottom: `1px solid ${T.border}` }}>{name}</td>
+                            <td style={{ padding: "7px 10px", color: T.text2, borderBottom: `1px solid ${T.border}` }}>{m.total}</td>
+                            <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.border}` }}>
+                              <span style={{ color: T.teal, fontWeight: 700, background: `${T.teal}12`, borderRadius: 8, padding: "1px 7px" }}>{m.done}</span>
+                            </td>
+                            <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.border}` }}>
+                              <span style={{ color: T.accent, background: `${T.accent}10`, borderRadius: 8, padding: "1px 7px" }}>{m.active}</span>
+                            </td>
+                            <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.border}` }}>
+                              {m.blocked > 0
+                                ? <span style={{ color: T.coral, fontWeight: 700, background: `${T.coral}12`, borderRadius: 8, padding: "1px 7px" }}>🔴 {m.blocked}</span>
+                                : <span style={{ color: T.text3 }}>—</span>}
+                            </td>
+                            <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.border}` }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <div style={{ width: 60, height: 4, background: T.border, borderRadius: 2, overflow: "hidden" }}>
+                                  <div style={{ width: `${(m.sp / maxSP) * 100}%`, height: "100%", background: rowColor, borderRadius: 2 }} />
+                                </div>
+                                <span style={{ color: rowColor, fontWeight: 700, fontSize: 10 }}>{m.sp} SP</span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Dashboard Team Standup (premium + JIRA) ── */}
+      {isPremium && (() => {
+        const allCached = getJiraCache();
+        if (allCached.length === 0) return null;
+        const sprintName = (() => { try { const c = JSON.parse(localStorage.getItem("echo_jira_tickets_cache") || "null"); return c?.sprintName || "Current Sprint"; } catch { return "Current Sprint"; } })();
+        // Group all tickets by assignee name
+        const dashGroups = {};
+        allCached.forEach(t => {
+          const name = t.assigneeName || "Unassigned";
+          if (!dashGroups[name]) dashGroups[name] = [];
+          dashGroups[name].push(t);
+        });
+        const totalSP = allCached.reduce((s, t) => s + (t.storyPoints || 0), 0);
+        const doneSP  = allCached.filter(t => t.statusCategory === "Done").reduce((s, t) => s + (t.storyPoints || 0), 0);
+        const allBlocked = allCached.filter(t => (t.status || "").toLowerCase().includes("block")).length;
+        const idleMembers = Object.entries(dashGroups).filter(([, tickets]) => {
+          const active = tickets.filter(t => t.statusCategory !== "Done" && !(t.status || "").toLowerCase().includes("block"));
+          return active.length === 0 && tickets.some(t => t.statusCategory !== "Done");
+        });
+        return (
+          <div style={{ marginBottom: 20 }}>
+            {/* Header card with button + SP bar */}
+            <div className="card mb-16" style={{ marginBottom: dashStandupModal ? 0 : 20, borderRadius: dashStandupModal ? "14px 14px 0 0" : 14, borderBottom: dashStandupModal ? "none" : undefined }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text1 }}>🎤 Team Standup</div>
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+                    {Object.keys(dashGroups).length} members · {allCached.filter(t => t.statusCategory !== "Done").length} open tickets
+                    {totalSP > 0 && <span style={{ marginLeft: 8, color: T.teal }}>📊 {doneSP}/{totalSP} SP</span>}
+                    {allBlocked > 0 && <span style={{ marginLeft: 8, color: T.coral }}>🔴 {allBlocked} blocked</span>}
+                    {idleMembers.length > 0 && <span style={{ marginLeft: 8, color: T.amber }}>⚠️ {idleMembers.length} idle</span>}
+                  </div>
+                </div>
+                {totalSP > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 80, height: 5, background: T.border, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ width: `${Math.round((doneSP / totalSP) * 100)}%`, height: "100%", background: T.teal, borderRadius: 3 }} />
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.teal, fontFamily: "'Syne',sans-serif" }}>{Math.round((doneSP / totalSP) * 100)}%</span>
+                  </div>
+                )}
+                <button onClick={async () => {
+                  setDashStandupLoading(true); setDashStandupError(""); setDashStandupModal(null);
+                  try { setDashStandupModal(await callGroqTeamStandup(dashGroups, sprintName)); }
+                  catch (e) { setDashStandupError(e.message); }
+                  setDashStandupLoading(false);
+                }} disabled={dashStandupLoading}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: dashStandupLoading ? "not-allowed" : "pointer", background: dashStandupModal ? `${T.teal}18` : `${T.teal}0d`, color: dashStandupModal ? T.teal : T.accent2, border: `1px solid ${dashStandupModal ? T.teal + "50" : T.teal + "30"}`, transition: "all 0.2s" }}>
+                  {dashStandupLoading ? <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", border: `2px solid ${T.teal}`, borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} /> : "🎤"}
+                  {dashStandupLoading ? "Generating…" : dashStandupModal ? "Regenerate" : "Generate"}
+                </button>
+                <button onClick={async () => {
+                  setSprintDigestErr("");
+                  try {
+                    const allCached2 = getJiraCache();
+                    const sprintName2 = (() => { try { const c = JSON.parse(localStorage.getItem("echo_jira_tickets_cache") || "null"); return c?.sprintName || "Current Sprint"; } catch { return "Current Sprint"; } })();
+                    const done2     = allCached2.filter(t => (t.statusCategory || "").toLowerCase() === "done");
+                    const blocked2  = allCached2.filter(t => (t.status || "").toLowerCase().includes("block"));
+                    const inqa2     = allCached2.filter(t => !blocked2.includes(t) && (t.statusCategory || "").toLowerCase() !== "done" && /(qa|review|testing|test)/i.test(t.status || ""));
+                    const active2   = allCached2.filter(t => !blocked2.includes(t) && !inqa2.includes(t) && (t.statusCategory || "").toLowerCase() !== "done");
+                    const totalSP2  = allCached2.reduce((s, t) => s + (t.storyPoints || 0), 0);
+                    const doneSP2   = done2.reduce((s, t) => s + (t.storyPoints || 0), 0);
+                    const dateLbl   = new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+                    const lines2    = [`📊 *Sprint Digest — ${sprintName2} · ${dateLbl}*`];
+                    const meta2     = [`${allCached2.length} tickets`];
+                    if (totalSP2 > 0) meta2.push(`${doneSP2}/${totalSP2} SP done`);
+                    if (blocked2.length) meta2.push(`🔴 ${blocked2.length} blocked`);
+                    lines2.push(`_${meta2.join(" · ")}_`, "");
+                    const section2 = (emoji, label, tickets) => {
+                      if (!tickets.length) return;
+                      lines2.push(`${emoji} *${label}*`);
+                      tickets.forEach(t => lines2.push(`   ${t.key} — ${t.summary}${t.assigneeName ? ` _(${t.assigneeName})_` : ""}`));
+                      lines2.push("");
+                    };
+                    section2("✅", `Done (${done2.length})`, done2);
+                    section2("🧪", `In QA / Review (${inqa2.length})`, inqa2);
+                    section2("▶️", `In Progress (${active2.length})`, active2);
+                    section2("🔴", `Blocked (${blocked2.length})`, blocked2);
+                    lines2.push("_Sent from Echo Workspace_");
+                    await sendToCliq(lines2.join("\n"));
+                    // Cache in Supabase so the 8 PM cron can resend to qaautomationteam
+                    try {
+                      if (user?.id) {
+                        const todayDate = new Date().toISOString().slice(0, 10);
+                        await fetch(`${_REST()}/sprint_digest_cache`, {
+                          method: "POST",
+                          headers: { ...h(), "Prefer": "resolution=merge-duplicates,return=minimal" },
+                          body: JSON.stringify({ user_id: user.id, sprint_date: todayDate, sprint_name: sprintName2, message: lines2.join("\n") }),
+                        });
+                      }
+                    } catch (_) {}
+                    setSprintDigestSent(true); setTimeout(() => setSprintDigestSent(false), 3000);
+                  } catch (e) { setSprintDigestErr(e.message); }
+                }}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: "pointer", background: sprintDigestSent ? "#1a2e2618" : "transparent", color: sprintDigestSent ? T.teal : "#f5a623", border: `1px solid ${sprintDigestSent ? T.teal + "50" : "#f5a62330"}`, transition: "all 0.2s", whiteSpace: "nowrap" }}>
+                  {sprintDigestSent ? "✓" : "📣"} {sprintDigestSent ? "Sent!" : "Sprint Digest"}
+                </button>
+              </div>
+              {sprintDigestErr && <div style={{ marginTop: 8, fontSize: 11, color: T.coral }}>📣 {sprintDigestErr}</div>}
+              {dashStandupError && (
+                <div style={{ marginTop: 10, padding: "8px 12px", background: `${T.coral}10`, border: `1px solid ${T.coral}30`, borderRadius: 8, fontSize: 12, color: T.coral }}>
+                  ⚠ {dashStandupError}
+                  <button onClick={() => setDashStandupError("")} style={{ marginLeft: 8, background: "none", border: "none", color: T.text3, cursor: "pointer" }}>✕</button>
+                </div>
+              )}
+            </div>
+            {/* Standup result panel */}
+            {dashStandupModal && (
+              <div style={{ background: "linear-gradient(135deg,#0d1c1a 0%,#0f1e1b 100%)", border: `1px solid ${T.teal}40`, borderTop: "none", borderRadius: "0 0 14px 14px", overflow: "hidden", marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", background: `${T.teal}06`, borderBottom: `1px solid ${T.teal}20` }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: T.teal, fontFamily: "'Syne',sans-serif" }}>Daily Standup — {sprintName}</div>
+                    {dashStandupModal.headline && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{dashStandupModal.headline}</div>}
+                  </div>
+                  <button onClick={() => { navigator.clipboard.writeText(dashStandupModal.standup_text || ""); setDashStandupCopied(true); setTimeout(() => setDashStandupCopied(false), 2000); }}
+                    style={{ padding: "5px 12px", borderRadius: 7, cursor: "pointer", fontSize: 11, fontWeight: 700, background: dashStandupCopied ? `${T.teal}18` : T.navy3, color: dashStandupCopied ? T.teal : T.text1, border: `1px solid ${dashStandupCopied ? T.teal+"40" : T.border}`, transition: "all 0.2s" }}>
+                    {dashStandupCopied ? "✓ Copied!" : "📋 Copy"}
+                  </button>
+                  <button onClick={async () => {
+                    setDashCliqError("");
+                    try {
+                      const actionBlock = (dashStandupModal.action_items || []).filter(a => a?.trim()).length
+                        ? `\n\n⚡ Action Items:\n${dashStandupModal.action_items.filter(a => a?.trim()).map((a, i) => `${i + 1}. ${a}`).join("\n")}`
+                        : "";
+                      const spLine = totalSP > 0 ? `\n📊 Sprint SP: ${doneSP}/${totalSP} (${Math.round((doneSP/totalSP)*100)}%)` : "";
+                      await sendToCliq(`🎤 *Daily Standup — ${sprintName}*\n${dashStandupModal.headline ? `_${dashStandupModal.headline}_` : ""}${spLine}\n\n${dashStandupModal.standup_text}${actionBlock}`);
+                      setDashCliqSent(true); setTimeout(() => setDashCliqSent(false), 3000);
+                    } catch (e) { setDashCliqError(e.message); }
+                  }} style={{ padding: "5px 12px", borderRadius: 7, cursor: "pointer", fontSize: 11, fontWeight: 700, background: dashCliqSent ? "#1a2e26" : T.navy3, color: dashCliqSent ? T.teal : "#f5a623", border: `1px solid ${dashCliqSent ? T.teal+"40" : "#f5a62330"}`, transition: "all 0.2s" }}>
+                    {dashCliqSent ? "✓ Sent!" : "📣 Cliq"}
+                  </button>
+                  <button onClick={() => setDashStandupModal(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16, padding: "0 4px" }}>✕</button>
+                </div>
+                {dashCliqError && <div style={{ margin: "8px 18px 0", padding: "7px 12px", background: "#2a1a0a", border: "1px solid #f5a62340", borderRadius: 8, fontSize: 11, color: "#f5a623" }}>📣 {dashCliqError} <button onClick={() => setDashCliqError("")} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", marginLeft: 6 }}>✕</button></div>}
+                <div style={{ padding: "14px 18px" }}>
+                  {(dashStandupModal.action_items || []).filter(a => a?.trim()).length > 0 && (
+                    <div style={{ marginBottom: 12, padding: "10px 14px", background: `${T.coral}07`, border: `1px solid ${T.coral}25`, borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: T.coral, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 7 }}>⚡ Action Items</div>
+                      {dashStandupModal.action_items.filter(a => a?.trim()).map((a, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 12, color: T.text2, marginBottom: 3, lineHeight: 1.5 }}>
+                          <span style={{ color: T.coral, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span><span>{a}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <pre style={{ margin: 0, fontSize: 12, color: T.text1, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.7, fontFamily: "'DM Sans',sans-serif" }}>
+                    {dashStandupModal.standup_text}
+                  </pre>
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
@@ -2550,6 +3738,12 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
         );
       })()}
 
+      {/* ── Section: Insights ── */}
+      <div className="dash-divider">
+        <span className="dash-divider-label">Insights</span>
+        <div className="dash-divider-line" />
+      </div>
+
       {/* ── Working-Day Mood Heatmap ── */}
       {(() => {
         const moodColor = { productive: T.green, resolved: T.teal, collaborative: T.accent, challenged: T.gold, frustrated: T.coral };
@@ -2633,12 +3827,11 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
         );
       })()}
 
-      <div className="grid-2">
-        <div className="card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>Recent Diary</div>
-            <button className="btn btn-ghost btn-sm" onClick={() => setView("diary")}>View all →</button>
-          </div>
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>Recent Diary</div>
+          <button className="btn btn-ghost btn-sm" onClick={() => setView("diary")}>View all →</button>
+        </div>
           {recentEntries.length === 0
             ? <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "20px 0" }}>No diary entries yet. Start logging your day.</div>
             : recentEntries.map(e => (
@@ -2658,28 +3851,6 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
                 </div>
               </div>
             ))}
-        </div>
-
-        <div className="card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>Recent Documents</div>
-            <button className="btn btn-ghost btn-sm" onClick={() => setView("locker")}>View all →</button>
-          </div>
-          {recentDocs.length === 0
-            ? <div style={{ color: T.text3, fontSize: 13, textAlign: "center", padding: "20px 0" }}>No documents stored yet. Upload to your DigiLocker.</div>
-            : recentDocs.map(d => {
-              const fi = fileTypeInfo(d.name, d.file_type);
-              return (
-                <div key={d.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
-                  <div className={`doc-icon ${fi.cls}`} style={{ width: 32, height: 32, borderRadius: 7, fontSize: 14, margin: 0 }}>{fi.icon}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</div>
-                    <div style={{ fontSize: 11, color: T.text3 }}>{d.category || "—"} · {fmtSize(d.file_size)}</div>
-                  </div>
-                </div>
-              );
-            })}
-        </div>
       </div>
 
       {/* ── AI Insight ── */}
@@ -2750,6 +3921,7 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
         </div>
       )}
 
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 0 }} className="analytics-grid">
       {/* ── Mood Trend Chart (30 days) ── */}
       {(() => {
         const moodScore = { productive: 5, resolved: 4, collaborative: 3, challenged: 2, frustrated: 1 };
@@ -2788,7 +3960,7 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
         const avgMood = MOODS.slice().sort((a, b) => Math.abs(moodScore[a.key] - avgScore) - Math.abs(moodScore[b.key] - avgScore))[0];
 
         return (
-          <div className="card" style={{ marginTop: 20 }}>
+          <div className="card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>📈 Mood Trend — Last 30 Days</div>
               <div style={{ fontSize: 12, color: T.text3 }}>
@@ -2841,7 +4013,7 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
         const palette = [T.accent, T.teal, T.gold, T.coral, T.green, "#a78bfa", "#fb923c", "#38bdf8"];
         const total = sorted.reduce((s, [, c]) => s + c, 0);
         return (
-          <div className="card" style={{ marginTop: 20 }}>
+          <div className="card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>🎯 Focus Area Breakdown</div>
               <div style={{ fontSize: 11, color: T.text3 }}>{total} entries · {sorted.length} areas</div>
@@ -2869,6 +4041,8 @@ function Dashboard({ setView, diaryCount, docCount, user, displayName = "", isPr
           </div>
         );
       })()}
+
+      </div>{/* end analytics-grid */}
 
       {/* ── Am I in a Rut? Detector ── */}
       {(() => {
@@ -3196,6 +4370,13 @@ function MyTeam({ user }) {
   const [relSupported, setRelSupported] = useState(true);
   const [hadSessionThisMonth, setHadSessionThisMonth] = useState(new Set());
   const [nextSessionMap, setNextSessionMap] = useState({});
+  const [feedbackNudges, setFeedbackNudges] = useState({});
+  const [attMap, setAttMap] = useState({});
+  const [zohoSyncing, setZohoSyncing] = useState(false);
+  const [zohoError, setZohoError] = useState("");
+  const [zohoCookieInput, setZohoCookieInput] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("echo_zoho_config") || "null")?.cookies || ""; } catch { return ""; }
+  });
 
   useEffect(() => {
     if (!user?.id) return;
@@ -3226,6 +4407,38 @@ function MyTeam({ user }) {
       });
       setNextSessionMap(map);
     });
+    fetch(`${_REST()}/one_on_one_sessions?select=teammate_id,session_date,feedback_given&order=session_date.desc`, { headers: h() })
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => {
+        const byTeammate = {};
+        (rows || []).forEach(s => {
+          if (!byTeammate[s.teammate_id]) byTeammate[s.teammate_id] = [];
+          byTeammate[s.teammate_id].push(s);
+        });
+        const nudges = {};
+        Object.entries(byTeammate).forEach(([tid, sessions]) => {
+          const allFb = sessions.slice().reverse().flatMap(s => (s.feedback_given || []));
+          if (allFb.length < 3) return;
+          let streak = 0;
+          for (let i = allFb.length - 1; i >= 0; i--) {
+            const t = allFb[i].type;
+            if (t === "constructive" || t === "critical") streak++;
+            else break;
+          }
+          if (streak >= 3) nudges[tid] = streak;
+        });
+        setFeedbackNudges(nudges);
+      })
+      .catch(() => {});
+    const todayStr = new Date().toISOString().slice(0, 10);
+    fetch(`${_REST()}/daily_attendance?date=eq.${todayStr}&user_id=eq.${user.id}`, { headers: h() })
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => {
+        const map = {};
+        (rows || []).forEach(a => { map[a.team_member] = a.status; });
+        setAttMap(map);
+      })
+      .catch(() => {});
   }, [user]);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -3259,6 +4472,81 @@ function MyTeam({ user }) {
   };
 
   const cancel = () => { setForm({ name: "", role: "", emoji: "", relationship: "direct" }); setEditId(null); };
+
+  const setAttStatus = async (teamMember, status) => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    setAttMap(prev => ({ ...prev, [teamMember]: status }));
+    await fetch(`${_REST()}/daily_attendance`, {
+      method: "POST",
+      headers: { ...h(), "Prefer": "resolution=merge-duplicates" },
+      body: JSON.stringify({ date: todayStr, user_id: user.id, team_member: teamMember, status }),
+    });
+  };
+
+  const syncAttFromZoho = async () => {
+    const cookies = zohoCookieInput.trim();
+    if (!cookies) { setZohoError("Paste Zoho session cookies below to sync."); return; }
+    const csrfMatch = cookies.match(/(?:^|;\s*)(?:CT_)?CSRF_TOKEN=([^;]+)/);
+    const csrf = csrfMatch ? csrfMatch[1].trim() : "";
+    if (!csrf) { setZohoError("Could not find CSRF_TOKEN in the cookie string. Paste fresh cookies."); return; }
+    setZohoSyncing(true); setZohoError("");
+    try {
+      const r = await fetch("/api/zoho-attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cookies, csrf }),
+      });
+      const data = await r.json();
+      if (!r.ok || data.error) { setZohoError(data.error || "Zoho API error"); setZohoSyncing(false); return; }
+      const circleData = data?.reporteeCircleData || [];
+      const reportees = circleData.find(g => g.mode === "REPORTEES") || circleData[0];
+      const empList = reportees?.empList;
+      if (!empList || !Array.isArray(empList) || !empList.length) {
+        setZohoError("No team data. Session may have expired — paste fresh cookies."); setZohoSyncing(false); return;
+      }
+      const mapStatus = (v) => {
+        if (!v) return null; const s = String(v).toLowerCase().trim();
+        if (s === "in" || s === "present" || s.includes("in office") || s.includes("check-in")) return "office";
+        if (s === "wfh" || s.includes("work from home") || s.includes("remote") || s.includes("home")) return "wfh";
+        if (s === "leave" || s.includes("leave") || s === "absent") return "leave";
+        if (s.includes("half")) return "half";
+        if (s.includes("yet to")) return "office"; return null;
+      };
+      let matched = 0;
+      const myTeam = teammates.filter(t => (t.relationship || "direct") === "direct");
+      empList.forEach(emp => {
+        const zName = (emp.EMPLOYEENAME || "").trim();
+        if (!zName) return;
+        const status = mapStatus(emp.leaveAttStatUnEncoded || emp.leaveAttStat);
+        if (!status) return;
+        const zWords = zName.toLowerCase().split(/\s+/);
+        const tm = myTeam.find(t => {
+          const tn = t.name.toLowerCase().trim();
+          return tn === zName.toLowerCase() || zWords.includes(tn) || zWords.some(w => tn.startsWith(w) && w.length >= 3);
+        });
+        if (tm) { setAttStatus(tm.name, status); matched++; }
+      });
+      localStorage.setItem("echo_zoho_config", JSON.stringify({ cookies }));
+      // Persist cookies + csrf to Supabase so the 11:00 AM cron can call reportingCircle
+      if (user?.id) {
+        fetch(`${_REST()}/user_settings`, {
+          method: "POST",
+          headers: { ...h(), "Prefer": "resolution=merge-duplicates" },
+          body: JSON.stringify({ user_id: user.id, setting_key: "zoho_cookies", setting_value: cookies }),
+        }).catch(() => {});
+        fetch(`${_REST()}/user_settings`, {
+          method: "POST",
+          headers: { ...h(), "Prefer": "resolution=merge-duplicates" },
+          body: JSON.stringify({ user_id: user.id, setting_key: "zoho_csrf", setting_value: csrf }),
+        }).catch(() => {});
+      }
+      if (matched === 0) {
+        const zohoNames = empList.slice(0, 5).map(e => e.EMPLOYEENAME).join(", ");
+        setZohoError(`No names matched. Zoho names: ${zohoNames}`);
+      }
+    } catch (err) { setZohoError(err.message); }
+    setZohoSyncing(false);
+  };
 
   const isLastWeekOfMonth = (() => {
     const now = new Date();
@@ -3302,6 +4590,84 @@ function MyTeam({ user }) {
           </div>
         </div>
       )}
+
+      {/* Today's Attendance */}
+      {teammates.length > 0 && (() => {
+        const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+        const directTeam = teammates.filter(t => (t.relationship || "direct") === "direct");
+        const markedCount = directTeam.filter(t => attMap[t.name]).length;
+        return (
+          <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text1, display: "flex", alignItems: "center", gap: 8 }}>
+                <span>👤</span>
+                <span>Team Attendance — {today}</span>
+              </div>
+              <div style={{ fontSize: 11, color: T.text3 }}>
+                {markedCount}/{directTeam.length} marked
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {directTeam.map(t => {
+                const cur = attMap[t.name];
+                return (
+                  <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 120, fontSize: 13, color: T.text1, fontWeight: 600, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {t.emoji ? `${t.emoji} ` : ""}{t.name}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {ATT_STATUSES.map(s => {
+                        const active = cur === s.key;
+                        return (
+                          <button
+                            key={s.key}
+                            onClick={() => setAttStatus(t.name, active ? null : s.key)}
+                            title={s.label}
+                            style={{
+                              border: `1px solid ${active ? s.color : T.border}`,
+                              borderRadius: 20, padding: "3px 10px",
+                              background: active ? `${s.color}22` : "transparent",
+                              color: active ? s.color : T.text3,
+                              fontSize: 12, fontWeight: active ? 700 : 400,
+                              cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+                              transition: "all 0.15s",
+                            }}
+                          >
+                            {s.icon} {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 11, color: T.text3 }}>Synced to Cliq daily. Click again to deselect.</div>
+                <button
+                  onClick={syncAttFromZoho} disabled={zohoSyncing}
+                  style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, padding: "3px 10px", fontSize: 11, color: T.text2, cursor: zohoSyncing ? "default" : "pointer", display: "flex", alignItems: "center", gap: 4, opacity: zohoSyncing ? 0.6 : 1 }}
+                >
+                  {zohoSyncing ? "⏳ Syncing…" : "🔄 Sync from Zoho"}
+                </button>
+              </div>
+              {zohoError && <div style={{ fontSize: 11, color: T.coral, marginTop: 6 }}>{zohoError}</div>}
+              {(!zohoCookieInput || zohoError) && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>Paste Zoho session cookies (DevTools → Application → Cookies → zoho.in):</div>
+                  <textarea
+                    value={zohoCookieInput} onChange={e => setZohoCookieInput(e.target.value)}
+                    placeholder="CT_CSRF_TOKEN=...; ZPEOPLE_SESSION=..."
+                    rows={3}
+                    style={{ width: "100%", background: T.navy1, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text1, fontSize: 11, padding: 6, fontFamily: "monospace", resize: "vertical", boxSizing: "border-box" }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Add / edit form */}
       <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, marginBottom: 28 }}>
@@ -3444,6 +4810,12 @@ function MyTeam({ user }) {
                             </div>
                           );
                         })()}
+                        {feedbackNudges[t.id] && (
+                          <div title={`Last ${feedbackNudges[t.id]} feedback entries were constructive/critical — consider balancing with praise`} style={{ fontSize: 10, color: T.amber, marginTop: 3, display: "flex", alignItems: "center", gap: 3 }}>
+                            <span>⚠️</span>
+                            <span style={{ fontWeight: 600 }}>{feedbackNudges[t.id]} constructive in a row</span>
+                          </div>
+                        )}
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => startEdit(t)}>Edit</button>
@@ -3497,6 +4869,390 @@ const SESSION_SENTIMENTS = [
   { key: "neutral",         label: "Neutral",         color: T.amber  },
   { key: "needs_attention", label: "Needs Attention", color: T.coral  },
 ];
+
+// ─── Team Pulse — manager view of team members ────────────────────────────────
+const MOOD_EMOJI = { productive: "💚", focused: "🔵", collaborative: "💜", challenged: "🟡", frustrated: "🔴", neutral: "⚪" };
+
+function TeamPulse({ user }) {
+  const [members, setMembers]     = useState([]);
+  const [memberData, setMemberData] = useState({});
+  const [loading, setLoading]     = useState(true);
+  const [dbReady, setDbReady]     = useState(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteForm, setInviteForm] = useState({ name: "", email: "", role: "" });
+  const [inviting, setInviting]   = useState(false);
+  const [inviteLink, setInviteLink] = useState("");
+  const [copied, setCopied]       = useState(false);
+  const [showAllEntries, setShowAllEntries] = useState({});
+  const [pulseSummaries, setPulseSummaries] = useState({});
+
+  const sixtyAgo = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+  const sevenAgo = new Date(Date.now() - 7  * 86400000).toISOString().slice(0, 10);
+
+  const loadAll = async () => {
+    setLoading(true);
+    const r = await fetch(`${_REST()}/team_memberships?manager_user_id=eq.${user.id}&order=invited_at.desc`, { headers: h() });
+    if (!r.ok) { setDbReady(false); setLoading(false); return; }
+    const rows = await r.json();
+    setDbReady(true);
+    setMembers(rows || []);
+    const accepted = (rows || []).filter(m => m.accepted_at && m.member_user_id);
+    for (const m of accepted) {
+      setMemberData(prev => ({ ...prev, [m.member_user_id]: { loading: true, entries: [] } }));
+      const er = await fetch(
+        `${_REST()}/diary_entries?user_id=eq.${m.member_user_id}&date=gte.${sixtyAgo}&order=date.desc`,
+        { headers: h() }
+      ).catch(() => null);
+      const entries = er?.ok ? await er.json() : [];
+      setMemberData(prev => ({ ...prev, [m.member_user_id]: { loading: false, entries: entries || [], noAccess: !er?.ok } }));
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { if (user?.id) loadAll(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const inviteMember = async () => {
+    if (!inviteForm.name.trim() || !inviteForm.email.trim()) return;
+    setInviting(true);
+    const r = await fetch(`${_REST()}/team_memberships`, {
+      method: "POST",
+      headers: { ...h(), "Content-Type": "application/json", "Prefer": "return=representation" },
+      body: JSON.stringify({ manager_user_id: user.id, member_email: inviteForm.email.trim().toLowerCase(), member_name: inviteForm.name.trim(), member_role: inviteForm.role.trim() }),
+    }).catch(() => null);
+    if (r?.ok) {
+      const [row] = await r.json();
+      setInviteLink(`${window.location.origin}?invite=${row.invite_token}`);
+      setInviteForm({ name: "", email: "", role: "" });
+      await loadAll();
+    }
+    setInviting(false);
+  };
+
+  const copyInviteLink = (token) => {
+    const link = `${window.location.origin}?invite=${token}`;
+    navigator.clipboard.writeText(link).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+
+  const generatePulseSummary = async (m, entries) => {
+    setPulseSummaries(prev => ({ ...prev, [m.member_user_id]: { loading: true, data: null, error: null } }));
+    try {
+      const result = await callGroqPulseSummary(m.member_name, m.member_role, entries);
+      setPulseSummaries(prev => ({ ...prev, [m.member_user_id]: { loading: false, data: result, error: null } }));
+    } catch (err) {
+      setPulseSummaries(prev => ({ ...prev, [m.member_user_id]: { loading: false, data: null, error: err.message } }));
+    }
+  };
+
+  const SQL_MIGRATION = `-- Run once in Supabase SQL editor:
+
+CREATE TABLE IF NOT EXISTS team_memberships (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  manager_user_id UUID NOT NULL,
+  member_user_id UUID,
+  member_email TEXT NOT NULL,
+  member_name TEXT NOT NULL DEFAULT '',
+  member_role TEXT NOT NULL DEFAULT '',
+  invite_token TEXT UNIQUE NOT NULL DEFAULT encode(gen_random_bytes(16), 'hex'),
+  invited_at TIMESTAMPTZ DEFAULT NOW(),
+  accepted_at TIMESTAMPTZ,
+  UNIQUE(manager_user_id, member_email)
+);
+ALTER TABLE team_memberships ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "manager_all" ON team_memberships FOR ALL USING (auth.uid() = manager_user_id);
+CREATE POLICY "member_read" ON team_memberships FOR SELECT USING (true);
+CREATE POLICY "member_update" ON team_memberships FOR UPDATE USING (true);
+
+-- Allow manager to read team diary entries
+CREATE POLICY "manager_team_read" ON diary_entries FOR SELECT
+  USING (
+    auth.uid() = user_id OR
+    auth.uid() IN (
+      SELECT manager_user_id FROM team_memberships
+      WHERE member_user_id = user_id AND accepted_at IS NOT NULL
+    )
+  );`;
+
+  if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Loading team…</div>;
+
+  if (dbReady === false) return (
+    <div className="echo-content fade-in">
+      <div style={{ background: `${T.coral}10`, border: `1px solid ${T.coral}30`, borderRadius: 12, padding: "24px 28px", marginBottom: 16 }}>
+        <div style={{ fontSize: 14, color: T.coral, fontWeight: 700, marginBottom: 8 }}>⚠ One-time setup required</div>
+        <div style={{ fontSize: 13, color: T.text2, marginBottom: 16 }}>Run this SQL in your Supabase SQL editor to enable the team feature, then refresh the page.</div>
+        <pre style={{ background: T.navy0, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 16px", fontSize: 11, color: T.teal, overflowX: "auto", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{SQL_MIGRATION}</pre>
+        <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => navigator.clipboard.writeText(SQL_MIGRATION)}>📋 Copy SQL</button>
+      </div>
+    </div>
+  );
+
+  const pending  = members.filter(m => !m.accepted_at);
+  const accepted = members.filter(m => m.accepted_at);
+
+  return (
+    <div className="echo-content fade-in">
+      {/* ── Header ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 11, color: T.text3, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 2 }}>Team Pulse</div>
+          <div style={{ fontSize: 13, color: T.text2 }}>{accepted.length} active · {pending.length} pending invite</div>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={() => { setInviteOpen(true); setInviteLink(""); }}
+          style={{ background: `${T.accent}15`, color: T.accent, border: `1px solid ${T.accent}30` }}>
+          + Invite Team Member
+        </button>
+      </div>
+
+      {/* ── Invite modal ── */}
+      {inviteOpen && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setInviteOpen(false)}>
+          <div className="modal" style={{ maxWidth: 460 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text1, marginBottom: 18 }}>Invite Team Member</div>
+            {!inviteLink ? (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+                  <input className="form-input" placeholder="Full name *" value={inviteForm.name} onChange={e => setInviteForm(f => ({ ...f, name: e.target.value }))} />
+                  <input className="form-input" placeholder="Work email *" value={inviteForm.email} onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))} />
+                  <input className="form-input" placeholder="Role (e.g. SDET II)" value={inviteForm.role} onChange={e => setInviteForm(f => ({ ...f, role: e.target.value }))} />
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setInviteOpen(false)}>Cancel</button>
+                  <button className="btn btn-ghost btn-sm" onClick={inviteMember} disabled={inviting || !inviteForm.name.trim() || !inviteForm.email.trim()}
+                    style={{ background: `${T.accent}15`, color: T.accent, border: `1px solid ${T.accent}30` }}>
+                    {inviting ? "Creating…" : "Generate Invite Link"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 13, color: T.text2, marginBottom: 12 }}>Share this link with your team member. They sign up and are automatically linked to your team.</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", background: T.navy0, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, color: T.teal, flex: 1, wordBreak: "break-all", fontFamily: "'DM Mono', monospace" }}>{inviteLink}</div>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard.writeText(inviteLink); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                    style={{ flexShrink: 0 }}>{copied ? "✓ Copied" : "Copy"}</button>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setInviteOpen(false)}>Done</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── No members yet ── */}
+      {members.length === 0 && (
+        <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "60px 28px", textAlign: "center" }}>
+          <div style={{ fontSize: 36, marginBottom: 14 }}>👥</div>
+          <div style={{ fontSize: 15, color: T.text2, marginBottom: 6 }}>No team members yet</div>
+          <div style={{ fontSize: 13, color: T.text3 }}>Click "Invite Team Member" to generate a sign-up link for each person on your team.</div>
+        </div>
+      )}
+
+      {/* ── Pending invites ── */}
+      {pending.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>Pending Invites</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {pending.map(m => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px" }}>
+                <div style={{ width: 34, height: 34, borderRadius: "50%", background: `${T.text3}20`, border: `1.5px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: T.text3, flexShrink: 0 }}>{initials(m.member_name)}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text2 }}>{m.member_name}</div>
+                  <div style={{ fontSize: 11, color: T.text3 }}>{m.member_email}{m.member_role ? ` · ${m.member_role}` : ""}</div>
+                </div>
+                <div style={{ fontSize: 11, color: T.amber, background: `${T.amber}15`, borderRadius: 6, padding: "2px 8px", flexShrink: 0 }}>⏳ Awaiting sign-up</div>
+                <button className="btn btn-ghost btn-sm" onClick={() => copyInviteLink(m.invite_token)} style={{ flexShrink: 0, fontSize: 11 }}>{copied ? "✓" : "📋 Copy link"}</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Active team member cards ── */}
+      {accepted.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>Active ({accepted.length})</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {accepted.map(m => {
+              const data  = memberData[m.member_user_id] || { loading: true, entries: [] };
+              const entries = data.entries || [];
+              const weekEntries  = entries.filter(e => e.date >= sevenAgo);
+              const moodTrend    = entries.slice(0, 7).map(e => MOOD_EMOJI[e.mood] || "⚪").reverse();
+              const blockers     = weekEntries.filter(e => e.blockers && e.blockers.trim()).map(e => e.blockers.trim());
+              const wins         = entries.filter(e => e.is_win).length;
+              const lastActive   = entries[0]?.date;
+              const daysAgo      = lastActive ? Math.floor((Date.now() - new Date(lastActive)) / 86400000) : null;
+              const focusCounts  = {};
+              weekEntries.forEach(e => getFocusAreas(e).forEach(f => { focusCounts[f] = (focusCounts[f] || 0) + 1; }));
+              const topFocus     = Object.entries(focusCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([f]) => f);
+              const recentMood   = entries[0]?.mood;
+              const moodColor    = recentMood === "productive" ? T.teal : recentMood === "frustrated" ? T.coral : recentMood === "challenged" ? T.amber : T.text3;
+
+              const pulseState = pulseSummaries[m.member_user_id];
+
+              return (
+                <div key={m.id} style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px", position: "relative", overflow: "hidden" }}>
+                  <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, ${T.accent}60, ${T.teal}40)` }} />
+
+                  {/* Header */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: "50%", background: `linear-gradient(135deg, ${T.accent}30, ${T.teal}20)`, border: `2px solid ${T.accent}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: T.accent, fontFamily: "'Syne', sans-serif", flexShrink: 0 }}>
+                      {initials(m.member_name)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: T.text1 }}>{m.member_name}</div>
+                      <div style={{ fontSize: 11, color: T.text3 }}>{m.member_role || "Team Member"}</div>
+                    </div>
+                    {entries.length > 0 && (
+                      <button onClick={() => generatePulseSummary(m, entries)} disabled={pulseState?.loading}
+                        style={{ fontSize: 11, color: T.accent, background: `${T.accent}12`, border: `1px solid ${T.accent}30`, borderRadius: 6, padding: "4px 10px", cursor: pulseState?.loading ? "default" : "pointer", flexShrink: 0, fontWeight: 600 }}>
+                        {pulseState?.loading ? "Analysing…" : pulseState?.data ? "↻ Re-analyse" : "✦ AI Summary"}
+                      </button>
+                    )}
+                    {lastActive && (
+                      <div style={{ fontSize: 10, color: daysAgo === 0 ? T.teal : daysAgo <= 2 ? T.text2 : T.text3, flexShrink: 0, textAlign: "right" }}>
+                        {daysAgo === 0 ? "Active today" : daysAgo === 1 ? "Yesterday" : `${daysAgo}d ago`}
+                      </div>
+                    )}
+                  </div>
+
+                  {data.loading ? (
+                    <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: "12px 0" }}>Loading activity…</div>
+                  ) : data.noAccess ? (
+                    <div style={{ fontSize: 12, color: T.amber, padding: "8px 0" }}>⚠ RLS policy needed — run the DB migration to see diary data</div>
+                  ) : entries.length === 0 ? (
+                    <div style={{ fontSize: 12, color: T.text3, padding: "8px 0" }}>No diary entries in the last 14 days</div>
+                  ) : (
+                    <>
+                      {/* Stats row */}
+                      <div style={{ display: "flex", gap: 0, marginBottom: 12, background: T.navy3, borderRadius: 8, overflow: "hidden" }}>
+                        {[
+                          { l: "This week", v: weekEntries.length, c: T.accent },
+                          { l: "2-week total", v: entries.length, c: T.text2 },
+                          { l: "Wins", v: wins, c: T.gold },
+                        ].map((s, i, arr) => (
+                          <div key={s.l} style={{ flex: 1, textAlign: "center", padding: "8px 4px", borderRight: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                            <div style={{ fontSize: 18, fontWeight: 800, color: s.c, fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{s.v}</div>
+                            <div style={{ fontSize: 9, color: T.text3, marginTop: 2, textTransform: "uppercase", letterSpacing: 0.5 }}>{s.l}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Mood trend */}
+                      {moodTrend.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 10, color: T.text3, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Mood trend</div>
+                          <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+                            {moodTrend.map((e, i) => <span key={i} style={{ fontSize: 14 }}>{e}</span>)}
+                            {recentMood && <span style={{ fontSize: 10, color: moodColor, marginLeft: 6 }}>{recentMood}</span>}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Focus areas */}
+                      {topFocus.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 10, color: T.text3, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>This week's focus</div>
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            {topFocus.map(f => <span key={f} className="focus-badge" style={{ fontSize: 10 }}>{f}</span>)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Blockers */}
+                      {blockers.length > 0 && (
+                        <div style={{ background: `${T.coral}08`, border: `1px solid ${T.coral}25`, borderRadius: 7, padding: "8px 10px", marginBottom: 10 }}>
+                          <div style={{ fontSize: 10, color: T.coral, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>🚧 Open blockers</div>
+                          {blockers.slice(0, 2).map((b, i) => (
+                            <div key={i} style={{ fontSize: 12, color: T.text1, lineHeight: 1.4 }}>• {b.slice(0, 90)}{b.length > 90 ? "…" : ""}</div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* AI Pulse Summary */}
+                      {pulseState?.error && (
+                        <div style={{ fontSize: 11, color: T.coral, background: `${T.coral}10`, border: `1px solid ${T.coral}20`, borderRadius: 6, padding: "6px 10px", marginBottom: 10 }}>
+                          AI error: {pulseState.error}
+                        </div>
+                      )}
+                      {pulseState?.data && (
+                        <div style={{ background: `${T.accent}08`, border: `1px solid ${T.accent}25`, borderRadius: 8, padding: "12px 14px", marginBottom: 12 }}>
+                          <div style={{ fontSize: 10, color: T.accent, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>✦ AI Pulse Summary</div>
+                          <div style={{ fontSize: 12, color: T.text1, lineHeight: 1.55, marginBottom: 8 }}>{pulseState.data.overview}</div>
+                          {pulseState.data.moodPattern && (
+                            <div style={{ fontSize: 11, color: T.text2, fontStyle: "italic", marginBottom: 8 }}>📊 {pulseState.data.moodPattern}</div>
+                          )}
+                          {pulseState.data.keyContributions?.length > 0 && (
+                            <div style={{ marginBottom: 8 }}>
+                              <div style={{ fontSize: 10, color: T.teal, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>Key contributions</div>
+                              {pulseState.data.keyContributions.map((c, i) => (
+                                <div key={i} style={{ fontSize: 11, color: T.text2, lineHeight: 1.5 }}>• {c}</div>
+                              ))}
+                            </div>
+                          )}
+                          {pulseState.data.blockers?.length > 0 && (
+                            <div style={{ marginBottom: 8 }}>
+                              <div style={{ fontSize: 10, color: T.coral, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>Needs attention</div>
+                              {pulseState.data.blockers.map((b, i) => (
+                                <div key={i} style={{ fontSize: 11, color: T.coral, lineHeight: 1.5 }}>🚧 {b}</div>
+                              ))}
+                            </div>
+                          )}
+                          {pulseState.data.managerNote && (
+                            <div style={{ fontSize: 11, color: T.amber, background: `${T.amber}10`, border: `1px solid ${T.amber}25`, borderRadius: 5, padding: "5px 8px" }}>
+                              💡 Next 1:1: {pulseState.data.managerNote}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Recent diary entries */}
+                      <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <div style={{ fontSize: 10, color: T.text3, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                            Diary Entries ({entries.length})
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {entries.slice(0, showAllEntries[m.id] ? entries.length : 3).map((e, ei) => {
+                            const moodEmoji = MOOD_EMOJI[e.mood] || "";
+                            const moodCol = e.mood === "productive" ? T.teal : e.mood === "frustrated" ? T.coral : e.mood === "challenged" ? T.amber : e.mood === "collaborative" ? T.accent : T.text3;
+                            const dateLabel = new Date(e.date + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+                            const snippet = (e.content || "").trim();
+                            const teamUpdatesText = (e.team_updates || []).map(u => typeof u === "string" ? u : (u.text || u.note || "")).filter(Boolean).join(" · ");
+                            return (
+                              <div key={ei} style={{ background: T.navy3, borderRadius: 8, padding: "9px 12px", borderLeft: `2px solid ${moodCol}70` }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: snippet || teamUpdatesText ? 5 : 0, flexWrap: "wrap" }}>
+                                  <span style={{ fontSize: 10, color: T.text3, fontWeight: 600, flexShrink: 0 }}>{dateLabel}</span>
+                                  {moodEmoji && <span style={{ fontSize: 13 }}>{moodEmoji}</span>}
+                                  {e.is_win && <span style={{ fontSize: 9, color: T.gold, fontWeight: 700, background: `${T.gold}18`, padding: "1px 6px", borderRadius: 4, letterSpacing: 0.3 }}>WIN</span>}
+                                  {e.title && <span style={{ fontSize: 12, fontWeight: 600, color: T.text1, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title}</span>}
+                                </div>
+                                {snippet && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.5 }}>{snippet.slice(0, 200)}{snippet.length > 200 ? "…" : ""}</div>}
+                                {!snippet && teamUpdatesText && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.5 }}>{teamUpdatesText.slice(0, 200)}{teamUpdatesText.length > 200 ? "…" : ""}</div>}
+                                {e.blockers && e.blockers.trim() && <div style={{ fontSize: 11, color: T.coral, marginTop: 4 }}>🚧 {e.blockers.slice(0, 100)}{e.blockers.length > 100 ? "…" : ""}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {entries.length > 3 && (
+                          <button onClick={() => setShowAllEntries(prev => ({ ...prev, [m.id]: !prev[m.id] }))}
+                            style={{ fontSize: 11, color: T.accent, background: "none", border: "none", cursor: "pointer", marginTop: 6, padding: 0, fontWeight: 600 }}>
+                            {showAllEntries[m.id] ? `↑ Show less` : `↓ Show all ${entries.length} entries`}
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function OneOnOneModal({ teammate, user, onClose }) {
   const [tab, setTab] = useState("new");
@@ -3574,6 +5330,15 @@ function OneOnOneModal({ teammate, user, onClose }) {
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  // Auto-set next session to +7 days when session date changes (only if not already set)
+  useEffect(() => {
+    if (form.next_session_date) return;
+    if (!form.session_date) return;
+    const d = new Date(form.session_date + "T12:00:00");
+    d.setDate(d.getDate() + 7);
+    setF("next_session_date", d.toISOString().slice(0, 10));
+  }, [form.session_date]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const addToAgenda = async () => {
     if (!agendaInput.trim() || !hasAgendaCol) return;
     const next = [...agendaQueue, { text: agendaInput.trim(), added: new Date().toISOString() }];
@@ -3631,6 +5396,10 @@ function OneOnOneModal({ teammate, user, onClose }) {
     setSessions(s => s.filter(x => x.id !== id));
     if (expanded === id) setExpanded(null);
   };
+
+  const [prepResult, setPrepResult] = useState(null);
+  const [prepLoading, setPrepLoading] = useState(false);
+  const [prepError, setPrepError] = useState("");
 
   const [reportCopied, setReportCopied] = useState(false);
   const shareReport = () => {
@@ -3834,6 +5603,64 @@ function OneOnOneModal({ teammate, user, onClose }) {
               </div>
             )}
 
+            {/* ── AI 1:1 Prep ── */}
+            <div style={{ marginBottom: 16, borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: 0.5, flex: 1 }}>🤖 AI Prep</span>
+                {!prepResult && (
+                  <button onClick={async () => {
+                    setPrepLoading(true); setPrepError(""); setPrepResult(null);
+                    try {
+                      const jiraTickets = getJiraCache().filter(t =>
+                        t.assigneeName?.toLowerCase() === teammate.name.toLowerCase() &&
+                        (t.statusCategory || "").toLowerCase() !== "done"
+                      );
+                      const result = await callGroqOneOnOnePrep(context, teammate.name, sessions, openCommitments, jiraTickets);
+                      setPrepResult(result);
+                    } catch (e) { setPrepError(e.message); }
+                    setPrepLoading(false);
+                  }} disabled={prepLoading} style={{
+                    fontSize: 10, padding: "3px 10px",
+                    background: `${T.accent}18`, border: `1px solid ${T.accent}40`,
+                    borderRadius: 8, color: T.accent, cursor: "pointer",
+                  }}>
+                    {prepLoading ? "Thinking…" : "Prepare →"}
+                  </button>
+                )}
+                {prepResult && (
+                  <button onClick={() => setPrepResult(null)} style={{ fontSize: 10, padding: "2px 8px", background: "none", border: "none", color: T.text3, cursor: "pointer" }}>Clear</button>
+                )}
+              </div>
+              {prepError && <div style={{ fontSize: 11, color: T.coral, marginBottom: 6 }}>{prepError}</div>}
+              {prepLoading && <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>Analyzing diary context…</div>}
+              {prepResult && (
+                <div>
+                  <div style={{ fontSize: 11, fontStyle: "italic", color: T.gold, marginBottom: 10, lineHeight: 1.5, background: `${T.gold}0d`, borderRadius: 7, padding: "6px 9px" }}>
+                    💡 {prepResult.key_focus}
+                  </div>
+                  {(prepResult.talking_points || []).map((pt, i) => (
+                    <div key={i} style={{ display: "flex", gap: 7, marginBottom: 7 }}>
+                      <span style={{ color: T.accent, fontSize: 12, flexShrink: 0, fontWeight: 700, marginTop: 1 }}>{i + 1}.</span>
+                      <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.5, flex: 1 }}>{pt}</span>
+                    </div>
+                  ))}
+                  {hasAgendaCol && (prepResult.talking_points || []).length > 0 && (
+                    <button onClick={async () => {
+                      const pts = prepResult.talking_points || [];
+                      const next = [...agendaQueue, ...pts.map(p => ({ text: p, added: new Date().toISOString() }))];
+                      setAgendaQueue(next);
+                      await db.from("teammates").update({ agenda_queue: next }, teammate.id);
+                      setPrepResult(null);
+                    }} style={{
+                      marginTop: 8, fontSize: 11, padding: "4px 12px",
+                      background: `${T.teal}12`, border: `1px solid ${T.teal}35`,
+                      borderRadius: 8, color: T.teal, cursor: "pointer",
+                    }}>+ Add all to agenda</button>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* ── Diary separator ── */}
             {(context.collabs.length > 0 || context.updates.length > 0 || context.feedback.length > 0) && (
               <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1, marginBottom: 12, textTransform: "uppercase", borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
@@ -3929,7 +5756,18 @@ function OneOnOneModal({ teammate, user, onClose }) {
                         onChange={e => setF("session_date", e.target.value)} />
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div className="diary-section-heading" style={{ marginBottom: 5 }}>Next session</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                        <span className="diary-section-heading" style={{ margin: 0 }}>Next session</span>
+                        {[7, 14, 28].map(days => (
+                          <button key={days} onClick={() => {
+                            const d = new Date((form.session_date || today()) + "T12:00:00");
+                            d.setDate(d.getDate() + days);
+                            setF("next_session_date", d.toISOString().slice(0, 10));
+                          }} style={{ fontSize: 10, color: T.accent, background: `${T.accent}10`, border: `1px solid ${T.accent}30`, borderRadius: 5, padding: "1px 6px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+                            +{days}d
+                          </button>
+                        ))}
+                      </div>
                       <input type="date" className="form-input" value={form.next_session_date}
                         onChange={e => setF("next_session_date", e.target.value)} />
                     </div>
@@ -4105,6 +5943,14 @@ function OneOnOneModal({ teammate, user, onClose }) {
   );
 }
 
+const DIARY_ENTRY_TEMPLATES = [
+  { key: "monday",   icon: "📅", label: "Monday Planning",   mood: "",            focus_areas: ["Planning"],  content: "## This week's goals\n- \n\n## Top priority today\n- \n\n## Meetings & syncs\n- " },
+  { key: "retro",    icon: "🔄", label: "Sprint Retro Notes", mood: "productive",  focus_areas: ["Process"],   content: "## What went well\n- \n\n## What didn't go well\n- \n\n## Actions for next sprint\n- " },
+  { key: "incident", icon: "🐛", label: "Incident Debrief",  mood: "challenged",  focus_areas: ["Quality"],   content: "## What happened\n\n## Root cause\n\n## Impact\n\n## Prevention steps\n- " },
+  { key: "win",      icon: "🏆", label: "Win Documentation", mood: "productive",  focus_areas: ["Delivery"],  content: "## What I achieved\n\n## Why it matters\n\n## Who was involved\n- \n\n## Evidence / metrics\n", is_win: true },
+  { key: "oneOnOne", icon: "👥", label: "1:1 Prep Notes",    mood: "",            focus_areas: ["People"],    content: "## Talking points\n- \n\n## Feedback to give\n- \n\n## Feedback to ask for\n- \n\n## Status updates\n- " },
+];
+
 function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes = [], onAutoSave }) {
   const initCF = !entry && previousEntry?.carry_forward
     ? previousEntry.carry_forward.filter(i => !i.done).map(i => ({ ...i, done: false }))
@@ -4130,6 +5976,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
     linked_note:    entry.linked_note    || null,
     is_win:         entry.is_win          || false,
     win_tags:       entry.win_tags        || [],
+    win_items:      entry.win_items       || [],
     categories:     entry.categories      || {},
     team_attendance:entry.team_attendance || [],
   } : {
@@ -4140,11 +5987,14 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
     linked_note: null,
     is_win: false,
     win_tags: [],
+    win_items: [],
     categories: {},
     team_attendance: [],
   });
 
   const [tab, setTab] = useState("day");
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [draftBanner, setDraftBanner] = useState(false);
   const [jiraInput, setJiraInput] = useState("");
   const [jiraSuggestions, setJiraSuggestions] = useState([]);
   const [collabInput, setCollabInput] = useState("");
@@ -4155,6 +6005,8 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
   const [cfPriority, setCfPriority] = useState("medium");
   const [reminderInput, setReminderInput] = useState("");
   const [pointInput, setPointInput] = useState("");
+  const [editingBulletIdx, setEditingBulletIdx] = useState(null);
+  const [editingBulletText, setEditingBulletText] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
@@ -4168,6 +6020,45 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
   });
 
   useEffect(() => { probeAttendance().then(setAttDbOk); }, []);
+
+  // For new entries: auto-link JIRA tickets in "In Progress" assigned to me
+  useEffect(() => {
+    if (entry) return; // editing existing — don't overwrite
+    try {
+      const jiraCfg = JSON.parse(localStorage.getItem("echo_jira_config") || "null");
+      if (!jiraCfg?.email) return;
+      const myActive = getJiraCache().filter(t => {
+        const em = (t.assigneeEmail || "").toLowerCase();
+        const cat = (t.statusCategory || "").toLowerCase();
+        return em === jiraCfg.email.toLowerCase() && cat === "in progress";
+      }).map(t => t.key);
+      if (myActive.length > 0) {
+        setForm(f => ({ ...f, jira_links: [...new Set([...f.jira_links, ...myActive])] }));
+      }
+    } catch (_) {}
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-save draft for NEW entries every 30s; restore on next open
+  useEffect(() => {
+    if (entry) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem("echo_diary_draft") || "null");
+      if (saved && (saved.content || saved.blockers || (saved.carry_forward || []).length)) {
+        setDraftBanner(true);
+      }
+    } catch {}
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (entry) return;
+    const id = setInterval(() => {
+      try {
+        const { id: _id, ...rest } = form;
+        localStorage.setItem("echo_diary_draft", JSON.stringify({ ...rest, _savedAt: new Date().toISOString() }));
+      } catch {}
+    }, 30000);
+    return () => clearInterval(id);
+  }, [entry, form]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -4367,6 +6258,7 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
       setSaveError(`⚠️ These fields were NOT saved because the columns are missing in Supabase: ${result.warning.join(", ")}. Run the SQL shown below to fix this permanently.`);
       return; // keep form open so data isn't lost
     }
+    try { localStorage.removeItem("echo_diary_draft"); } catch {}
     onClose();
   };
 
@@ -4399,6 +6291,68 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
         {/* ── My Day ── */}
         {tab === "day" && (
           <div>
+            {/* ── Draft restore banner ── */}
+            {draftBanner && !entry && (
+              <div style={{ background: `${T.gold}12`, border: `1px solid ${T.gold}35`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: T.gold, flex: 1 }}>
+                  💾 Unsaved draft from {(() => { try { const d = JSON.parse(localStorage.getItem("echo_diary_draft")); return d?._savedAt ? new Date(d._savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "earlier"; } catch { return "earlier"; } })()}
+                </span>
+                <button onClick={() => {
+                  try {
+                    const d = JSON.parse(localStorage.getItem("echo_diary_draft") || "null");
+                    if (d) { const { _savedAt, ...rest } = d; setForm(f => ({ ...f, ...rest })); }
+                  } catch {}
+                  setDraftBanner(false);
+                }} style={{ fontSize: 11, color: T.gold, background: `${T.gold}18`, border: `1px solid ${T.gold}40`, borderRadius: 6, padding: "3px 10px", cursor: "pointer" }}>Restore</button>
+                <button onClick={() => { try { localStorage.removeItem("echo_diary_draft"); } catch {} setDraftBanner(false); }} style={{ fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>Discard</button>
+              </div>
+            )}
+            {/* ── Template picker — new entries only ── */}
+            {!entry && (
+              <div style={{ position: "relative", marginBottom: 10 }}>
+                <button onClick={() => setTemplateOpen(o => !o)} style={{
+                  fontSize: 11, padding: "4px 12px", background: `${T.accent}10`,
+                  border: `1px solid ${T.accent}30`, borderRadius: 8,
+                  color: T.accent, cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+                }}>
+                  📄 Use template {templateOpen ? "▲" : "▼"}
+                </button>
+                {templateOpen && (
+                  <div style={{
+                    position: "absolute", top: "110%", left: 0, zIndex: 20,
+                    background: T.navy1, border: `1px solid ${T.border2}`,
+                    borderRadius: 10, padding: 8, minWidth: 220, boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                  }}>
+                    {DIARY_ENTRY_TEMPLATES.map(tpl => (
+                      <button key={tpl.key} onClick={() => {
+                        setForm(f => ({
+                          ...f,
+                          content: tpl.content,
+                          focus_areas: tpl.focus_areas,
+                          ...(tpl.mood ? { mood: tpl.mood } : {}),
+                          ...(tpl.is_win ? { is_win: true } : {}),
+                        }));
+                        setTemplateOpen(false);
+                      }} style={{
+                        display: "flex", alignItems: "center", gap: 10, width: "100%",
+                        background: "none", border: "none", cursor: "pointer",
+                        padding: "8px 10px", borderRadius: 8, textAlign: "left",
+                        color: T.text2, fontSize: 12, fontFamily: "'DM Sans', sans-serif",
+                        transition: "background 0.12s",
+                      }}
+                        onMouseEnter={e => e.currentTarget.style.background = `${T.accent}12`}
+                        onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                        <span style={{ fontSize: 16 }}>{tpl.icon}</span>
+                        <div>
+                          <div style={{ fontWeight: 600, color: T.text1 }}>{tpl.label}</div>
+                          <div style={{ fontSize: 10, color: T.text3 }}>{tpl.focus_areas.join(", ")}{tpl.mood ? ` · ${tpl.mood}` : ""}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {/* Yesterday's context banner — new entries only */}
             {!entry && previousEntry && (() => {
               const prevPoints = (previousEntry.content || "").split("\n").filter(Boolean);
@@ -4506,17 +6460,70 @@ function DiaryEntryModal({ entry, previousEntry, onClose, onSave, scratchNotes =
               </label>
               {(form.content || "").split("\n").filter(p => p.trim()).length > 0 && (
                 <div style={{ background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
-                  {(form.content || "").split("\n").filter(p => p.trim()).map((p, i) => (
-                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "5px 0", borderBottom: i < (form.content || "").split("\n").filter(x => x.trim()).length - 1 ? `1px solid ${T.border}` : "none" }}>
-                      <span style={{ color: T.accent, flexShrink: 0, marginTop: 1, fontSize: 14 }}>•</span>
-                      <span style={{ flex: 1, fontSize: 13, color: T.text1, lineHeight: 1.5 }}>{p}</span>
-                      <button onClick={() => {
-                        const pts = (form.content || "").split("\n").filter(x => x.trim());
-                        pts.splice(i, 1);
-                        set("content", pts.join("\n"));
-                      }} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 13, padding: "0 2px", flexShrink: 0, lineHeight: 1 }}>✕</button>
-                    </div>
-                  ))}
+                  {(form.content || "").split("\n").filter(p => p.trim()).map((p, i) => {
+                    const pts = (form.content || "").split("\n").filter(x => x.trim());
+                    const isWinItem = (form.win_items || []).includes(p);
+                    return (
+                      <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "5px 0", borderBottom: i < pts.length - 1 ? `1px solid ${T.border}` : "none", background: isWinItem ? `${T.gold}09` : "transparent", borderRadius: isWinItem ? 4 : 0, paddingLeft: isWinItem ? 6 : 0 }}>
+                        <span style={{ color: isWinItem ? T.gold : T.accent, flexShrink: 0, marginTop: editingBulletIdx === i ? 6 : 1, fontSize: 14 }}>{isWinItem ? "★" : "•"}</span>
+                        {editingBulletIdx === i ? (
+                          <>
+                            <input
+                              autoFocus
+                              value={editingBulletText}
+                              onChange={ev => setEditingBulletText(ev.target.value)}
+                              onKeyDown={ev => {
+                                if (ev.key === "Enter") {
+                                  const t = editingBulletText.trim();
+                                  if (!t) return;
+                                  const pts2 = (form.content || "").split("\n").filter(x => x.trim());
+                                  const old = pts2[i];
+                                  pts2[i] = t;
+                                  set("content", pts2.join("\n"));
+                                  set("win_items", (form.win_items || []).map(w => w === old ? t : w));
+                                  setEditingBulletIdx(null);
+                                } else if (ev.key === "Escape") {
+                                  setEditingBulletIdx(null);
+                                }
+                              }}
+                              style={{ flex: 1, background: `${T.navy0}80`, border: `1px solid ${T.accent}50`, borderRadius: 5, padding: "3px 8px", fontSize: 13, color: T.text1, outline: "none" }}
+                            />
+                            <button onClick={() => {
+                              const t = editingBulletText.trim();
+                              if (!t) return;
+                              const pts2 = (form.content || "").split("\n").filter(x => x.trim());
+                              const old = pts2[i];
+                              pts2[i] = t;
+                              set("content", pts2.join("\n"));
+                              set("win_items", (form.win_items || []).map(w => w === old ? t : w));
+                              setEditingBulletIdx(null);
+                            }} style={{ background: T.accent, border: "none", color: "#fff", fontSize: 11, borderRadius: 4, padding: "2px 8px", cursor: "pointer", flexShrink: 0 }}>✓</button>
+                            <button onClick={() => setEditingBulletIdx(null)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 13, padding: "0 2px", flexShrink: 0, lineHeight: 1 }}>✕</button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ flex: 1, fontSize: 13, color: T.text1, lineHeight: 1.5, fontWeight: isWinItem ? 500 : 400 }}>{p}</span>
+                            <button title="Edit this item" onClick={() => { setEditingBulletIdx(i); setEditingBulletText(p); }}
+                              style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 11, padding: "1px 4px", flexShrink: 0, lineHeight: 1, borderRadius: 4, opacity: 0.7 }}>✏️</button>
+                            <button
+                              title={isWinItem ? "Remove win flag" : "Flag as a win"}
+                              onClick={() => {
+                                const cur = form.win_items || [];
+                                set("win_items", isWinItem ? cur.filter(x => x !== p) : [...cur, p]);
+                              }}
+                              style={{ background: isWinItem ? `${T.gold}22` : "none", border: `1px solid ${isWinItem ? T.gold + "50" : "transparent"}`, cursor: "pointer", color: isWinItem ? T.gold : T.text3, fontSize: 11, padding: "1px 5px", flexShrink: 0, lineHeight: 1, borderRadius: 4, transition: "all 0.15s" }}
+                            >🏆</button>
+                            <button onClick={() => {
+                              const pts2 = (form.content || "").split("\n").filter(x => x.trim());
+                              pts2.splice(i, 1);
+                              set("content", pts2.join("\n"));
+                              set("win_items", (form.win_items || []).filter(x => x !== p));
+                            }} style={{ background: "none", border: "none", cursor: "pointer", color: T.text3, fontSize: 13, padding: "0 2px", flexShrink: 0, lineHeight: 1 }}>✕</button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               <div style={{ display: "flex", gap: 8 }}>
@@ -5428,7 +7435,6 @@ function Diary({ onCountChange, user }) {
   const [entries, setEntries]     = useState([]);
   const [prevEntry, setPrevEntry] = useState(null);
   const [loading, setLoading]     = useState(true);
-  const [catColReady, setCatColReady] = useState(true);
   const [uidReady, setUidReady]   = useState(null);
   const [search, setSearch]       = useState("");
   const [modal, setModal]         = useState(null);
@@ -5440,6 +7446,9 @@ function Diary({ onCountChange, user }) {
   const [filterStarred, setFilterStarred] = useState(false);
   const [filterPeriod, setFilterPeriod]   = useState("");
   const [starredIds, setStarredIds] = useState(new Set());
+  const [diaryMode, setDiaryMode] = useState("all"); // "all" | "wins"
+  const [winPeriod, setWinPeriod] = useState("quarter");
+  const [winTagFilter, setWinTagFilter] = useState(null);
   const [scratchNotes, setScratchNotes]   = useState(() => loadScratchNotes());
 
   const toggleStar = (id) => {
@@ -5460,7 +7469,7 @@ function Diary({ onCountChange, user }) {
     setLoading(true);
     if (!isConfigured()) { setLoading(false); return; }
     probeFocusAreas(); probeIsWin(); probeAttendance();
-    probeCategories().then(ok => setCatColReady(ok));
+    probeCategories();
     const uidOk = await probeUserIdDiary();
     setUidReady(uidOk);
     const diaryOpts = { order: "date.desc" };
@@ -5526,7 +7535,7 @@ function Diary({ onCountChange, user }) {
       return db.from("diary_entries").insert(data);
     };
     // Columns that may not exist yet — stripped one at a time if Supabase errors on them
-    const OPTIONAL_COLS = ["user_id","focus_areas","is_win","win_tags","team_attendance","categories",
+    const OPTIONAL_COLS = ["user_id","focus_areas","is_win","win_tags","win_items","team_attendance","categories",
                            "team_updates","feedback_given","blockers","jira_links",
                            "collaborators","carry_forward","reminders","linked_note","ticket_number"];
     const [hasFocusAreas, hasWin, hasCats, hasAtt] = await Promise.all([probeFocusAreas(), probeIsWin(), probeCategories(), probeAttendance()]);
@@ -5612,24 +7621,166 @@ function Diary({ onCountChange, user }) {
   const isFiltered = !!(search || filterMood || filterFocus || filterStarred || filterPeriod);
   const clearFilters = () => { setSearch(""); setFilterMood(""); setFilterFocus(""); setFilterStarred(false); setFilterPeriod(""); };
 
+  // ── Wins tab computed values ──────────────────────────────────────────────
+  const winEntries = entries.filter(e => e.is_win);
+  const getWinPeriodStart = () => {
+    const n = new Date();
+    if (winPeriod === "month")   return new Date(n.getFullYear(), n.getMonth(), 1).toISOString().slice(0, 10);
+    if (winPeriod === "quarter") return new Date(n.getFullYear(), Math.floor(n.getMonth() / 3) * 3, 1).toISOString().slice(0, 10);
+    if (winPeriod === "year")    return new Date(n.getFullYear(), 0, 1).toISOString().slice(0, 10);
+    return null;
+  };
+  const filteredWins = winEntries.filter(e => {
+    const ps = getWinPeriodStart();
+    const matchPeriod = !ps || e.date >= ps;
+    const matchTag = !winTagFilter || (e.win_tags || []).includes(winTagFilter);
+    return matchPeriod && matchTag;
+  });
+  const allWinTags = [...new Set(winEntries.flatMap(e => e.win_tags || []))];
+  // Individual win items: entries that have specific items flagged (regardless of is_win)
+  const winItemRows = entries.flatMap(e => {
+    const ps = getWinPeriodStart();
+    if (ps && e.date < ps) return [];
+    const items = (e.win_items || []).filter(Boolean);
+    return items.map(item => ({ entry: e, item }));
+  });
+  const hasAnyWins = filteredWins.length > 0 || winItemRows.length > 0;
+
   return (
     <div className="echo-content fade-in">
       <ConfigBanner />
 
+      {/* ── Mode tabs: All / Wins ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 16, background: T.navy2, borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden", width: "fit-content" }}>
+        {[
+          { key: "all",  label: "All Entries", count: entries.length },
+          { key: "wins", label: "🏆 Wins", count: winEntries.length },
+        ].map(tab => (
+          <button key={tab.key} onClick={() => setDiaryMode(tab.key)}
+            style={{ padding: "8px 18px", fontSize: 12, fontWeight: diaryMode === tab.key ? 700 : 400, cursor: "pointer", border: "none",
+              background: diaryMode === tab.key ? `${T.accent}18` : "transparent",
+              color: diaryMode === tab.key ? T.accent2 : T.text3, transition: "all 0.15s", fontFamily: "'DM Sans', sans-serif" }}>
+            {tab.label}
+            {tab.count > 0 && <span style={{ marginLeft: 6, fontSize: 10, background: diaryMode === tab.key ? `${T.accent}30` : T.navy3, color: diaryMode === tab.key ? T.accent2 : T.text3, padding: "1px 6px", borderRadius: 10 }}>{tab.count}</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Wins view ── */}
+      {diaryMode === "wins" && (
+        <div>
+          <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+              {[{ k: "month", l: "Month" }, { k: "quarter", l: "Quarter" }, { k: "year", l: "Year" }, { k: "all", l: "All time" }].map(p => (
+                <button key={p.k} onClick={() => setWinPeriod(p.k)}
+                  style={{ padding: "6px 12px", fontSize: 11, fontWeight: winPeriod === p.k ? 700 : 400, cursor: "pointer", border: "none",
+                    background: winPeriod === p.k ? `${T.gold}18` : "transparent",
+                    color: winPeriod === p.k ? T.gold : T.text3, transition: "all 0.15s", fontFamily: "'DM Sans', sans-serif" }}>
+                  {p.l}
+                </button>
+              ))}
+            </div>
+            {allWinTags.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button onClick={() => setWinTagFilter(null)}
+                  style={{ fontSize: 11, padding: "4px 10px", borderRadius: 20, cursor: "pointer", border: `1px solid ${!winTagFilter ? T.gold : T.border}`, background: !winTagFilter ? `${T.gold}15` : "transparent", color: !winTagFilter ? T.gold : T.text3, fontFamily: "'DM Sans', sans-serif" }}>
+                  All
+                </button>
+                {allWinTags.map(tag => {
+                  const wt = WIN_TAGS?.find(w => w.key === tag);
+                  return (
+                    <button key={tag} onClick={() => setWinTagFilter(t => t === tag ? null : tag)}
+                      style={{ fontSize: 11, padding: "4px 10px", borderRadius: 20, cursor: "pointer", border: `1px solid ${winTagFilter === tag ? T.gold : T.border}`, background: winTagFilter === tag ? `${T.gold}15` : "transparent", color: winTagFilter === tag ? T.gold : T.text3, fontFamily: "'DM Sans', sans-serif" }}>
+                      {wt?.label || tag}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setModal("new")}>+ New Entry</button>
+          </div>
+
+          {!hasAnyWins ? (
+            <div style={{ textAlign: "center", padding: "60px 20px", color: T.text3 }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>🏆</div>
+              <div style={{ fontSize: 15, color: T.text2, marginBottom: 6 }}>No wins logged yet for this period</div>
+              <div style={{ fontSize: 13 }}>In your diary entry, click 🏆 next to any item to flag it as a win, or toggle "Mark as Win" for the whole entry.</div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+
+              {/* ── Individual item wins ── */}
+              {winItemRows.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 2 }}>Specific wins</div>
+                  {winItemRows.map(({ entry: e, item }, idx) => (
+                    <div key={`${e.id}-${idx}`} className="diary-entry"
+                      style={{ borderLeft: `3px solid ${T.gold}`, padding: "10px 14px", display: "flex", gap: 12, alignItems: "flex-start" }}
+                      onClick={() => setViewEntry(e)}>
+                      <div style={{ flexShrink: 0, textAlign: "center", minWidth: 34 }}>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: T.gold, fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{e.date?.split("-")[2]}</div>
+                        <div style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase" }}>{MONTHS[parseInt(e.date?.split("-")[1]) - 1]}</div>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, color: T.text1, lineHeight: 1.5, fontWeight: 500, marginBottom: 4 }}>★ {item}</div>
+                        <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+                          {getFocusAreas(e).slice(0, 2).map(f => <span key={f} className="focus-badge" style={{ fontSize: 10 }}>{f}</span>)}
+                        </div>
+                      </div>
+                      <button style={{ flexShrink: 0, background: T.accent, border: "none", color: "#fff", fontSize: 11, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 700 }}
+                        onClick={ev => { ev.stopPropagation(); setModal(e); }}>Edit</button>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* ── Whole-entry wins ── */}
+              {filteredWins.length > 0 && (
+                <>
+                  {winItemRows.length > 0 && <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 0.6, marginTop: 8, marginBottom: 2 }}>Full-entry wins</div>}
+                  {filteredWins.map(e => {
+                    const mood = MOODS.find(m => m.key === e.mood);
+                    return (
+                      <div key={e.id} className="diary-entry" onClick={() => setViewEntry(e)}
+                        style={{ borderLeft: `3px solid ${T.gold}`, padding: 0, overflow: "hidden" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+                          <div style={{ flexShrink: 0, minWidth: 46 }}>
+                            <span style={{ fontSize: 20, fontWeight: 800, color: T.gold, fontFamily: "'Syne', sans-serif" }}>{e.date?.split("-")[2]}</span>
+                            <span style={{ fontSize: 10, color: T.text3, fontWeight: 600, textTransform: "uppercase", marginLeft: 4 }}>{MONTHS[parseInt(e.date?.split("-")[1]) - 1]}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: 5, flex: 1, flexWrap: "wrap", minWidth: 0 }}>
+                            {getFocusAreas(e).map(f => <span key={f} className="focus-badge">{f}</span>)}
+                            {mood && <span style={{ fontSize: 14 }}>{mood.emoji}</span>}
+                            <span style={{ fontSize: 10, color: T.gold, background: `${T.gold}15`, border: `1px solid ${T.gold}30`, borderRadius: 20, padding: "1px 8px", fontWeight: 700 }}>🏆 Win</span>
+                            {(e.win_tags || []).map(tag => { const wt = WIN_TAGS?.find(w => w.key === tag); return wt ? <span key={tag} style={{ fontSize: 10, color: T.text3, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 20, padding: "1px 8px" }}>{wt.label}</span> : null; })}
+                          </div>
+                          <button style={{ flexShrink: 0, background: T.accent, border: "none", color: "#fff", fontSize: 11, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 700 }}
+                            onClick={ev => { ev.stopPropagation(); setModal(e); }}>Edit</button>
+                        </div>
+                        {e.content && (
+                          <div style={{ padding: "8px 14px", fontSize: 13, color: T.text2, lineHeight: 1.5 }}>
+                            {e.content.slice(0, 120)}{e.content.length > 120 ? "…" : ""}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          )}
+
+          {(modal === "new" || modal?.id) && <DiaryEntryModal entry={modal !== "new" ? modal : null} previousEntry={modal === "new" ? prevEntry : null} onClose={() => setModal(null)} onSave={save} onAutoSave={save} scratchNotes={scratchNotes} />}
+        </div>
+      )}
+
+      {diaryMode === "all" && (
+      <>
       {uidReady === false && (
         <div style={{ background: `rgba(240,117,98,0.1)`, border: `1px solid ${T.coral}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: T.coral }}>
           <strong>⚠️ Diary entries are not private yet</strong> — all users can see each other's data.
           Run this once in your <strong>Supabase SQL editor</strong> to enable per-user isolation, then reload:
           <pre style={{ marginTop: 8, background: "rgba(0,0,0,0.25)", borderRadius: 6, padding: "8px 12px", fontFamily: "monospace", fontSize: 11, color: T.teal, userSelect: "all", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{`ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id);\nALTER TABLE diary_entries ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "own" ON diary_entries FOR ALL USING (auth.uid() = user_id);\nUPDATE diary_entries SET user_id = auth.uid() WHERE user_id IS NULL;`}</pre>
-        </div>
-      )}
-
-      {!catColReady && (
-        <div style={{ background: `${T.amber}15`, border: `1px solid ${T.amber}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: T.amber }}>
-          <strong>AI categories won't save yet.</strong> Run this in Supabase SQL editor, then reload:
-          <div style={{ marginTop: 6, background: T.navy0, borderRadius: 6, padding: "7px 12px", fontFamily: "monospace", fontSize: 11, color: T.text2, userSelect: "all" }}>
-            ALTER TABLE diary_entries ADD COLUMN IF NOT EXISTS categories jsonb DEFAULT {'{}'};
-          </div>
         </div>
       )}
 
@@ -5700,85 +7851,98 @@ function Diary({ onCountChange, user }) {
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {filtered.map(e => {
           const mood = MOODS.find(m => m.key === e.mood);
           const pendingCF = e.carry_forward?.filter(i => !i.done).length || 0;
           const pendingR  = e.reminders?.filter(i => !i.checked).length || 0;
+          const focusAreas = getFocusAreas(e);
+          const uniqCollabs = [...new Set((e.collaborators || []).map(cleanCollab).filter(Boolean))];
           return (
-            <div key={e.id} className="diary-entry" onClick={() => setViewEntry(e)}>
-              <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-                <div className="date-badge">
-                  <div className="date-badge-day">{e.date?.split("-")[2]}</div>
-                  <div className="date-badge-mon">{MONTHS[parseInt(e.date?.split("-")[1]) - 1]}</div>
+            <div key={e.id} className="diary-entry" onClick={() => setViewEntry(e)}
+              style={{ padding: 0, overflow: "hidden" }}>
+
+              {/* ── Top bar: date + focus areas + mood + quick actions ── */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+                {/* Date */}
+                <div style={{ display: "flex", alignItems: "baseline", gap: 5, flexShrink: 0, minWidth: 54 }}>
+                  <span style={{ fontSize: 22, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{e.date?.split("-")[2]}</span>
+                  <span style={{ fontSize: 11, color: T.text3, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4 }}>{MONTHS[parseInt(e.date?.split("-")[1]) - 1]}</span>
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                    {getFocusAreas(e).map(f => <span key={f} className="focus-badge">{f}</span>)}
-                    {mood && <span title={mood.label} style={{ fontSize: 15 }}>{mood.emoji}</span>}
-                    <div style={{ marginLeft: "auto", display: "flex", gap: 5, alignItems: "center" }}>
-                      {e.linked_note && <span className="entry-stat-badge" title={`Linked note: ${e.linked_note.title}`} style={{ color: T.teal, borderColor: "rgba(63,207,180,0.25)" }}>📎</span>}
-                      {(e.team_updates?.length || 0) > 0 && (
-                        <span className="entry-stat-badge">👥 {e.team_updates.length}</span>
-                      )}
-                      {pendingCF > 0 && <span className="entry-stat-badge" style={{ color: T.gold, borderColor: "rgba(232,198,106,0.25)" }}>⬆ {pendingCF}</span>}
-                      {pendingR  > 0 && <span className="entry-stat-badge" style={{ color: T.coral, borderColor: "rgba(240,117,98,0.25)" }}>🔔 {pendingR}</span>}
-                      <button
-                        title="Edit this entry"
-                        className="entry-stat-badge"
-                        style={{ cursor: "pointer", background: "rgba(123,110,246,0.12)", border: `1px solid rgba(123,110,246,0.35)`, color: T.accent2, fontSize: 11, borderRadius: 5, padding: "2px 8px", fontWeight: 600 }}
-                        onClick={ev => { ev.stopPropagation(); setModal(e); }}
-                      >✏️ Edit</button>
-                      <button
-                        title="Generate AI standup"
-                        className="entry-stat-badge"
-                        style={{ cursor: "pointer", background: "rgba(52,217,179,0.1)", border: `1px solid rgba(52,217,179,0.3)`, color: T.teal, fontSize: 11, borderRadius: 5, padding: "2px 8px", fontWeight: 600 }}
-                        onClick={ev => { ev.stopPropagation(); setStandup(e); }}
-                      >📋 Standup</button>
-                      <button
-                        title={starredIds.has(e.id) ? "Unstar" : "Star this entry"}
-                        style={{ cursor: "pointer", background: "transparent", border: "none", fontSize: 15, padding: "0 1px", lineHeight: 1, opacity: starredIds.has(e.id) ? 1 : 0.35 }}
-                        onClick={ev => { ev.stopPropagation(); toggleStar(e.id); }}
-                      >{starredIds.has(e.id) ? "⭐" : "⭐"}</button>
-                    </div>
+
+                {/* Focus areas */}
+                <div style={{ display: "flex", gap: 5, flex: 1, flexWrap: "wrap", minWidth: 0 }}>
+                  {focusAreas.map(f => <span key={f} className="focus-badge">{f}</span>)}
+                  {e.is_win && <span style={{ fontSize: 10, color: T.gold, background: `${T.gold}15`, border: `1px solid ${T.gold}30`, borderRadius: 20, padding: "1px 8px", fontWeight: 700 }}>Win</span>}
+                  {mood && <span title={mood.label} style={{ fontSize: 14, marginLeft: 2 }}>{mood.emoji}</span>}
+                </div>
+
+                {/* Action buttons — always visible, right-aligned */}
+                <div style={{ display: "flex", gap: 5, alignItems: "center", flexShrink: 0 }}>
+                  {e.linked_note && <span className="entry-stat-badge" title={`Linked note: ${e.linked_note.title}`} style={{ color: T.teal, borderColor: "rgba(63,207,180,0.25)" }}>📎</span>}
+                  {(e.team_updates?.length || 0) > 0 && <span className="entry-stat-badge">👥 {e.team_updates.length}</span>}
+                  {pendingCF > 0 && <span className="entry-stat-badge" style={{ color: T.gold, borderColor: "rgba(232,198,106,0.25)" }}>↑ {pendingCF}</span>}
+                  {pendingR  > 0 && <span className="entry-stat-badge" style={{ color: T.coral, borderColor: "rgba(240,117,98,0.25)" }}>🔔 {pendingR}</span>}
+                  <button
+                    title="Generate AI standup"
+                    className="entry-stat-badge"
+                    style={{ cursor: "pointer", background: "rgba(52,217,179,0.08)", border: `1px solid rgba(52,217,179,0.25)`, color: T.teal, fontSize: 11, borderRadius: 6, padding: "3px 9px", fontWeight: 600 }}
+                    onClick={ev => { ev.stopPropagation(); setStandup(e); }}
+                  >Standup</button>
+                  <button
+                    title={starredIds.has(e.id) ? "Unstar" : "Star this entry"}
+                    style={{ cursor: "pointer", background: "transparent", border: "none", fontSize: 14, padding: "0 2px", lineHeight: 1, opacity: starredIds.has(e.id) ? 1 : 0.25, transition: "opacity 0.15s" }}
+                    onClick={ev => { ev.stopPropagation(); toggleStar(e.id); }}
+                  >⭐</button>
+                  {/* Edit — most prominent, rightmost */}
+                  <button
+                    title="Edit this entry"
+                    style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 5, background: T.accent, border: "none", color: "#fff", fontSize: 12, borderRadius: 7, padding: "5px 12px", fontWeight: 700, fontFamily: "'DM Sans', sans-serif", flexShrink: 0, transition: "opacity 0.15s" }}
+                    onClick={ev => { ev.stopPropagation(); setModal(e); }}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 2a2 2 0 0 1 3 3L5 14l-4 1 1-4Z"/></svg>
+                    Edit
+                  </button>
+                </div>
+              </div>
+
+              {/* ── Body: content preview + metadata ── */}
+              <div style={{ padding: "10px 14px" }}>
+                {e.content && (
+                  <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.6, marginBottom: 8 }}>
+                    {e.content.slice(0, 120)}{e.content.length > 120 ? "…" : ""}
                   </div>
-                  {e.content && (
-                    <div style={{ fontSize: 13, color: T.text2, marginBottom: 6, lineHeight: 1.5 }}>
-                      {e.content.slice(0, 85)}{e.content.length > 85 ? "…" : ""}
-                    </div>
-                  )}
-                  {e.blockers && (
-                    <div style={{ fontSize: 12, color: T.coral, marginBottom: 5 }}>⚠ {e.blockers.slice(0, 60)}{e.blockers.length > 60 ? "…" : ""}</div>
-                  )}
-                  {e.jira_links?.length > 0 && (
-                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
-                      {e.jira_links.map(l => l.startsWith("http")
-                        ? <a key={l} href={l} target="_blank" rel="noreferrer" className="ticket-chip" style={{ textDecoration: "none" }} onClick={ev => ev.stopPropagation()}>{l.replace(/.*\/browse\//, "")}</a>
-                        : <span key={l} className="ticket-chip">{l}</span>
-                      )}
-                    </div>
-                  )}
-                  {e.collaborators?.length > 0 && (() => {
-                    const uniq = [...new Set((e.collaborators || []).map(cleanCollab).filter(Boolean))];
-                    return (
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
-                        {uniq.slice(0, 4).map(c => <span key={c} className="tag tag-blue">👤 {c}</span>)}
-                        {uniq.length > 4 && <span className="tag tag-blue">+{uniq.length - 4}</span>}
-                      </div>
-                    );
-                  })()}
-                  {e.tags?.length > 0 && (
-                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                      {e.tags.map(t => <span key={t} className="tag tag-teal">{t}</span>)}
-                    </div>
-                  )}
-                </div>
+                )}
+                {e.blockers && (
+                  <div style={{ fontSize: 12, color: T.coral, marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>
+                    <span>⚠</span> {e.blockers.slice(0, 70)}{e.blockers.length > 70 ? "…" : ""}
+                  </div>
+                )}
+
+                {/* Footer meta row */}
+                {(e.jira_links?.length > 0 || uniqCollabs.length > 0 || e.tags?.length > 0) && (
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 4 }}>
+                    {e.jira_links?.slice(0, 4).map(l => l.startsWith("http")
+                      ? <a key={l} href={l} target="_blank" rel="noreferrer" className="ticket-chip" style={{ textDecoration: "none" }} onClick={ev => ev.stopPropagation()}>{l.replace(/.*\/browse\//, "")}</a>
+                      : <span key={l} className="ticket-chip">{l}</span>
+                    )}
+                    {(e.jira_links?.length || 0) > 4 && <span className="ticket-chip">+{e.jira_links.length - 4}</span>}
+                    {uniqCollabs.slice(0, 3).map(c => <span key={c} className="tag tag-blue" style={{ fontSize: 11 }}>👤 {c}</span>)}
+                    {uniqCollabs.length > 3 && <span className="tag tag-blue" style={{ fontSize: 11 }}>+{uniqCollabs.length - 3}</span>}
+                    {e.tags?.slice(0, 3).map(t => <span key={t} className="tag tag-teal" style={{ fontSize: 11 }}>{t}</span>)}
+                    {(e.tags?.length || 0) > 3 && <span className="tag tag-teal" style={{ fontSize: 11 }}>+{e.tags.length - 3}</span>}
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
       </div>
 
+      </>
+      )}
+
+      {/* ── Shared modals — work in both All and Wins tabs ── */}
       {(modal === "new" || modal?.id) && (
         <DiaryEntryModal
           entry={modal !== "new" ? modal : null}
@@ -6256,12 +8420,28 @@ function DigiLocker({ onCountChange }) {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 function AuthPage({ onLogin }) {
-  const [tab, setTab]       = useState("login");
+  const [tab, setTab]       = useState(() => localStorage.getItem("echo_pending_invite") ? "signup" : "login");
   const [email, setEmail]   = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" });
+  const [inviteInfo, setInviteInfo] = useState(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem("echo_pending_invite");
+    if (!token) return;
+    fetch(`${_REST()}/team_memberships?invite_token=eq.${token}&select=member_name,member_email,member_role&limit=1`, { headers: h() })
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => {
+        if (rows?.[0]) {
+          setInviteInfo(rows[0]);
+          setTab("signup");
+          if (rows[0].member_email) setEmail(rows[0].member_email);
+        }
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const switchTab = (t) => { setTab(t); setMessage({ text: "", type: "" }); };
 
@@ -6334,20 +8514,39 @@ function AuthPage({ onLogin }) {
             <EchoLogo size={36} withText dark />
           </div>
 
+          {inviteInfo && (
+            <div style={{ background: `${T.accent}15`, border: `1px solid ${T.accent}35`, borderRadius: 10, padding: "13px 16px", marginBottom: 22 }}>
+              <div style={{ fontWeight: 700, color: T.text1, fontSize: 14, marginBottom: 3 }}>You've been invited to Echo 🎉</div>
+              {inviteInfo.member_name && (
+                <div style={{ fontSize: 13, color: T.text2 }}>
+                  Welcome, <strong>{inviteInfo.member_name}</strong>
+                  {inviteInfo.member_role ? <span style={{ color: T.text3 }}> · {inviteInfo.member_role}</span> : ""}
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: T.text3, marginTop: 5, lineHeight: 1.5 }}>
+                Create your account below to accept the invite and join your team's workspace.
+              </div>
+            </div>
+          )}
+
           <div className="auth-form-heading">
-            {tab === "login" ? "Welcome back" : "Create your account"}
+            {inviteInfo ? "Create your account" : tab === "login" ? "Welcome back" : "Create your account"}
           </div>
           <div className="auth-form-sub">
-            {tab === "login"
-              ? "Sign in to access your workspace"
-              : "Set up Echo in under a minute"}
+            {inviteInfo
+              ? "Your team is waiting — set up your workspace in under a minute"
+              : tab === "login"
+                ? "Sign in to access your workspace"
+                : "Set up Echo in under a minute"}
           </div>
 
           {/* Tabs */}
-          <div className="auth-tabs">
-            <button className={`auth-tab ${tab === "login" ? "active" : ""}`} onClick={() => switchTab("login")}>Sign In</button>
-            <button className={`auth-tab ${tab === "signup" ? "active" : ""}`} onClick={() => switchTab("signup")}>Create Account</button>
-          </div>
+          {!inviteInfo && (
+            <div className="auth-tabs">
+              <button className={`auth-tab ${tab === "login" ? "active" : ""}`} onClick={() => switchTab("login")}>Sign In</button>
+              <button className={`auth-tab ${tab === "signup" ? "active" : ""}`} onClick={() => switchTab("signup")}>Create Account</button>
+            </div>
+          )}
 
           {/* Email */}
           <div className="auth-field">
@@ -6457,7 +8656,8 @@ function PatternInterrupt({ onDismiss, user }) {
   );
 }
 
-// ─── Shadow Resume ────────────────────────────────────────────────────────────
+// ─── Shadow Resume (kept for reference — merged into MyStory) ─────────────────
+// eslint-disable-next-line no-unused-vars
 function ShadowResume({ user }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -6723,7 +8923,201 @@ function ShadowResume({ user }) {
   );
 }
 
-// ─── Work Map ─────────────────────────────────────────────────────────────────
+// ─── AI Shadow Resume ────────────────────────────────────────────────────────
+function AIShadowResume({ user }) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [resume, setResume] = useState(null);
+  const [error, setError] = useState("");
+  const [cached, setCached] = useState(false);
+
+  useEffect(() => {
+    if (!isConfigured()) { setLoading(false); return; }
+    probeUserIdDiary().then(uidOk => {
+      const opts = { order: "date.desc" };
+      if (uidOk && user?.id) opts.match = { user_id: user.id };
+      db.from("diary_entries").select("*", opts).then(d => {
+        setEntries(d || []);
+        setLoading(false);
+        const stored = localStorage.getItem("echo_shadow_resume");
+        if (stored) { try { setResume(JSON.parse(stored)); setCached(true); } catch {} }
+      });
+    });
+  }, [user]);
+
+  const generate = async () => {
+    setGenerating(true); setError("");
+    try {
+      const result = await callGroqResume(entries);
+      setResume(result); setCached(false);
+      localStorage.setItem("echo_shadow_resume", JSON.stringify(result));
+    } catch (e) { setError(e.message); }
+    setGenerating(false);
+  };
+
+  const myName = localStorage.getItem("echo_display_name") || "";
+  const allFocusAreas = {};
+  entries.forEach(e => getFocusAreas(e).forEach(f => { allFocusAreas[f] = (allFocusAreas[f] || 0) + 1; }));
+  const topFocus = Object.entries(allFocusAreas).sort((a, b) => b[1] - a[1]);
+  const faPalette = [T.accent, T.teal, T.gold, T.coral, T.green, "#a78bfa"];
+  const dateRange = entries.length > 1 ? `${fmtDate(entries[entries.length - 1].date)} — ${fmtDate(entries[0].date)}` : "";
+
+  if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Loading entries…</div>;
+
+  if (entries.length < 5) return (
+    <div className="echo-content fade-in" style={{ textAlign: "center", padding: "80px 0" }}>
+      <div style={{ fontSize: 40, marginBottom: 14 }}>📋</div>
+      <div style={{ fontSize: 15, color: T.text2, marginBottom: 8 }}>Not enough data yet</div>
+      <div style={{ fontSize: 13, color: T.text3 }}>Log at least 5 diary entries — Echo will auto-build your AI resume from them.</div>
+    </div>
+  );
+
+  return (
+    <div className="echo-content fade-in">
+      {/* ── Header ── */}
+      <div style={{ marginBottom: 16, background: `linear-gradient(135deg, ${T.navy2} 0%, ${T.navy3} 60%, ${T.navy4} 100%)`, border: `1px solid ${T.borderHover}`, borderRadius: 14, padding: "24px 28px", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${T.accent}, ${T.teal}, ${T.gold})` }} />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 8 }}>
+              <div style={{ width: 48, height: 48, borderRadius: "50%", background: `linear-gradient(135deg, ${T.accent}40, ${T.teal}30)`, border: `2px solid ${T.accent}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
+                {myName ? <span style={{ fontWeight: 800, fontSize: 18, color: T.accent, fontFamily: "'Syne', sans-serif" }}>{myName[0].toUpperCase()}</span> : "👤"}
+              </div>
+              <div>
+                {myName && <div style={{ fontSize: 22, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{myName}</div>}
+                {resume?.headline
+                  ? <div style={{ fontSize: 13, color: T.accent, marginTop: 4, fontStyle: "italic" }}>{resume.headline}</div>
+                  : <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{dateRange} · {entries.length} diary entries</div>}
+              </div>
+            </div>
+            {resume?.impact_statement && (
+              <div style={{ fontSize: 13, color: T.teal, lineHeight: 1.6, borderLeft: `2px solid ${T.teal}40`, paddingLeft: 12, marginTop: 8 }}>{resume.impact_statement}</div>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end", flexShrink: 0 }}>
+            <button className="btn btn-ghost btn-sm" onClick={generate} disabled={generating || !GROQ_API_KEY}
+              style={{ background: generating ? "none" : `${T.accent}15`, color: T.accent, border: `1px solid ${T.accent}30` }}>
+              {generating ? "⏳ Generating…" : resume ? "↺ Regenerate" : "✨ Generate AI Resume"}
+            </button>
+            {resume && <button className="btn btn-ghost btn-sm" onClick={() => window.print()}>⬇ PDF</button>}
+            {cached && <div style={{ fontSize: 10, color: T.text3 }}>Cached · regenerate to refresh</div>}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Empty state ── */}
+      {!resume && !generating && (
+        <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "40px 28px", textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 36, marginBottom: 14 }}>📋</div>
+          <div style={{ fontSize: 15, color: T.text2, marginBottom: 8 }}>AI Shadow Resume</div>
+          <div style={{ fontSize: 13, color: T.text3, marginBottom: 20, maxWidth: 440, margin: "0 auto 20px" }}>
+            Echo reads your {entries.length} diary entries and generates a professional resume — summary, competencies, achievements, and collaboration style — all in your voice.
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={generate} disabled={!GROQ_API_KEY}
+            style={{ background: `${T.accent}15`, color: T.accent, border: `1px solid ${T.accent}30`, padding: "8px 20px", fontSize: 14 }}>
+            {!GROQ_API_KEY ? "AI not configured (set REACT_APP_GROQ_API_KEY)" : "✨ Generate my AI Resume"}
+          </button>
+        </div>
+      )}
+
+      {generating && (
+        <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "40px 28px", textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 28, marginBottom: 12 }}>⏳</div>
+          <div style={{ fontSize: 14, color: T.text2 }}>Reading {entries.length} diary entries and crafting your profile…</div>
+          <div style={{ fontSize: 12, color: T.text3, marginTop: 6 }}>This takes about 10–15 seconds</div>
+        </div>
+      )}
+
+      {error && <div style={{ background: `${T.coral}15`, border: `1px solid ${T.coral}30`, borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: T.coral }}>{error}</div>}
+
+      {resume && (
+        <>
+          {/* Summary */}
+          {resume.summary && (
+            <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "18px 20px", marginBottom: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>Professional Summary</div>
+              <div style={{ fontSize: 14, color: T.text1, lineHeight: 1.8 }}>{resume.summary}</div>
+            </div>
+          )}
+
+          {/* Competencies + Collaboration */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            {resume.competencies?.length > 0 && (
+              <div className="card" style={{ padding: "18px 20px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>Core Competencies</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {resume.competencies.map((c, i) => (
+                    <span key={i} style={{ fontSize: 12, padding: "4px 11px", background: `${T.accent}10`, color: T.accent, borderRadius: 20, border: `1px solid ${T.accent}25`, fontWeight: 500 }}>{c}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {resume.collaboration_style && (
+              <div className="card" style={{ padding: "18px 20px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>Collaboration Style</div>
+                <div style={{ fontSize: 13, color: T.text1, lineHeight: 1.7 }}>{resume.collaboration_style}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Experience bullets */}
+          {resume.experience_bullets?.length > 0 && (
+            <div className="card" style={{ marginBottom: 12, padding: "18px 20px" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 14 }}>Key Achievements & Responsibilities</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 20px" }}>
+                {resume.experience_bullets.map((b, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "4px 0" }}>
+                    <span style={{ color: T.teal, flexShrink: 0, fontSize: 14, marginTop: 1 }}>▸</span>
+                    <span style={{ fontSize: 13, color: T.text1, lineHeight: 1.55 }}>{b.replace(/^[•▸-]\s*/, "")}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Growth areas + Focus distribution */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {resume.growth_areas?.length > 0 && (
+              <div className="card" style={{ padding: "18px 20px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>Growth Focus</div>
+                {resume.growth_areas.map((g, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: i < resume.growth_areas.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                    <span style={{ color: T.amber, fontSize: 13 }}>→</span>
+                    <span style={{ fontSize: 13, color: T.text1 }}>{g}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {topFocus.length > 0 && (
+              <div className="card" style={{ padding: "18px 20px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.text3, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>Time Allocation</div>
+                {topFocus.slice(0, 6).map(([fa, count], i) => {
+                  const col = faPalette[i % faPalette.length];
+                  const pct = Math.round((count / topFocus[0][1]) * 100);
+                  return (
+                    <div key={fa} style={{ marginBottom: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                        <span style={{ fontSize: 12, color: T.text2 }}>{fa}</span>
+                        <span style={{ fontSize: 11, color: col, fontFamily: "'DM Mono', monospace" }}>{count}d</span>
+                      </div>
+                      <div style={{ height: 4, background: `${T.navy0}80`, borderRadius: 2 }}>
+                        <div style={{ height: "100%", borderRadius: 2, width: `${pct}%`, background: col, opacity: 0.6 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Work Map (kept for reference — merged into MyStory) ─────────────────────
+// eslint-disable-next-line no-unused-vars
 function WorkMap({ user }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -7127,7 +9521,8 @@ function WorkMap({ user }) {
   );
 }
 
-// ─── Credit Tracker ───────────────────────────────────────────────────────────
+// ─── Credit Tracker (removed from nav) ───────────────────────────────────────
+// eslint-disable-next-line no-unused-vars
 function CreditTracker({ user }) {
   const [credits, setCredits] = useState([]);
   const [tab, setTab]         = useState("received");
@@ -7296,6 +9691,7 @@ function getNextMilestone(streak) {
   return RESOLVE_MILESTONES.find(m => m.days > streak) || null;
 }
 
+// eslint-disable-next-line no-unused-vars
 function Resolve({ user }) {
   const [habits, setHabits]       = useState([]);
   const [showForm, setShowForm]   = useState(false);
@@ -7568,7 +9964,8 @@ function Resolve({ user }) {
   );
 }
 
-// ─── Brag Doc ─────────────────────────────────────────────────────────────────
+// ─── Brag Doc (Wins tab in Diary replaces this as a nav item) ────────────────
+// eslint-disable-next-line no-unused-vars
 function BragDoc({ user }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -7576,6 +9973,10 @@ function BragDoc({ user }) {
   const [filterTag, setFilterTag] = useState(null);
   const [copied, setCopied] = useState(false);
   const [supported, setSupported] = useState(true);
+  const [featuredIds, setFeaturedIds] = useState(() => new Set(JSON.parse(localStorage.getItem("echo_brag_featured") || "[]")));
+  const [showFeaturedOnly, setShowFeaturedOnly] = useState(false);
+  const [jiraNominations, setJiraNominations] = useState([]);
+  const [dismissedNoms, setDismissedNoms] = useState(() => new Set(JSON.parse(localStorage.getItem("echo_brag_jira_dismissed") || "[]")));
 
   useEffect(() => {
     if (!isConfigured()) { setLoading(false); return; }
@@ -7589,7 +9990,34 @@ function BragDoc({ user }) {
         setLoading(false);
       });
     });
+    try {
+      const cache = JSON.parse(localStorage.getItem("echo_jira_tickets_cache") || "null");
+      const tickets = cache?.tickets || [];
+      const noms = tickets.filter(t =>
+        t.statusCategory === "Done" &&
+        ((t.priority === "Highest" || t.priority === "High") || (t.storyPoints >= 5))
+      );
+      setJiraNominations(noms);
+    } catch {}
   }, [user]);
+
+  const toggleFeatured = (id) => {
+    setFeaturedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      localStorage.setItem("echo_brag_featured", JSON.stringify([...next]));
+      return next;
+    });
+  };
+
+  const dismissNom = (key) => {
+    setDismissedNoms(prev => {
+      const next = new Set(prev);
+      next.add(key);
+      localStorage.setItem("echo_brag_jira_dismissed", JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   const PERIODS = [
     { key: "month", label: "This Month" },
@@ -7611,7 +10039,8 @@ function BragDoc({ user }) {
     if (period === "quarter") return d >= getQuarterStart();
     if (period === "year") return d >= new Date(n.getFullYear(), 0, 1);
     return true;
-  }).filter(e => !filterTag || (e.win_tags || []).includes(filterTag));
+  }).filter(e => !filterTag || (e.win_tags || []).includes(filterTag))
+    .filter(e => !showFeaturedOnly || featuredIds.has(e.id));
 
   const byTag = {};
   WIN_TAGS.forEach(wt => { byTag[wt.key] = []; });
@@ -7669,18 +10098,51 @@ function BragDoc({ user }) {
     </div>
   );
 
+  const visibleNoms = jiraNominations.filter(t => !dismissedNoms.has(t.key));
+
   return (
     <div className="echo-content fade-in">
       <ConfigBanner />
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 20 }}>
+
+      {/* ── JIRA Nominations Banner ── */}
+      {visibleNoms.length > 0 && (
+        <div style={{ background: `${T.gold}0c`, border: `1px solid ${T.gold}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 15 }}>🎯</span>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.gold }}>High-value JIRA tickets completed this sprint</div>
+            <div style={{ fontSize: 11, color: T.text3, marginLeft: "auto" }}>Mark them as wins in your diary</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {visibleNoms.map(t => (
+              <div key={t.key} style={{ display: "flex", alignItems: "center", gap: 10, background: T.navy3, borderRadius: 8, padding: "8px 12px" }}>
+                <span style={{ fontSize: 11, fontFamily: "monospace", color: T.teal, flexShrink: 0 }}>{t.key}</span>
+                <span style={{ fontSize: 12, color: T.text1, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.summary}</span>
+                {t.storyPoints > 0 && <span style={{ fontSize: 10, color: T.accent, flexShrink: 0 }}>{t.storyPoints} SP</span>}
+                {t.priority && <span style={{ fontSize: 10, color: t.priority === "Highest" ? T.coral : T.amber, flexShrink: 0 }}>{t.priority}</span>}
+                <button onClick={() => dismissNom(t.key)} title="Dismiss" style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>✕</button>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: T.text3, marginTop: 10 }}>Open your diary → find the matching entry → toggle 🏆 Mark as Win. It will appear here automatically.</div>
+        </div>
+      )}
+
+      {/* ── Toolbar ── */}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
         <div style={{ display: "flex", gap: 4, background: T.navy2, borderRadius: 10, padding: 4 }}>
           {PERIODS.map(p => (
-            <button key={p.key} onClick={() => setPeriod(p.key)} style={{
+            <button key={p.key} onClick={() => { setPeriod(p.key); setShowFeaturedOnly(false); }} style={{
               fontSize: 12, fontWeight: 500, padding: "5px 12px", borderRadius: 7, cursor: "pointer",
-              background: period === p.key ? T.accent : "transparent",
-              color: period === p.key ? "#fff" : T.text2, border: "none", transition: "all 0.15s",
+              background: period === p.key && !showFeaturedOnly ? T.accent : "transparent",
+              color: period === p.key && !showFeaturedOnly ? "#fff" : T.text2, border: "none", transition: "all 0.15s",
             }}>{p.label}</button>
           ))}
+          <button onClick={() => setShowFeaturedOnly(v => !v)} style={{
+            fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 7, cursor: "pointer",
+            background: showFeaturedOnly ? `${T.gold}22` : "transparent",
+            color: showFeaturedOnly ? T.gold : T.text2, border: showFeaturedOnly ? `1px solid ${T.gold}60` : "1px solid transparent",
+            transition: "all 0.15s",
+          }}>⭐ Highlighted {featuredIds.size > 0 ? `(${featuredIds.size})` : ""}</button>
         </div>
         <div style={{ flex: 1 }} />
         <button onClick={generateEvidence} disabled={filtered.length === 0} style={{
@@ -7691,6 +10153,8 @@ function BragDoc({ user }) {
           opacity: filtered.length === 0 ? 0.5 : 1, transition: "all 0.2s",
         }}>{copied ? "✓ Copied to clipboard" : "📋 Generate Appraisal Evidence"}</button>
       </div>
+
+      {/* ── Tag filter chips ── */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
         <button onClick={() => setFilterTag(null)} style={{ fontSize: 11, padding: "4px 12px", borderRadius: 20, cursor: "pointer", background: !filterTag ? `${T.accent}22` : "transparent", color: !filterTag ? T.accent : T.text3, border: `1px solid ${!filterTag ? T.accent : T.border}` }}>
           All ({filtered.length})
@@ -7707,21 +10171,33 @@ function BragDoc({ user }) {
           );
         })}
       </div>
+
       {loading ? (
         <div style={{ textAlign: "center", color: T.text3, padding: 40 }}>Loading wins…</div>
       ) : filtered.length === 0 ? (
         <div className="card" style={{ textAlign: "center", padding: 40 }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>🏆</div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: T.text1, marginBottom: 8 }}>No wins logged yet</div>
-          <div style={{ fontSize: 13, color: T.text3, lineHeight: 1.7 }}>Open any diary entry and tap <strong style={{ color: T.gold }}>🏆 Mark as Win</strong>.</div>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>{showFeaturedOnly ? "⭐" : "🏆"}</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: T.text1, marginBottom: 8 }}>
+            {showFeaturedOnly ? "No highlighted wins yet" : "No wins logged yet"}
+          </div>
+          <div style={{ fontSize: 13, color: T.text3, lineHeight: 1.7 }}>
+            {showFeaturedOnly
+              ? <>Click the <strong style={{ color: T.gold }}>⭐</strong> on any win below to highlight your best ones for appraisals.</>
+              : <>Open any diary entry and tap <strong style={{ color: T.gold }}>🏆 Mark as Win</strong>.</>}
+          </div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {filtered.map(e => {
             const pts = (e.content || "").split("\n").filter(Boolean);
             const tags = e.win_tags || [];
+            const isFeatured = featuredIds.has(e.id);
             return (
-              <div key={e.id} className="card" style={{ borderLeft: `3px solid ${T.gold}`, background: `${T.gold}06` }}>
+              <div key={e.id} className="card" style={{
+                borderLeft: `3px solid ${isFeatured ? T.gold : T.gold + "60"}`,
+                background: isFeatured ? `${T.gold}0c` : `${T.gold}06`,
+                transition: "background 0.2s, border-color 0.2s",
+              }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                   <div style={{ fontSize: 22, flexShrink: 0, marginTop: 2 }}>🏆</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -7729,6 +10205,7 @@ function BragDoc({ user }) {
                       <span style={{ fontSize: 12, color: T.text3 }}>{e.date}</span>
                       {(e.focus_areas || []).slice(0, 2).map(f => <span key={f} className="focus-badge" style={{ fontSize: 10 }}>{f}</span>)}
                       {tags.map(t => { const wt = WIN_TAGS.find(x => x.key === t); return wt ? <span key={t} style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: `${wt.color}22`, color: wt.color, border: `1px solid ${wt.color}40` }}>{wt.icon} {wt.label}</span> : null; })}
+                      {isFeatured && <span style={{ fontSize: 10, fontWeight: 700, color: T.gold, background: `${T.gold}22`, border: `1px solid ${T.gold}40`, borderRadius: 20, padding: "2px 8px" }}>⭐ Highlighted</span>}
                     </div>
                     {pts.length > 0 ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -7737,6 +10214,17 @@ function BragDoc({ user }) {
                       </div>
                     ) : <div style={{ fontSize: 13, color: T.text3, fontStyle: "italic" }}>No content logged</div>}
                   </div>
+                  <button
+                    onClick={() => toggleFeatured(e.id)}
+                    title={isFeatured ? "Remove highlight" : "Highlight for appraisal"}
+                    style={{
+                      background: isFeatured ? `${T.gold}22` : "transparent",
+                      border: `1px solid ${isFeatured ? T.gold + "60" : T.border}`,
+                      borderRadius: 8, padding: "5px 10px", cursor: "pointer",
+                      fontSize: 16, color: isFeatured ? T.gold : T.text3,
+                      transition: "all 0.2s", flexShrink: 0,
+                    }}
+                  >{isFeatured ? "⭐" : "☆"}</button>
                 </div>
               </div>
             );
@@ -7755,6 +10243,8 @@ function Commitments({ user }) {
   const [showResolved, setShowResolved] = useState(false);
   const [tableExists, setTableExists] = useState(true);
   const [dueDateOk, setDueDateOk] = useState(false);
+  const teammates = loadTeammates();
+  const sprintEndDate = (() => { try { const c = JSON.parse(localStorage.getItem("echo_jira_tickets_cache") || "null"); return c?.sprintEndDate ? c.sprintEndDate.slice(0, 10) : ""; } catch { return ""; } })();
 
   const load = useCallback(async () => {
     const rows = await db.from("commitments").select("*", { order: "inserted_at.asc" });
@@ -7874,7 +10364,17 @@ create policy "own" on commitments for all using (auth.uid()=user_id);`}
     <div className="echo-content fade-in">
       <ConfigBanner />
       <div className="card" style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: T.text1, marginBottom: 12 }}>Log a commitment</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.text1, marginBottom: 8 }}>Log a commitment</div>
+        {teammates.length > 0 && (
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
+            {teammates.filter(t => form.person !== t.name).map((t, i) => (
+              <button key={i} onClick={() => setForm(f => ({ ...f, person: t.name }))}
+                style={{ fontSize: 11, padding: "2px 9px", background: `${T.accent}10`, border: `1px solid ${T.border}`, borderRadius: 20, color: T.accent, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+                {t.emoji || "👤"} {t.name}
+              </button>
+            ))}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <div style={{ display: "flex", background: T.navy3, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, flexShrink: 0 }}>
             {[{ key: "i_owe", label: "I owe", color: T.accent }, { key: "waiting_on", label: "Waiting on", color: T.coral }].map(d => (
@@ -7888,7 +10388,15 @@ create policy "own" on commitments for all using (auth.uid()=user_id);`}
           <input className="form-input" placeholder="Person" value={form.person} style={{ width: 130, flex: "none" }} onChange={e => setForm(f => ({ ...f, person: e.target.value }))} />
           <input className="form-input" placeholder="What exactly…" value={form.what} style={{ flex: 1, minWidth: 160 }} onChange={e => setForm(f => ({ ...f, what: e.target.value }))} onKeyDown={e => e.key === "Enter" && add()} />
           {dueDateOk && (
-            <input type="date" className="form-input" title="Due date (optional)" value={form.due_date} style={{ width: 140, flex: "none", color: form.due_date ? T.text1 : T.text3 }} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} min={todayStr} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "none" }}>
+              <input type="date" className="form-input" title="Due date (optional)" value={form.due_date} style={{ width: 140, color: form.due_date ? T.text1 : T.text3 }} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} min={todayStr} />
+              {sprintEndDate && !form.due_date && (
+                <button onClick={() => setForm(f => ({ ...f, due_date: sprintEndDate }))}
+                  style={{ fontSize: 10, color: T.accent, background: `${T.accent}10`, border: `1px solid ${T.accent}30`, borderRadius: 5, padding: "2px 7px", cursor: "pointer", textAlign: "center", fontFamily: "'DM Sans', sans-serif" }}>
+                  Sprint end: {sprintEndDate.slice(5).replace("-", "/")}
+                </button>
+              )}
+            </div>
           )}
           <button className="btn btn-primary" onClick={add} disabled={!form.person.trim() || !form.what.trim()} style={{ flexShrink: 0 }}>Add</button>
         </div>
@@ -7945,6 +10453,8 @@ function IncidentLog({ user }) {
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tableExists, setTableExists] = useState(true);
+  const [rcaSuggestion, setRcaSuggestion] = useState(null);
+  const [rcaLoading, setRcaLoading] = useState(false);
 
   const load = useCallback(async () => {
     const rows = await db.from("incidents").select("*", { order: "date.desc" });
@@ -7954,6 +10464,18 @@ function IncidentLog({ user }) {
   }, []);
 
   useEffect(() => { if (isConfigured()) load(); else setLoading(false); }, [load]);
+
+  // AI RCA suggestion — triggers when module + type both have values
+  useEffect(() => {
+    if (!form.module?.trim() || form.root_cause.trim()) { setRcaSuggestion(null); setRcaLoading(false); return; }
+    setRcaLoading(true);
+    const t = setTimeout(async () => {
+      const result = await callGroqIncidentRCA(form.module, form.type, incidents);
+      setRcaSuggestion(result);
+      setRcaLoading(false);
+    }, 1000);
+    return () => { clearTimeout(t); };
+  }, [form.module, form.type, form.root_cause]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
     if (!form.root_cause.trim()) return;
@@ -8069,6 +10591,38 @@ create policy "own" on incidents for all using (auth.uid()=user_id);`}
             <label className="form-label">Root Cause *</label>
             <input className="form-input" placeholder="What caused this to escape?" value={form.root_cause} onChange={e => setForm(f => ({ ...f, root_cause: e.target.value }))} />
           </div>
+          {/* ── AI RCA Suggestion ── */}
+          {adding && (rcaLoading || rcaSuggestion) && !form.root_cause.trim() && (
+            <div style={{ marginBottom: 12, padding: "9px 12px", background: `${T.accent}0a`, border: `1px solid ${T.accent}28`, borderRadius: 9 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.accent, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>🤖 AI Suggestion</div>
+              {rcaLoading ? (
+                <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic" }}>Analyzing patterns…</div>
+              ) : rcaSuggestion ? (
+                <>
+                  <div style={{ fontSize: 12, color: T.text2, marginBottom: 4 }}>
+                    <span style={{ color: T.text3 }}>Root cause: </span><em>{rcaSuggestion.root_cause}</em>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.teal, marginBottom: 10 }}>
+                    <span style={{ color: T.text3 }}>Test gap: </span><em>{rcaSuggestion.test_gap}</em>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button onClick={() => setForm(f => ({ ...f, root_cause: rcaSuggestion.root_cause }))}
+                      style={{ fontSize: 11, color: T.accent, background: `${T.accent}18`, border: `1px solid ${T.accent}40`, borderRadius: 6, padding: "3px 10px", cursor: "pointer" }}>
+                      Use root cause
+                    </button>
+                    <button onClick={() => setForm(f => ({ ...f, test_gap: rcaSuggestion.test_gap }))}
+                      style={{ fontSize: 11, color: T.teal, background: `${T.teal}12`, border: `1px solid ${T.teal}35`, borderRadius: 6, padding: "3px 10px", cursor: "pointer" }}>
+                      Use test gap
+                    </button>
+                    <button onClick={() => setRcaSuggestion(null)}
+                      style={{ fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>
+                      Dismiss
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          )}
           <div className="form-group" style={{ margin: "0 0 12px" }}>
             <label className="form-label">What test would have caught it?</label>
             <input className="form-input" placeholder="e.g. Integration test for 3DS redirect flow" value={form.test_gap} onChange={e => setForm(f => ({ ...f, test_gap: e.target.value }))} />
@@ -8217,6 +10771,31 @@ create policy "own" on decisions for all using (auth.uid()=user_id);`}
           </div>
           <div className="form-group" style={{ margin: "0 0 12px" }}>
             <label className="form-label">Who was in the room</label>
+            {(() => {
+              const tmList = loadTeammates();
+              if (!tmList.length) return null;
+              const selected = form.people.split(",").map(s => s.trim()).filter(Boolean);
+              return (
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 6 }}>
+                  {tmList.map((t, i) => {
+                    const active = selected.includes(t.name);
+                    return (
+                      <button key={i} onClick={() => {
+                        const next = active ? selected.filter(n => n !== t.name) : [...selected, t.name];
+                        setForm(f => ({ ...f, people: next.join(", ") }));
+                      }} style={{
+                        fontSize: 11, padding: "2px 9px", borderRadius: 20, cursor: "pointer",
+                        background: active ? `${T.teal}20` : `${T.teal}08`,
+                        border: `1px solid ${active ? T.teal : T.border}`,
+                        color: active ? T.teal : T.text3, fontFamily: "'DM Sans', sans-serif",
+                      }}>
+                        {t.emoji || "👤"} {t.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
             <input className="form-input" placeholder="e.g. Sundar, Rohit, PM" value={form.people} onChange={e => setForm(f => ({ ...f, people: e.target.value }))} />
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -8420,12 +10999,14 @@ function ReleaseTracker({ user }) {
   const [itemForm, setItemForm] = useState({ ticket: "", note: "", status: "today", action: "" });
   const [addingItemFor, setAddingItemFor] = useState(null);
   const [copied, setCopied] = useState(false);
-  const [rlTableMissing, setRlTableMissing] = useState(false);
-  const [rlBannerDismissed, setRlBannerDismissed] = useState(() => localStorage.getItem("echo_rl_banner_dismissed") === "1");
+  const [rlCliqSent, setRlCliqSent] = useState(false);
+  const [rlCliqError, setRlCliqError] = useState("");
   const [manualOwnerName, setManualOwnerName] = useState("");
   const [boardOpen, setBoardOpen] = useState(true);
   const [jiraPickerOpen, setJiraPickerOpen] = useState(false);
   const [jiraPickerFilter, setJiraPickerFilter] = useState("");
+  const [jiraImportOpen, setJiraImportOpen] = useState(false);
+  const [jiraImportSel,  setJiraImportSel]  = useState({}); // { [ticketKey]: true|false }
 
   // Check if an item in today's view was also present yesterday (not yet released) = carry-over
   const isCarryOver = (item) => {
@@ -8465,7 +11046,7 @@ function ReleaseTracker({ user }) {
   useEffect(() => {
     if (!userId) return;
     const todayStr = today();
-    probeReleaseTable().then(ok => { if (!ok) setRlTableMissing(true); });
+    probeReleaseTable();
     // Migrate any existing localStorage data to Supabase (runs once)
     const legacy = localStorage.getItem(RELEASE_KEY);
     if (legacy) {
@@ -8583,6 +11164,61 @@ function ReleaseTracker({ user }) {
     navigator.clipboard.writeText(lines.join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); });
   };
 
+  const sendReleaseToCliq = async () => {
+    setRlCliqError("");
+    const dateLabel = new Date(date + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+    const dayLabel  = new Date(date + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+    const isToday   = date === today();
+    const isYday    = date === (() => { const d = new Date(today() + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); })();
+    const heading   = isToday ? `🚀 *Release Status Update — ${dayLabel}*` : isYday ? `🚀 *Yesterday's Release Status — ${dayLabel}*` : `🚀 *Release Status — ${dateLabel}*`;
+
+    const lines = [heading, ""];
+
+    const withAtt = owners.filter(o => o.att);
+    if (withAtt.length > 0) {
+      lines.push("👥 *Team Availability*");
+      owners.forEach(o => {
+        const att = OWNER_ATT.find(a => a.key === o.att);
+        lines.push(`   ${att ? att.icon + " " + o.name + " — " + att.label : "✅ " + o.name}`);
+      });
+      lines.push("");
+    }
+
+    if (owners.length === 0) {
+      lines.push("_No entries logged._");
+    } else {
+      owners.forEach(o => {
+        lines.push(`*👤 ${o.name}*`);
+        if (o.items.length === 0) { lines.push("   (no items)"); }
+        else {
+          o.items.forEach(it => {
+            const rs  = RELEASE_STATUSES.find(s => s.key === it.status);
+            const desc = [it.ticket, it.note].filter(Boolean).join(" — ");
+            const co  = isCarryOver(it) ? " ↻" : "";
+            lines.push(`   ${rs?.icon || "•"} ${desc}  [${rs?.label || it.status}${co}]`);
+            if (it.action) lines.push(`     → Needs: ${it.action}`);
+          });
+        }
+        lines.push("");
+      });
+    }
+
+    const blockedCount  = allItems.filter(i => i.status === "blocked").length;
+    const releasedCount = allItems.filter(i => i.status === "released").length;
+    const summaryParts  = [`${allItems.length} items`, `${owners.length} owners`];
+    if (releasedCount) summaryParts.push(`✅ ${releasedCount} released`);
+    if (blockedCount)  summaryParts.push(`🔴 ${blockedCount} blocked`);
+    lines.push(`📊 ${summaryParts.join(" · ")}`);
+
+    try {
+      await sendToCliq(lines.join("\n"), "qaautomationteam");
+      setRlCliqSent(true);
+      setTimeout(() => setRlCliqSent(false), 3000);
+    } catch (e) {
+      setRlCliqError(e.message);
+    }
+  };
+
   const teammates = loadTeammates().filter(t => (t.relationship || "direct") === "direct");
   const myName = user?.user_metadata?.display_name || localStorage.getItem("echo_display_name") || "";
   const selfNotAdded = myName && !owners.some(o => o.name.toLowerCase() === myName.toLowerCase());
@@ -8606,27 +11242,6 @@ function ReleaseTracker({ user }) {
 
   return (
     <div className="echo-content fade-in">
-
-      {rlTableMissing && !rlBannerDismissed && (
-        <div style={{ marginBottom: 16, padding: "12px 16px", background: "rgba(240,117,98,0.1)", border: `1px solid ${T.coral}`, borderRadius: 10, fontSize: 12 }}>
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
-            <div style={{ color: T.coral, fontWeight: 700 }}>⚠️ Release Status table not set up — data is being saved locally only</div>
-            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-              <button onClick={() => { _rlSupported = null; probeReleaseTable().then(ok => { if (ok) setRlTableMissing(false); }); }}
-                style={{ padding: "3px 9px", fontSize: 11, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.teal, border: `1px solid ${T.teal}50`, fontWeight: 600 }}>
-                ↻ Check again
-              </button>
-              <button onClick={() => { setRlBannerDismissed(true); localStorage.setItem("echo_rl_banner_dismissed", "1"); }}
-                style={{ padding: "3px 9px", fontSize: 11, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}`, fontWeight: 600 }}>
-                ✕ Dismiss
-              </button>
-            </div>
-          </div>
-          <div style={{ color: T.text2, marginBottom: 8 }}>Run this once in your <strong>Supabase SQL editor</strong> to enable cloud saving:</div>
-          <pre style={{ background: T.navy1, borderRadius: 7, padding: "8px 12px", fontSize: 11, color: T.teal, overflowX: "auto", margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{`create table release_logs (id uuid primary key default gen_random_uuid(), user_id uuid not null, release_date date not null, owners jsonb default '[]', updated_at timestamptz default now(), unique(user_id, release_date));\nalter table release_logs enable row level security;\ncreate policy "own" on release_logs for all using (auth.uid()=user_id);`}</pre>
-          <div style={{ color: T.text3, fontSize: 11, marginTop: 6 }}>Already ran the SQL? Click "Check again" above — or just dismiss this if your data is saving fine.</div>
-        </div>
-      )}
 
       {/* ── Top bar: date nav + copy button ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
@@ -8664,8 +11279,33 @@ function ReleaseTracker({ user }) {
         {/* Copy report */}
         <button onClick={copyReport} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s", background: copied ? "#4CAF5018" : T.navy3, color: copied ? "#4CAF50" : T.text1, border: `1px solid ${copied ? "#4CAF5050" : T.borderHover}` }}>
           <span style={{ fontSize: 14 }}>{copied ? "✓" : "📋"}</span>
-          {copied ? "Copied to clipboard!" : "Copy Report"}
+          {copied ? "Copied!" : "Copy Report"}
         </button>
+
+        {/* Send to Cliq */}
+        <button onClick={sendReleaseToCliq} disabled={owners.length === 0} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 9, cursor: owners.length === 0 ? "default" : "pointer", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s", opacity: owners.length === 0 ? 0.45 : 1, background: rlCliqSent ? "#1a2e2618" : T.navy3, color: rlCliqSent ? T.teal : "#f5a623", border: `1px solid ${rlCliqSent ? T.teal + "50" : "#f5a62340"}` }}>
+          <span style={{ fontSize: 14 }}>{rlCliqSent ? "✓" : "📣"}</span>
+          {rlCliqSent ? "Sent to Cliq!" : "Send to Cliq"}
+        </button>
+        {rlCliqError && <span style={{ fontSize: 11, color: T.coral }}>{rlCliqError}</span>}
+
+        {/* Import from JIRA — bulk-add non-Done sprint tickets by assignee */}
+        {(() => {
+          const jc = getJiraCache();
+          if (!jc.length) return null;
+          return (
+            <button onClick={() => {
+              const nonDone = jc.filter(t => (t.statusCategory || "").toLowerCase() !== "done");
+              const init = {};
+              nonDone.forEach(t => { init[t.key] = true; });
+              setJiraImportSel(init);
+              setJiraImportOpen(true);
+            }}
+              style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", background: T.navy3, color: T.teal, border: `1px solid ${T.teal}35`, transition: "all 0.2s", whiteSpace: "nowrap" }}>
+              📋 Import JIRA
+            </button>
+          );
+        })()}
       </div>
 
       {/* ── Summary stats strip ── */}
@@ -9046,6 +11686,110 @@ function ReleaseTracker({ user }) {
         );
       })()}
 
+      {/* ── JIRA Import Modal ── */}
+      {jiraImportOpen && (() => {
+        const jiraCfg2 = (() => { try { return JSON.parse(localStorage.getItem("echo_jira_config") || "null"); } catch { return null; } })();
+        const memberMap = {};
+        (jiraCfg2?.teamMembers || []).forEach(m => { if (m.jiraEmail && m.name) memberMap[m.jiraEmail.toLowerCase()] = m.name; });
+        const resolveOwner = t => memberMap[(t.assigneeEmail || "").toLowerCase()] || t.assigneeName || "Unassigned";
+        const allNonDone = getJiraCache().filter(t => (t.statusCategory || "").toLowerCase() !== "done");
+        const grouped = {};
+        allNonDone.forEach(t => { const o = resolveOwner(t); if (!grouped[o]) grouped[o] = []; grouped[o].push(t); });
+        const selectedCount = Object.values(jiraImportSel).filter(Boolean).length;
+
+        const doImport = () => {
+          const toAdd = allNonDone.filter(t => jiraImportSel[t.key]);
+          if (!toAdd.length) { setJiraImportOpen(false); return; }
+          const grouped2 = {};
+          toAdd.forEach(t => { const o = resolveOwner(t); if (!grouped2[o]) grouped2[o] = []; grouped2[o].push(t); });
+          let next = [...owners];
+          Object.entries(grouped2).forEach(([ownerName, tickets]) => {
+            let oi = next.findIndex(o => o.name.toLowerCase() === ownerName.toLowerCase());
+            if (oi === -1) { next = [...next, { name: ownerName, items: [] }]; oi = next.length - 1; }
+            const existing = new Set(next[oi].items.map(it => (it.ticket || "").toLowerCase()));
+            const newItems = tickets
+              .filter(t => !existing.has(t.key.toLowerCase()))
+              .map(t => ({ ticket: t.key, note: t.summary, status: "today", action: "" }));
+            next = next.map((o, i) => i !== oi ? o : { ...o, items: [...o.items, ...newItems] });
+          });
+          persist(next);
+          setJiraImportOpen(false);
+          setJiraImportSel({});
+        };
+
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={e => { if (e.target === e.currentTarget) setJiraImportOpen(false); }}>
+            <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }} />
+            <div style={{ position: "relative", width: "min(600px, 95vw)", maxHeight: "80vh", background: T.navy1, border: `1px solid ${T.teal}40`, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+              {/* Header */}
+              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: T.teal, fontFamily: "'Syne',sans-serif" }}>📋 Import from JIRA</div>
+                  <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{allNonDone.length} non-Done tickets · {selectedCount} selected</div>
+                </div>
+                <button onClick={() => {
+                  const allSel = {};
+                  allNonDone.forEach(t => { allSel[t.key] = true; });
+                  setJiraImportSel(allSel);
+                }} style={{ padding: "3px 9px", fontSize: 11, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text2, border: `1px solid ${T.border}` }}>All</button>
+                <button onClick={() => setJiraImportSel({})} style={{ padding: "3px 9px", fontSize: 11, borderRadius: 6, cursor: "pointer", background: "transparent", color: T.text2, border: `1px solid ${T.border}` }}>None</button>
+                <button onClick={() => setJiraImportOpen(false)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>✕</button>
+              </div>
+              {/* Body — grouped by owner */}
+              <div style={{ overflowY: "auto", flex: 1, padding: "12px 0" }}>
+                {Object.entries(grouped).map(([ownerName, tickets]) => (
+                  <div key={ownerName} style={{ marginBottom: 4 }}>
+                    <div style={{ padding: "6px 20px 4px", fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: T.text3, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>{ownerName}</span>
+                      <span style={{ fontWeight: 400, color: T.text3 }}>({tickets.length})</span>
+                      <button onClick={() => {
+                        const upd = { ...jiraImportSel };
+                        const allSelected = tickets.every(t => upd[t.key]);
+                        tickets.forEach(t => { upd[t.key] = !allSelected; });
+                        setJiraImportSel(upd);
+                      }} style={{ fontSize: 10, background: "none", border: "none", color: T.accent2, cursor: "pointer", padding: "0 4px", fontWeight: 600 }}>
+                        {tickets.every(t => jiraImportSel[t.key]) ? "Deselect all" : "Select all"}
+                      </button>
+                    </div>
+                    {tickets.map(t => {
+                      const isBlocked = (t.status || "").toLowerCase().includes("block");
+                      const col = isBlocked ? T.coral : (t.statusCategory === "In Progress" ? T.accent : T.text3);
+                      const selected = !!jiraImportSel[t.key];
+                      return (
+                        <div key={t.key} onClick={() => setJiraImportSel(s => ({ ...s, [t.key]: !s[t.key] }))}
+                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 20px", cursor: "pointer", background: selected ? `${T.teal}07` : "transparent", transition: "background 0.1s" }}
+                          onMouseEnter={e => { if (!selected) e.currentTarget.style.background = `${T.border}`; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = selected ? `${T.teal}07` : "transparent"; }}>
+                          <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${selected ? T.teal : T.border}`, background: selected ? T.teal : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}>
+                            {selected && <span style={{ fontSize: 10, color: "#000", fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: T.accent2, flexShrink: 0, fontFamily: "'Syne',sans-serif" }}>{t.key}</span>
+                          <span style={{ fontSize: 12, color: T.text1, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.summary}</span>
+                          <span style={{ fontSize: 10, color: col, background: `${col}12`, border: `1px solid ${col}25`, borderRadius: 10, padding: "1px 7px", flexShrink: 0 }}>{t.status}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+                {allNonDone.length === 0 && (
+                  <div style={{ padding: "40px 20px", textAlign: "center", color: T.text3, fontSize: 13 }}>All sprint tickets are done — nothing to import.</div>
+                )}
+              </div>
+              {/* Footer */}
+              <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
+                <span style={{ flex: 1, fontSize: 11, color: T.text3 }}>{selectedCount} ticket{selectedCount !== 1 ? "s" : ""} will be added to the board</span>
+                <button onClick={() => setJiraImportOpen(false)} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: "pointer", background: "transparent", color: T.text2, border: `1px solid ${T.border}` }}>Cancel</button>
+                <button onClick={doImport} disabled={selectedCount === 0}
+                  style={{ padding: "7px 18px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: selectedCount === 0 ? "default" : "pointer", background: selectedCount === 0 ? T.navy3 : T.teal, color: selectedCount === 0 ? T.text3 : "#0A0A0F", border: "none", opacity: selectedCount === 0 ? 0.5 : 1 }}>
+                  Add {selectedCount > 0 ? selectedCount : ""} to Board
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 }
@@ -9098,15 +11842,13 @@ function findAssignedAt(assigneeChanges, assigneeEmail, created, sprintStart) {
 
 // Computes time-in-status breakdown (working days only) from when the ticket was
 // assigned to the current person.
-function calcTicketTime(assignedAt, statusChanges) {
+function calcTicketTime(assignedAt, statusChanges, extraQaStatuses = []) {
   const now = Date.now();
   const startMs = new Date(assignedAt).getTime();
 
-  // Find what status the ticket was in at the moment of assignment
   const priorChanges = (statusChanges || []).filter(c => new Date(c.created).getTime() < startMs);
   const statusAtAssignment = priorChanges.length > 0 ? priorChanges[priorChanges.length - 1].to : "To Do";
 
-  // Only count status transitions after assignment
   const relevantChanges = (statusChanges || []).filter(c => new Date(c.created).getTime() >= startMs);
   const events = [
     { created: assignedAt, to: statusAtAssignment },
@@ -9122,27 +11864,45 @@ function calcTicketTime(assignedAt, statusChanges) {
   });
 
   const last = events[events.length - 1];
-  // Dev = time actively being worked on by a developer
-  const DEV_KEYS = ["In Progress", "In Development", "Development", "In Dev", "Analysis", "In Analysis"];
-  // QA = time in QA hands (waiting or actively testing/reviewing)
-  const QA_KEYS = ["Ready for QA", "In Review", "Code Review", "Review", "In QA", "Testing", "QA In Progress", "QA", "UAT", "Ready for Testing"];
-  // Everything else = idle (To Do, Backlog, Reopened, etc.)
-  const devDays  = DEV_KEYS.reduce((acc, k) => acc + (timeByStatus[k] || 0), 0);
-  const qaDays   = QA_KEYS.reduce((acc, k) => acc + (timeByStatus[k] || 0), 0);
-  const idleDays = Object.entries(timeByStatus)
-    .filter(([k]) => !DEV_KEYS.includes(k) && !QA_KEYS.includes(k))
+  const BASE_DEV_KEYS = ["In Progress", "In Development", "Development", "In Dev", "Analysis", "In Analysis"];
+  const DEV_KEYS = BASE_DEV_KEYS.filter(k => !extraQaStatuses.includes(k));
+  const BASE_QA_KEYS = ["Ready for QA", "In Review", "Code Review", "Review", "In QA", "Testing", "QA In Progress", "QA", "UAT", "Ready for Testing"];
+  const QA_KEYS = [...new Set([...BASE_QA_KEYS, ...extraQaStatuses])];
+  // BLOCKED = any status whose name contains "block" or "on hold" — tracked separately from idle
+  const isBlockedStatus = s => {
+    const l = (s || "").toLowerCase();
+    return l.includes("block") || l === "on hold";
+  };
+
+  const devDays     = DEV_KEYS.reduce((acc, k) => acc + (timeByStatus[k] || 0), 0);
+  const qaDays      = QA_KEYS.reduce((acc, k) => acc + (timeByStatus[k] || 0), 0);
+  const blockedDays = Object.entries(timeByStatus)
+    .filter(([k]) => isBlockedStatus(k) && !DEV_KEYS.includes(k) && !QA_KEYS.includes(k))
     .reduce((acc, [, v]) => acc + v, 0);
+  // Idle = everything else (To Do, Backlog, etc.) — excludes Blocked
+  const idleDays = Object.entries(timeByStatus)
+    .filter(([k]) => !DEV_KEYS.includes(k) && !QA_KEYS.includes(k) && !isBlockedStatus(k))
+    .reduce((acc, [, v]) => acc + v, 0);
+
+  // Re-opens: count backward transitions from any QA status → any DEV status
+  let reopens = 0;
+  for (let i = 1; i < events.length; i++) {
+    const prev = (events[i - 1].to || "").toLowerCase();
+    const curr = (events[i].to || "").toLowerCase();
+    if (QA_KEYS.some(k => k.toLowerCase() === prev) && DEV_KEYS.some(k => k.toLowerCase() === curr))
+      reopens++;
+  }
+
   const currentStatusLower = (last.to || "").toLowerCase();
-  // Smart stale flag: thresholds vary by current status phase
   const currentDays = workingDays(new Date(last.created).getTime(), now);
   const isStale = (
-    (QA_KEYS.some(k => k.toLowerCase() === currentStatusLower) && qaDays > 3) ||   // in QA queue > 3 days
-    (DEV_KEYS.some(k => k.toLowerCase() === currentStatusLower) && devDays > 5) ||  // in dev > 5 days
-    (idleDays > 2 && devDays === 0 && qaDays === 0)                                 // not started > 2 days
+    (QA_KEYS.some(k => k.toLowerCase() === currentStatusLower) && qaDays > 3) ||
+    (DEV_KEYS.some(k => k.toLowerCase() === currentStatusLower) && devDays > 5) ||
+    (idleDays > 2 && devDays === 0 && qaDays === 0 && blockedDays === 0)
   );
   return {
     timeByStatus, currentStatus: last.to, currentDays,
-    devDays, qaDays, idleDays, isStale,
+    devDays, qaDays, idleDays, blockedDays, reopens, isStale,
     daysAssigned: workingDays(startMs, now),
   };
 }
@@ -9168,6 +11928,7 @@ function SprintBoard({ user }) {
   const [form, setForm] = useState(() => config || {
     baseUrl: "", email: "", token: "", projectKey: "",
     teamMembers: [{ name: "", jiraEmail: "" }],
+    qaStatuses: "",
   });
   const [metaLoaded, setMetaLoaded] = useState(false);
   const [tickets, setTickets]       = useState([]);
@@ -9184,6 +11945,29 @@ function SprintBoard({ user }) {
   const [noteText, setNoteText]       = useState("");
   const [copied, setCopied]           = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [teamView, setTeamView]           = useState(false);
+
+  // ── Full-sprint comparison burndown state
+  const [allSprintTickets, setAllSprintTickets] = useState([]);
+  const [allSprintStartSP, setAllSprintStartSP] = useState(null);
+  const [showCompare, setShowCompare]           = useState(false);
+  const [compareLoading, setCompareLoading]     = useState(false);
+  const [compareError, setCompareError]         = useState("");
+
+  // ── Previous sprint comparison state
+  const [prevSprintTickets, setPrevSprintTickets] = useState([]);
+  const [prevSprintName, setPrevSprintName]       = useState("");
+  const [showPrevCompare, setShowPrevCompare]     = useState(false);
+  const [prevCompareLoading, setPrevCompareLoading] = useState(false);
+  const [prevCompareError, setPrevCompareError]   = useState("");
+
+  // ── Next sprint planning state
+  const [nextSprintTickets, setNextSprintTickets]   = useState([]);
+  const [nextSprintName, setNextSprintName]         = useState("");
+  const [nextSprintDates, setNextSprintDates]       = useState({ start: "", end: "" });
+  const [nextSprintLoading, setNextSprintLoading]   = useState(false);
+  const [nextSprintError, setNextSprintError]       = useState("");
+  const [sprintMode, setSprintMode]                 = useState("current"); // "current" | "next"
 
   // ── OPS Coaching state
   const [opsCoaching, setOpsCoaching] = useState(null);
@@ -9196,41 +11980,162 @@ function SprintBoard({ user }) {
   const [timeData, setTimeData]             = useState(null);
   const [timeLoading, setTimeLoading]       = useState(false);
   const [timeCopied, setTimeCopied]         = useState(false);
+  const [sprintEndIso, setSprintEndIso]     = useState("");
+  const [sprintStartSP, setSprintStartSP]   = useState(null);
 
   // ── Sprint Notes state
   const [sprintNotes, setSprintNotes] = useState(() => {
     try { return JSON.parse(localStorage.getItem("echo_sprint_notes") || "[]"); } catch { return []; }
   });
-  const [notesOpen, setNotesOpen]       = useState(true);
-  const [addingNote, setAddingNote]     = useState(false);
+  const [notesOpen, setNotesOpen]         = useState(true);
+  const [addingNote, setAddingNote]       = useState(false);
   const [sprintNoteText, setSprintNoteText] = useState("");
   const [sprintNoteTicket, setSprintNoteTicket] = useState("");
-  const saveSprintNotes = (n) => { setSprintNotes(n); localStorage.setItem("echo_sprint_notes", JSON.stringify(n)); };
+  const [editingNoteId, setEditingNoteId]   = useState(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const saveSprintNotes = (n) => {
+    setSprintNotes(n);
+    localStorage.setItem("echo_sprint_notes", JSON.stringify(n));
+    if (user?.id) {
+      fetch(`${_REST()}/sprint_notes`, {
+        method: "POST",
+        headers: { ...h(), "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates" },
+        body: JSON.stringify({ user_id: user.id, notes: n }),
+      }).catch(() => {});
+    }
+  };
 
   // ── Sprint Retro state
+  const RETRO_BLANK = { went_well: "", to_improve: "", guidance: "", member_feedback: {} };
   const [retroOpen, setRetroOpen]         = useState(true);
   const [retroEditMode, setRetroEditMode] = useState(false);
-  const [retroDraft, setRetroDraft]       = useState({ went_well: "", to_improve: "", guidance: "", shout_outs: "" });
+  const [retroDraft, setRetroDraft]       = useState(RETRO_BLANK);
   const [savedRetro, setSavedRetro]       = useState(null);
+  const [retroCopied, setRetroCopied]     = useState(false);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(true);
+  const [standupModal, setStandupModal]   = useState(null);
+  const [standupLoading, setStandupLoading] = useState(false);
+  const [standupError, setStandupError]   = useState("");
+  const [standupCopied, setStandupCopied] = useState(false);
+  const [cliqSent, setCliqSent]           = useState(false);
+  const [cliqError, setCliqError]         = useState("");
+  const [riskOpen, setRiskOpen]           = useState(true);
+  // ── Release Readiness state
+  const [goNoGoResult, setGoNoGoResult]   = useState(null);
+  const [goNoGoLoading, setGoNoGoLoading] = useState(false);
+  const [goNoGoError, setGoNoGoError]     = useState("");
+  const [goNoGoOpen, setGoNoGoOpen]       = useState(true);
+  const [goNoGoCopied, setGoNoGoCopied]   = useState(false);
+  // ── Escalation state
+  const [escalatingKey, setEscalatingKey] = useState(null);
+  const [escalationResults, setEscalationResults] = useState({});
+  const [escalationCopied, setEscalationCopied] = useState(null);
+  // ── My Sprint Wins state
+  const [winsOpen, setWinsOpen]           = useState(true);
+  const [winsCopied, setWinsCopied]       = useState(false);
+  // ── Forgotten ticket detection
+  const [forgottenKeySet, setForgottenKeySet] = useState(new Set());
   const retroKey = `echo_sprint_retro_${sprintName || "default"}`;
-  const saveRetro = () => {
+  const saveRetro = async () => {
     localStorage.setItem(retroKey, JSON.stringify(retroDraft));
     setSavedRetro(retroDraft);
     setRetroEditMode(false);
+    if (user?.id && sprintName) {
+      fetch(`${_REST()}/sprint_retros`, {
+        method: "POST",
+        headers: { ...h(), "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates" },
+        body: JSON.stringify({
+          user_id: user.id,
+          sprint_name: sprintName,
+          went_well: retroDraft.went_well || "",
+          to_improve: retroDraft.to_improve || "",
+          guidance: retroDraft.guidance || "",
+          member_feedback: retroDraft.member_feedback || {},
+        }),
+      }).catch(() => {});
+    }
+  };
+  const retroMembers = config ? [
+    ...(config.teamMembers || []).filter(m => m.name),
+  ] : [];
+  const copyRetroReport = () => {
+    const lines = [`🔄 Sprint Retro — ${sprintName || "Current Sprint"}`, `Generated: ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`, ""];
+    const r = savedRetro;
+    if (r?.went_well?.trim())  { lines.push("✅ WHAT WENT WELL", r.went_well.trim(), ""); }
+    if (r?.to_improve?.trim()) { lines.push("❌ WHAT DIDN'T GO WELL", r.to_improve.trim(), ""); }
+    if (r?.guidance?.trim())   { lines.push("🎯 GUIDANCE FOR NEXT SPRINT", r.guidance.trim(), ""); }
+    const fb = r?.member_feedback || {};
+    const hasFb = Object.values(fb).some(v => v?.trim());
+    if (hasFb) {
+      lines.push("👥 INDIVIDUAL TEAM FEEDBACK");
+      retroMembers.forEach(m => { if (fb[m.name]?.trim()) { lines.push(`\n${m.name}`, fb[m.name].trim()); } });
+    }
+    navigator.clipboard.writeText(lines.join("\n"));
+    setRetroCopied(true);
+    setTimeout(() => setRetroCopied(false), 2000);
   };
 
   const saveNotes = (n) => { setNotes(n); localStorage.setItem("echo_jira_notes", JSON.stringify(n)); };
 
-  // Load saved retro when sprint changes
+  // Load saved retro when sprint changes — Supabase is source of truth, localStorage is fallback
   useEffect(() => {
     if (!sprintName) return;
-    try {
-      const d = JSON.parse(localStorage.getItem(`echo_sprint_retro_${sprintName}`) || "null");
-      setSavedRetro(d);
-      if (d) setRetroDraft(d);
-      else setRetroDraft({ went_well: "", to_improve: "", guidance: "", shout_outs: "" });
-    } catch {}
+    const localFallback = () => {
+      try {
+        const d = JSON.parse(localStorage.getItem(`echo_sprint_retro_${sprintName}`) || "null");
+        setSavedRetro(d);
+        if (d) setRetroDraft({ ...RETRO_BLANK, ...d, member_feedback: d.member_feedback || {} });
+        else setRetroDraft(RETRO_BLANK);
+      } catch {}
+    };
+    if (user?.id) {
+      fetch(`${_REST()}/sprint_retros?user_id=eq.${user.id}&sprint_name=eq.${encodeURIComponent(sprintName)}&limit=1`, { headers: h() })
+        .then(r => r.ok ? r.json() : null)
+        .then(rows => {
+          if (rows && rows[0]) {
+            const d = { went_well: rows[0].went_well || "", to_improve: rows[0].to_improve || "", guidance: rows[0].guidance || "", member_feedback: rows[0].member_feedback || {} };
+            setSavedRetro(d);
+            setRetroDraft(d);
+            localStorage.setItem(`echo_sprint_retro_${sprintName}`, JSON.stringify(d));
+          } else localFallback();
+        })
+        .catch(localFallback);
+    } else localFallback();
+
   }, [sprintName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load sprint notes from Supabase on mount (Supabase is source of truth)
+  useEffect(() => {
+    if (!user?.id) return;
+    fetch(`${_REST()}/sprint_notes?user_id=eq.${user.id}&limit=1`, { headers: h() })
+      .then(r => r.ok ? r.json() : null)
+      .then(rows => {
+        if (rows && rows[0] && Array.isArray(rows[0].notes)) {
+          setSprintNotes(rows[0].notes);
+          localStorage.setItem("echo_sprint_notes", JSON.stringify(rows[0].notes));
+        }
+      })
+      .catch(() => {});
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cross-reference in-progress tickets against diary entries — mark as forgotten if not mentioned in 7 days
+  useEffect(() => {
+    if (!tickets.length || !user?.id) { setForgottenKeySet(new Set()); return; }
+    const sevenAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    fetch(`${_REST()}/diary_entries?user_id=eq.${user.id}&date=gte.${sevenAgo}&select=content,jira_links`, { headers: h() })
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => {
+        const text = (rows || []).map(e =>
+          `${e.content || ""} ${Array.isArray(e.jira_links) ? e.jira_links.join(" ") : ""}`
+        ).join(" ").toUpperCase();
+        setForgottenKeySet(new Set(
+          tickets
+            .filter(t => t.statusCategory === "In Progress" && !text.includes(t.key.toUpperCase()))
+            .map(t => t.key)
+        ));
+      })
+      .catch(() => {});
+  }, [tickets, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // On mount: if no local JIRA config, try to restore base config (not token) from Supabase user_metadata
   useEffect(() => {
@@ -9275,13 +12180,20 @@ function SprintBoard({ user }) {
       if (!r.ok) { setError(data.error || data.errorMessages?.join(", ") || "JIRA API error"); setLoading(false); return; }
       const issues = data.issues || [];
       // Extract sprint name + dates from first issue's sprint field
+      let _sprintNameForCache = "";
+      let _sprintEndDateIso = "";
+      let _sprintStartDateIso = "";
       for (const issue of issues) {
         const sprints = issue.fields.customfield_10020;
         if (Array.isArray(sprints)) {
           const active = sprints.find(s => s.state === "active") || sprints[0];
           if (active) {
+            _sprintNameForCache = active.name || "";
+            _sprintEndDateIso = active.endDate || "";
+            _sprintStartDateIso = active.startDate || "";
             setSprintName(active.name || "");
             setSprintStartIso(active.startDate || "");
+            setSprintEndIso(active.endDate || "");
             setSprintDates({
               start: active.startDate ? new Date(active.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "",
               end:   active.endDate   ? new Date(active.endDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "",
@@ -9318,23 +12230,345 @@ function SprintBoard({ user }) {
         };
       });
       setTickets(mapped);
+      // Snapshot committed SP once per sprint — persists so adding mid-sprint tickets don't inflate the baseline
+      if (_sprintNameForCache) {
+        const spKey = `echo_sprint_start_sp_${_sprintNameForCache}`;
+        const cached = localStorage.getItem(spKey);
+        if (cached === null) {
+          const totalSP = mapped.reduce((a, t) => a + (t.storyPoints || 0), 0);
+          localStorage.setItem(spKey, String(totalSP));
+          setSprintStartSP(totalSP);
+        } else {
+          setSprintStartSP(Number(cached));
+        }
+      }
       // Cache for cross-feature use (diary, release status, 1:1 brief, etc.)
       try {
         localStorage.setItem("echo_jira_tickets_cache", JSON.stringify({
           ts: Date.now(), projectKey: c.projectKey,
+          sprintName: _sprintNameForCache,
+          sprintEndDate: _sprintEndDateIso,
           tickets: mapped.map(t => ({
             key: t.key, summary: t.summary, status: t.status,
             statusCategory: t.statusCategory, assigneeName: t.assigneeName,
             assigneeEmail: t.assigneeEmail, labels: t.labels,
             components: t.components, dueDate: t.dueDate, parent: t.parent,
+            storyPoints: t.storyPoints, issueType: t.issueType, priority: t.priority,
           })),
         }));
       } catch (_) {}
+      // Auto-publish sprint data to Supabase so team members can see their tickets
+      if (_sprintNameForCache && user?.id) {
+        try {
+          const spKey = `echo_sprint_start_sp_${_sprintNameForCache}`;
+          const committedSP = localStorage.getItem(spKey) !== null
+            ? Number(localStorage.getItem(spKey))
+            : mapped.reduce((a, t) => a + (t.storyPoints || 0), 0);
+          fetch(`${_REST()}/sprint_cache`, {
+            method: "POST",
+            headers: { ...h(), "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates" },
+            body: JSON.stringify({
+              manager_user_id: user.id,
+              manager_email: c?.email || user.email,
+              sprint_name: _sprintNameForCache,
+              sprint_start_date: _sprintStartDateIso,
+              sprint_end_date: _sprintEndDateIso,
+              committed_sp: committedSP,
+              tickets: mapped,
+            }),
+          }).catch(() => {});
+        } catch (_) {}
+      }
     } catch (err) { setError(err.message); }
     setLoading(false);
   };
 
-  useEffect(() => { if (config) fetchSprint(config); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!config) return;
+    fetchSprint(config).then(() => {
+      // Auto-load next sprint when current sprint ends within 2 days
+      try {
+        const cached = JSON.parse(localStorage.getItem("echo_jira_tickets_cache") || "null");
+        if (cached?.sprintEndDate) {
+          const endDay = cached.sprintEndDate.slice(0, 10);
+          const twoDaysOut = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+          if (endDay <= twoDaysOut) fetchNextSprint();
+        }
+      } catch (_) {}
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch ALL sprint tickets (no assignee filter) for comparison burndown
+  const fetchAllSprint = async () => {
+    if (!config) return;
+    setCompareLoading(true); setCompareError("");
+    try {
+      const jql = `sprint in openSprints() AND project = "${config.projectKey}" ORDER BY assignee, status`;
+      const r = await fetch("/api/jira", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseUrl: config.baseUrl, email: config.email, token: config.token, jql,
+          fields: "summary,assignee,status,customfield_10016",
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) { setCompareError(data.error || data.errorMessages?.join(", ") || "JIRA error"); setCompareLoading(false); return; }
+      const mapped = (data.issues || []).map(issue => ({
+        key:           issue.key,
+        assigneeEmail: issue.fields.assignee?.emailAddress || "",
+        assigneeName:  issue.fields.assignee?.displayName || "Unassigned",
+        statusCategory: issue.fields.status?.statusCategory?.name || "",
+        storyPoints:   issue.fields.customfield_10016 || null,
+      }));
+      setAllSprintTickets(mapped);
+      if (sprintName) {
+        const cacheKey = `echo_sprint_start_sp_all_${sprintName}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached === null) {
+          const sp = mapped.reduce((a, t) => a + (t.storyPoints || 0), 0);
+          localStorage.setItem(cacheKey, String(sp));
+          setAllSprintStartSP(sp);
+        } else {
+          setAllSprintStartSP(Number(cached));
+        }
+      }
+    } catch (err) { setCompareError(err.message); }
+    setCompareLoading(false);
+  };
+
+  // Fetch previous (most recently closed) sprint tickets for your team — for sprint-over-sprint comparison
+  const fetchPrevSprint = async () => {
+    if (!config) return;
+    setPrevCompareLoading(true); setPrevCompareError("");
+    try {
+      const teamEmails = [config.email, ...(config.teamMembers || []).map(m => m.jiraEmail).filter(Boolean)];
+      const assigneeFilter = teamEmails.length ? ` AND assignee in (${teamEmails.map(e => `"${e}"`).join(",")})` : "";
+      const jql = `sprint in closedSprints() AND project = "${config.projectKey}"${assigneeFilter} ORDER BY created DESC`;
+      const r = await fetch("/api/jira", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseUrl: config.baseUrl, email: config.email, token: config.token, jql,
+          fields: "summary,assignee,status,customfield_10016,customfield_10020",
+          maxResults: 200,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) { setPrevCompareError(data.error || data.errorMessages?.join(", ") || "JIRA error"); setPrevCompareLoading(false); return; }
+      const issues = data.issues || [];
+      // Group by sprint, pick the most recently closed one
+      const sprintMap = {};
+      issues.forEach(issue => {
+        const sprints = issue.fields.customfield_10020;
+        if (Array.isArray(sprints)) {
+          const closed = sprints.filter(s => s.state === "closed");
+          closed.forEach(s => {
+            if (!sprintMap[s.name]) sprintMap[s.name] = { name: s.name, endDate: s.endDate || "", tickets: [] };
+            sprintMap[s.name].tickets.push({
+              key:            issue.key,
+              assigneeEmail:  issue.fields.assignee?.emailAddress || "",
+              assigneeName:   issue.fields.assignee?.displayName || "Unassigned",
+              statusCategory: issue.fields.status?.statusCategory?.name || "",
+              storyPoints:    issue.fields.customfield_10016 || null,
+            });
+          });
+        }
+      });
+      const sortedSprints = Object.values(sprintMap).sort((a, b) => new Date(b.endDate) - new Date(a.endDate));
+      if (!sortedSprints.length) { setPrevCompareError("No closed sprints found for your team."); setPrevCompareLoading(false); return; }
+      const latest = sortedSprints[0];
+      setPrevSprintTickets(latest.tickets);
+      setPrevSprintName(latest.name);
+    } catch (err) { setPrevCompareError(err.message); }
+    setPrevCompareLoading(false);
+  };
+
+  // Generate and open a shareable story-point report for the next sprint
+  const openNextSprintReport = () => {
+    const byMember = {};
+    nextSprintTickets.forEach(t => {
+      const k = t.assigneeName || "Unassigned";
+      if (!byMember[k]) byMember[k] = [];
+      byMember[k].push(t);
+    });
+    const totalSP = nextSprintTickets.reduce((s, t) => s + (t.storyPoints || 0), 0);
+    const totalTickets = nextSprintTickets.length;
+    const spWithPoints = nextSprintTickets.filter(t => t.storyPoints > 0).length;
+    const memberEntries = Object.entries(byMember).sort((a, b) => {
+      const spA = a[1].reduce((s, t) => s + (t.storyPoints || 0), 0);
+      const spB = b[1].reduce((s, t) => s + (t.storyPoints || 0), 0);
+      return spB - spA;
+    });
+    const maxMemberSP = memberEntries.reduce((m, [, ts]) => Math.max(m, ts.reduce((s, t) => s + (t.storyPoints || 0), 0)), 0);
+    const prioLabel = p => p === "Highest" ? "🔴 Highest" : p === "High" ? "🟠 High" : p === "Medium" ? "🟡 Medium" : p === "Low" ? "🔵 Low" : p || "—";
+    const statusBg = cat => cat === "Done" ? "#22c55e22" : cat === "In Progress" ? "#7B6EF622" : "#94a3b822";
+    const statusCol = cat => cat === "Done" ? "#22c55e" : cat === "In Progress" ? "#a89bf8" : "#94a3b8";
+    const memberRows = memberEntries.map(([member, mTickets]) => {
+      const mSP = mTickets.reduce((s, t) => s + (t.storyPoints || 0), 0);
+      const barPct = maxMemberSP > 0 ? Math.round((mSP / maxMemberSP) * 100) : 0;
+      const initials = member.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+      const ticketRows = mTickets.map(t => `
+        <tr>
+          <td><a href="${t.url}" target="_blank" style="color:#7B6EF6;font-family:monospace;font-size:12px;text-decoration:none;">${t.key}</a></td>
+          <td style="max-width:380px">${t.summary}</td>
+          <td style="text-align:center"><span style="background:#7B6EF622;color:#a89bf8;border-radius:4px;padding:2px 8px;font-weight:700;font-size:12px">${t.storyPoints || "—"}</span></td>
+          <td style="text-align:center"><span style="background:${statusBg(t.statusCategory)};color:${statusCol(t.statusCategory)};border-radius:12px;padding:2px 10px;font-size:11px;font-weight:600">${t.status}</span></td>
+          <td style="font-size:12px">${prioLabel(t.priority)}</td>
+        </tr>`).join("");
+      return `
+        <div class="member-block">
+          <div class="member-header">
+            <div class="avatar">${initials}</div>
+            <div>
+              <div class="member-name">${member}</div>
+              <div class="member-meta">${mTickets.length} ticket${mTickets.length !== 1 ? "s" : ""} &nbsp;·&nbsp; ${mSP} SP</div>
+            </div>
+            <div style="margin-left:auto;text-align:right">
+              <div style="font-size:22px;font-weight:800;color:#7B6EF6;font-family:'Syne',sans-serif">${mSP}</div>
+              <div style="font-size:11px;color:#9A99AD">story points</div>
+            </div>
+          </div>
+          <div class="sp-bar-track"><div class="sp-bar-fill" style="width:${barPct}%"></div></div>
+          <table class="ticket-table">
+            <thead><tr><th>Key</th><th>Summary</th><th>SP</th><th>Status</th><th>Priority</th></tr></thead>
+            <tbody>${ticketRows}</tbody>
+          </table>
+        </div>`;
+    }).join("");
+    const missingBanner = spWithPoints < totalTickets
+      ? `<div style="background:#F5C24318;border:1px solid #F5C24340;border-radius:8px;padding:10px 16px;font-size:13px;color:#F5C243;margin-bottom:24px">⚠ ${totalTickets - spWithPoints} ticket${totalTickets - spWithPoints !== 1 ? "s" : ""} missing story points — SP totals may be understated.</div>`
+      : "";
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${nextSprintName} — SP Report</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',system-ui,sans-serif;background:#0A0A0F;color:#F0EFF8;padding:0;min-height:100vh}
+  .page{max-width:860px;margin:0 auto;padding:48px 28px 80px}
+  .header{margin-bottom:40px}
+  .sprint-label{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#7B6EF6;margin-bottom:10px}
+  h1{font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:#F0EFF8;margin-bottom:6px;line-height:1.1}
+  .sprint-dates{font-size:13px;color:#9A99AD;margin-bottom:28px}
+  .summary-row{display:flex;gap:12px;margin-bottom:36px;flex-wrap:wrap}
+  .summary-card{flex:1;min-width:140px;background:#111118;border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:18px 20px}
+  .card-val{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;margin-bottom:4px}
+  .card-label{font-size:12px;color:#9A99AD;font-weight:500}
+  .section-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#5A596B;margin:0 0 16px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.07)}
+  .member-block{background:#111118;border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:22px 24px;margin-bottom:16px}
+  .member-header{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+  .avatar{width:38px;height:38px;border-radius:50%;background:#7B6EF622;border:1px solid #7B6EF640;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#7B6EF6;flex-shrink:0}
+  .member-name{font-size:15px;font-weight:700;color:#F0EFF8;margin-bottom:2px}
+  .member-meta{font-size:12px;color:#5A596B}
+  .sp-bar-track{height:4px;background:rgba(255,255,255,.06);border-radius:2px;margin-bottom:16px;overflow:hidden}
+  .sp-bar-fill{height:100%;background:linear-gradient(90deg,#7B6EF6,#34D9B3);border-radius:2px;transition:width .4s}
+  .ticket-table{width:100%;border-collapse:collapse;font-size:13px}
+  .ticket-table th{text-align:left;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#5A596B;padding:0 8px 8px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .ticket-table td{padding:9px 8px;border-bottom:1px solid rgba(255,255,255,.04);color:#D0CFDE;vertical-align:middle}
+  .ticket-table tr:last-child td{border-bottom:none}
+  .footer{margin-top:48px;padding-top:20px;border-top:1px solid rgba(255,255,255,.06);font-size:12px;color:#5A596B;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  @media print{body{background:#fff;color:#111}.page{padding:24px}.member-block{background:#f8f8f8;border-color:#ddd}.sp-bar-fill{background:#7B6EF6}}
+  @media(max-width:600px){.summary-row{flex-direction:column}.ticket-table{display:block;overflow-x:auto}}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div class="sprint-label">Sprint Planning Report</div>
+    <h1>${nextSprintName}</h1>
+    ${nextSprintDates.start ? `<div class="sprint-dates">${nextSprintDates.start}${nextSprintDates.end ? " → " + nextSprintDates.end : ""}</div>` : ""}
+  </div>
+  <div class="summary-row">
+    <div class="summary-card"><div class="card-val" style="color:#7B6EF6">${totalSP}</div><div class="card-label">Total Story Points</div></div>
+    <div class="summary-card"><div class="card-val" style="color:#34D9B3">${totalTickets}</div><div class="card-label">Total Tickets</div></div>
+    <div class="summary-card"><div class="card-val" style="color:#F0EFF8">${memberEntries.length}</div><div class="card-label">Team Members</div></div>
+    <div class="summary-card"><div class="card-val" style="color:#F5C243">${totalSP > 0 && memberEntries.length > 0 ? (totalSP / memberEntries.length).toFixed(1) : "—"}</div><div class="card-label">Avg SP per Person</div></div>
+  </div>
+  ${missingBanner}
+  <div class="section-title">Story Points by Team Member</div>
+  ${memberRows}
+  <div class="footer">
+    <span>Generated from JIRA · ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button onclick="window.print()" style="padding:6px 16px;background:#7B6EF618;color:#a89bf8;border:1px solid #7B6EF640;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">🖨 Print / Save as PDF</button>
+      <span style="color:#7B6EF666">Echo Workspace</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>`;
+    const fileName = `${nextSprintName.replace(/[^a-z0-9]+/gi, "-")}-sp-report.html`;
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
+  // Fetch next (future) sprint tickets for planning
+  const fetchNextSprint = async () => {
+    if (!config) return;
+    setNextSprintLoading(true); setNextSprintError("");
+    try {
+      const teamEmails = [config.email, ...(config.teamMembers || []).map(m => m.jiraEmail).filter(Boolean)];
+      const assigneeFilter = teamEmails.length ? ` AND assignee in (${teamEmails.map(e => `"${e}"`).join(",")})` : "";
+      const jql = `sprint in futureSprints() AND project = "${config.projectKey}"${assigneeFilter} ORDER BY assignee, status`;
+      const r = await fetch("/api/jira", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseUrl: config.baseUrl, email: config.email, token: config.token, jql,
+          fields: "summary,assignee,status,priority,issuetype,customfield_10016,customfield_10020,labels,components,duedate,parent,fixVersions",
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) { setNextSprintError(data.error || data.errorMessages?.join(", ") || "JIRA error"); setNextSprintLoading(false); return; }
+      const issues = data.issues || [];
+      let _nextName = "Next Sprint", _nextStart = "", _nextEnd = "";
+      for (const issue of issues) {
+        const sprints = issue.fields.customfield_10020;
+        if (Array.isArray(sprints)) {
+          const future = sprints.find(s => s.state === "future");
+          if (future) { _nextName = future.name || "Next Sprint"; _nextStart = future.startDate || ""; _nextEnd = future.endDate || ""; break; }
+        }
+      }
+      setNextSprintName(_nextName);
+      setNextSprintDates({
+        start: _nextStart ? new Date(_nextStart).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "",
+        end:   _nextEnd   ? new Date(_nextEnd).toLocaleDateString("en-GB",   { day: "numeric", month: "short" }) : "",
+      });
+      // Only tickets assigned to this specific next sprint (not further-future sprints)
+      const nextSprintIssues = _nextName
+        ? issues.filter(issue => {
+            const sprints = issue.fields.customfield_10020;
+            return Array.isArray(sprints) && sprints.some(s => s.name === _nextName && s.state === "future");
+          })
+        : issues;
+      const fmtSec = (s) => { if (!s) return null; const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); return h > 0 ? `${h}h ${m > 0 ? m + "m" : ""}`.trim() : `${m}m`; };
+      setNextSprintTickets(nextSprintIssues.map(issue => {
+        const f = issue.fields;
+        return {
+          key: issue.key, summary: f.summary,
+          assigneeEmail: f.assignee?.emailAddress || "", assigneeName: f.assignee?.displayName || "Unassigned",
+          status: f.status?.name || "Unknown", statusCategory: f.status?.statusCategory?.name || "",
+          priority: f.priority?.name || "", issueType: f.issuetype?.name || "Task",
+          storyPoints: f.customfield_10016 || null,
+          url: `${config.baseUrl.replace(/\/$/, "")}/browse/${issue.key}`,
+          labels: f.labels || [], components: (f.components || []).map(x => x.name),
+          dueDate: f.duedate || null,
+          parent: f.parent ? { key: f.parent.key, summary: f.parent.fields?.summary || "" } : null,
+          fixVersions: (f.fixVersions || []).map(v => v.name),
+          timeSpent: fmtSec(f.timespent), timeEstimate: fmtSec(f.timeoriginalestimate),
+        };
+      }));
+    } catch (err) { setNextSprintError(err.message); }
+    setNextSprintLoading(false);
+  };
 
   const saveConfig = () => {
     const c = { ...form, teamMembers: form.teamMembers.filter(m => m.name || m.jiraEmail) };
@@ -9383,8 +12617,9 @@ function SprintBoard({ user }) {
     return m ? m.name : ticket.assigneeName;
   };
 
-  // Group tickets by team member (hide Done tickets unless user opts in)
-  const visibleTickets = showCompleted ? tickets : tickets.filter(t => t.statusCategory !== "Done");
+  // Group tickets by team member (hide Done tickets unless user opts in; hide own tickets in teamView)
+  const baseTickets    = teamView ? tickets.filter(t => memberLabel(t) !== "Me") : tickets;
+  const visibleTickets = showCompleted ? baseTickets : baseTickets.filter(t => t.statusCategory !== "Done");
   const filtered = filter === "all" ? visibleTickets : visibleTickets.filter(t => memberLabel(t) === filter);
   const groups = {};
   filtered.forEach(t => {
@@ -9393,12 +12628,44 @@ function SprintBoard({ user }) {
     groups[lbl].push(t);
   });
 
-  // Stats across ALL tickets
-  const allBlocked   = tickets.filter(t => (t.status || "").toLowerCase().includes("block")).length;
-  const allDone      = tickets.filter(t => t.statusCategory === "Done").length;
-  const allInProg    = tickets.filter(t => t.statusCategory === "In Progress" && !(t.status || "").toLowerCase().includes("block")).length;
-  const allTodo      = tickets.filter(t => t.statusCategory === "To Do").length;
-  const members      = config ? [...new Set(tickets.map(t => memberLabel(t)))] : [];
+  // Stats — scoped to baseTickets so teamView excludes your own tickets from counts
+  const statBase     = baseTickets;
+  const allBlocked   = statBase.filter(t => (t.status || "").toLowerCase().includes("block")).length;
+  const allDone      = statBase.filter(t => t.statusCategory === "Done").length;
+  const allInProg    = statBase.filter(t => t.statusCategory === "In Progress" && !(t.status || "").toLowerCase().includes("block")).length;
+  const allTodo      = statBase.filter(t => t.statusCategory === "To Do").length;
+  const members      = config ? [...new Set(baseTickets.map(t => memberLabel(t)))] : [];
+
+  // All tickets grouped by member — uses baseTickets so Team View excludes "Me" from leaderboard + standup
+  const allGroups = {};
+  baseTickets.forEach(t => {
+    const lbl = memberLabel(t);
+    if (!allGroups[lbl]) allGroups[lbl] = [];
+    allGroups[lbl].push(t);
+  });
+
+  // Sprint Health Score (0–99): velocity – blocked penalty – overdue penalty – no-SP penalty
+  const sprintHealth = (() => {
+    if (!statBase.length) return null;
+    const total = statBase.length;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const overdue = statBase.filter(t => t.dueDate && t.statusCategory !== "Done" && new Date(t.dueDate + "T00:00:00") < today).length;
+    const noSP = statBase.filter(t => !t.storyPoints && t.statusCategory !== "Done").length;
+    let score = Math.round((allDone / total) * 100);
+    score -= allBlocked * 10;
+    score -= overdue * 6;
+    score -= Math.min(noSP * 2, 10);
+    return Math.max(5, Math.min(99, score));
+  })();
+
+  const fetchTeamStandup = async () => {
+    setStandupLoading(true); setStandupError(""); setStandupModal(null);
+    try {
+      const result = await callGroqTeamStandup(allGroups, sprintName);
+      setStandupModal(result);
+    } catch (err) { setStandupError(err.message); }
+    setStandupLoading(false);
+  };
 
   // Fetch JIRA changelogs to build the time report
   const fetchTimeReport = async () => {
@@ -9428,13 +12695,16 @@ function SprintBoard({ user }) {
         const td = timeData[t.key];
         if (!td || td.error) { txt += `  ${t.key}  ${t.summary}  [data unavailable]\n`; return; }
         const assignedAt = findAssignedAt(td.assigneeChanges, t.assigneeEmail, td.created, sprintStartIso);
-        const tt = calcTicketTime(assignedAt, td.statusChanges);
+        const extraQa = (config?.qaStatuses || "").split(",").map(s => s.trim()).filter(Boolean);
+        const tt = calcTicketTime(assignedAt, td.statusChanges, extraQa);
         const flag = t.statusCategory === "Done" ? "✅" : tt.isStale && tt.qaDays > 3 ? "⏳" : tt.isStale && tt.devDays > 5 ? "🐌" : tt.isStale ? "💤" : "";
         txt += `  ${flag ? flag + " " : ""}${t.key}  ${t.summary}  [${tt.currentStatus}]\n`;
         const parts = [`Assigned: ${tt.daysAssigned.toFixed(1)}d`];
-        if (tt.devDays > 0) parts.push(`Dev: ${tt.devDays.toFixed(1)}d`);
-        if (tt.qaDays > 0) parts.push(`QA: ${tt.qaDays.toFixed(1)}d`);
-        if (tt.idleDays > 0.1) parts.push(`Idle: ${tt.idleDays.toFixed(1)}d`);
+        if (tt.devDays > 0)     parts.push(`Dev: ${tt.devDays.toFixed(1)}d`);
+        if (tt.qaDays > 0)      parts.push(`QA: ${tt.qaDays.toFixed(1)}d`);
+        if (tt.blockedDays > 0) parts.push(`Blocked: ${tt.blockedDays.toFixed(1)}d`);
+        if (tt.idleDays > 0.1)  parts.push(`Idle: ${tt.idleDays.toFixed(1)}d`);
+        if (tt.reopens > 0)     parts.push(`Re-opens: ${tt.reopens}`);
         txt += `    ${parts.join("  ·  ")}\n`;
       });
       txt += "\n";
@@ -9522,6 +12792,14 @@ function SprintBoard({ user }) {
           </button>
         </div>
 
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text2, marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em" }}>QA Status Names</div>
+          <input type="text" value={form.qaStatuses || ""} onChange={e => setForm(p => ({ ...p, qaStatuses: e.target.value }))}
+            placeholder="e.g. In Progress, Review-QA (comma-separated)"
+            style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.navy2, color: T.text1, fontSize: 13, outline: "none", fontFamily: "'DM Sans', sans-serif" }} />
+          <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>Status names from your JIRA workflow that count as QA time (e.g. your project uses "In Progress" for QA work). These override the defaults.</div>
+        </div>
+
         {error && <div style={{ padding: "10px 14px", background: `${T.coral}12`, border: `1px solid ${T.coral}35`, borderRadius: 8, color: T.coral, fontSize: 12, marginBottom: 16 }}>{error}</div>}
 
         <div style={{ display: "flex", gap: 10 }}>
@@ -9545,10 +12823,26 @@ function SprintBoard({ user }) {
       {/* Top bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          {sprintName && <div style={{ fontSize: 15, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>{sprintName}</div>}
-          {sprintDates.start && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{sprintDates.start} – {sprintDates.end} · {config?.projectKey}</div>}
+          {sprintMode === "current"
+            ? <>{sprintName && <div style={{ fontSize: 15, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>{sprintName}</div>}
+                {sprintDates.start && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{sprintDates.start} – {sprintDates.end} · {config?.projectKey}</div>}</>
+            : <>{<div style={{ fontSize: 15, fontWeight: 800, color: T.teal, fontFamily: "'Syne', sans-serif" }}>{nextSprintName || "Next Sprint"} <span style={{ fontSize: 11, color: T.teal, fontWeight: 500 }}>· Planning</span></div>}
+                {nextSprintDates.start && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{nextSprintDates.start} – {nextSprintDates.end} · {config?.projectKey}</div>}
+                {!nextSprintDates.start && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>Dates not set yet · {config?.projectKey}</div>}</>
+          }
         </div>
-        <button onClick={() => fetchSprint()} disabled={loading}
+        {/* Current / Next sprint toggle */}
+        <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, flexShrink: 0 }}>
+          <button onClick={() => setSprintMode("current")}
+            style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: sprintMode === "current" ? `${T.accent}22` : "transparent", color: sprintMode === "current" ? T.accent : T.text3, border: "none", borderRight: `1px solid ${T.border}` }}>
+            Current
+          </button>
+          <button onClick={() => { setSprintMode("next"); if (!nextSprintTickets.length && !nextSprintLoading) fetchNextSprint(); }}
+            style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: sprintMode === "next" ? `${T.teal}22` : "transparent", color: sprintMode === "next" ? T.teal : T.text3, border: "none" }}>
+            {nextSprintLoading ? "Loading…" : "Next Sprint"}
+          </button>
+        </div>
+        <button onClick={() => sprintMode === "current" ? fetchSprint() : fetchNextSprint()} disabled={loading || nextSprintLoading}
           style={{ padding: "7px 14px", fontSize: 12, borderRadius: 8, cursor: loading ? "default" : "pointer", background: "transparent", color: T.text2, border: `1px solid ${T.border}`, fontWeight: 600, opacity: loading ? 0.5 : 1 }}>
           {loading ? "Loading…" : "↻ Refresh"}
         </button>
@@ -9560,14 +12854,110 @@ function SprintBoard({ user }) {
           style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: tickets.length === 0 ? "not-allowed" : "pointer", background: showTimeReport ? `${T.accent}18` : T.navy3, color: showTimeReport ? T.accent : T.text2, border: `1px solid ${showTimeReport ? T.accent + "50" : T.border}`, opacity: tickets.length === 0 ? 0.5 : 1 }}>
           ⏱ Time Report
         </button>
+        <button onClick={fetchTeamStandup} disabled={tickets.length === 0 || standupLoading}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: (tickets.length === 0 || standupLoading) ? "not-allowed" : "pointer", background: standupModal ? `${T.teal}18` : `${T.teal}0d`, color: standupModal ? T.teal : T.accent2, border: `1px solid ${standupModal ? T.teal + "50" : T.teal + "30"}`, opacity: tickets.length === 0 ? 0.5 : 1, transition: "all 0.2s" }}>
+          {standupLoading
+            ? <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", border: `2px solid ${T.teal}`, borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
+            : "🎤"}
+          {standupLoading ? "Generating…" : "Team Standup"}
+        </button>
+        <button onClick={() => { setTeamView(v => !v); setFilter("all"); }}
+          title={teamView ? "Switch back to full board" : "Hide your tickets — present team view"}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: "pointer", transition: "all 0.2s", background: teamView ? `${T.gold}18` : "transparent", color: teamView ? T.gold : T.text3, border: `1px solid ${teamView ? T.gold + "55" : T.border}` }}>
+          👥 {teamView ? "Team View" : "Team View"}
+        </button>
         <button onClick={() => setShowSettings(true)}
           style={{ padding: "7px 12px", fontSize: 12, borderRadius: 8, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>
           ⚙ Settings
         </button>
       </div>
 
+      {/* Team view banner */}
+      {teamView && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderRadius: 10, background: `${T.gold}0e`, border: `1px solid ${T.gold}30`, marginBottom: 16, fontSize: 12, color: T.gold }}>
+          <span style={{ fontSize: 14 }}>👥</span>
+          <span><strong style={{ fontWeight: 700 }}>Team View active</strong> — your tickets are hidden. Stats and board reflect your team only.</span>
+          <button onClick={() => { setTeamView(false); setFilter("all"); }} style={{ marginLeft: "auto", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 700, background: `${T.gold}18`, color: T.gold, border: `1px solid ${T.gold}40` }}>Exit</button>
+        </div>
+      )}
+
+      {/* ── Next Sprint Planning View ── */}
+      {sprintMode === "next" && (() => {
+        if (nextSprintLoading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Loading next sprint…</div>;
+        if (nextSprintError) return <div style={{ color: T.coral, padding: 20 }}>⚠ {nextSprintError}</div>;
+        if (nextSprintTickets.length === 0) return (
+          <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "60px 28px", textAlign: "center" }}>
+            <div style={{ fontSize: 36, marginBottom: 14 }}>📋</div>
+            <div style={{ fontSize: 15, color: T.text2, marginBottom: 6 }}>No tickets in next sprint yet</div>
+            <div style={{ fontSize: 13, color: T.text3 }}>Add tickets to the next sprint in JIRA, then refresh here to start planning.</div>
+            <button onClick={fetchNextSprint} style={{ marginTop: 16, padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: "pointer", background: `${T.teal}18`, color: T.teal, border: `1px solid ${T.teal}40` }}>↻ Refresh</button>
+          </div>
+        );
+        // Group by assignee
+        const byMember = {};
+        nextSprintTickets.forEach(t => {
+          const k = t.assigneeName || "Unassigned";
+          if (!byMember[k]) byMember[k] = [];
+          byMember[k].push(t);
+        });
+        const totalSP = nextSprintTickets.reduce((s, t) => s + (t.storyPoints || 0), 0);
+        const spWithPoints = nextSprintTickets.filter(t => t.storyPoints > 0).length;
+        return (
+          <div>
+            {/* Next sprint summary bar */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+              {[
+                { label: `${nextSprintTickets.length} tickets`, color: T.accent, icon: "📋" },
+                { label: `${totalSP} SP planned`, color: T.teal, icon: "📊" },
+                { label: `${Object.keys(byMember).length} assignees`, color: T.text2, icon: "👤" },
+              ].map(s => (
+                <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 20, background: `${s.color}12`, border: `1px solid ${s.color}28`, fontSize: 11, fontWeight: 700, color: s.color }}>
+                  {s.icon} {s.label}
+                </div>
+              ))}
+              {spWithPoints < nextSprintTickets.length && (
+                <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 20, background: `${T.amber}10`, border: `1px solid ${T.amber}28`, fontSize: 11, color: T.amber }}>
+                  ⚠ {nextSprintTickets.length - spWithPoints} tickets missing SP
+                </div>
+              )}
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <button onClick={openNextSprintReport} style={{ padding: "4px 14px", fontSize: 11, fontWeight: 700, borderRadius: 8, cursor: "pointer", background: `${T.accent}18`, color: T.accent, border: `1px solid ${T.accent}40` }}>📤 Share Report</button>
+                <button onClick={fetchNextSprint} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, borderRadius: 8, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>↻ Refresh</button>
+              </div>
+            </div>
+            {/* Tickets grouped by assignee */}
+            {Object.entries(byMember).map(([member, mTickets]) => {
+              const mSP = mTickets.reduce((s, t) => s + (t.storyPoints || 0), 0);
+              return (
+                <div key={member} style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: `${T.accent}22`, border: `1px solid ${T.accent}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: T.accent }}>{member.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text1 }}>{member}</div>
+                    <div style={{ fontSize: 11, color: T.text3 }}>{mTickets.length} ticket{mTickets.length !== 1 ? "s" : ""}{mSP > 0 ? ` · ${mSP} SP` : ""}</div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5, paddingLeft: 36 }}>
+                    {mTickets.map(t => {
+                      const prioColor = t.priority === "Highest" || t.priority === "High" ? T.coral : t.priority === "Medium" ? T.amber : T.text3;
+                      return (
+                        <div key={t.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, fontFamily: "'DM Mono', monospace", flexShrink: 0, minWidth: 72 }}>{t.key}</span>
+                          <span style={{ fontSize: 12, color: T.text1, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.summary}</span>
+                          {t.storyPoints && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: `${T.accent}18`, borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>{t.storyPoints} SP</span>}
+                          {t.priority && <span style={{ fontSize: 10, color: prioColor, flexShrink: 0 }}>{t.priority === "Highest" ? "🔴" : t.priority === "High" ? "🟠" : t.priority === "Medium" ? "🟡" : "⚪"}</span>}
+                          <a href={t.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: T.text3, textDecoration: "none", flexShrink: 0 }}>↗</a>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Stats strip */}
-      {tickets.length > 0 && (
+      {sprintMode === "current" && tickets.length > 0 && (
         <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
           {[
             { label: `${allDone} done`,        color: T.emerald, icon: "✅" },
@@ -9579,6 +12969,19 @@ function SprintBoard({ user }) {
               {s.icon} {s.label}
             </div>
           ))}
+          {sprintHealth !== null && (() => {
+            const hColor = sprintHealth >= 70 ? T.teal : sprintHealth >= 40 ? T.amber : T.coral;
+            const hLabel = sprintHealth >= 70 ? "On Track" : sprintHealth >= 40 ? "At Risk" : "Critical";
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "4px 12px 4px 10px", borderRadius: 20, background: `${hColor}10`, border: `1px solid ${hColor}35` }}>
+                <div style={{ width: 40, height: 4, background: T.border, borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ width: `${sprintHealth}%`, height: "100%", background: hColor, borderRadius: 2 }} />
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 800, color: hColor, fontFamily: "'Syne', sans-serif" }}>{sprintHealth}</span>
+                <span style={{ fontSize: 10, color: hColor, fontWeight: 600 }}>{hLabel}</span>
+              </div>
+            );
+          })()}
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 11, color: T.text3 }}>{tickets.length} tickets total</span>
             {allDone > 0 && (
@@ -9590,6 +12993,48 @@ function SprintBoard({ user }) {
           </div>
         </div>
       )}
+
+      {/* ── Sprint Velocity Tracker ── */}
+      {tickets.length > 0 && (() => {
+        const spTickets = tickets.filter(t => t.storyPoints > 0);
+        if (!spTickets.length) return null;
+        const totalSP  = spTickets.reduce((s, t) => s + (t.storyPoints || 0), 0);
+        const doneSP   = spTickets.filter(t => t.statusCategory === "Done").reduce((s, t) => s + (t.storyPoints || 0), 0);
+        const inProgSP = spTickets.filter(t => t.statusCategory === "In Progress").reduce((s, t) => s + (t.storyPoints || 0), 0);
+        const todoSP   = totalSP - doneSP - inProgSP;
+        const pct      = totalSP ? Math.round((doneSP / totalSP) * 100) : 0;
+        const barColor = pct >= 75 ? T.teal : pct >= 40 ? T.amber : T.accent;
+        return (
+          <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px", marginBottom: 18, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              <span style={{ fontSize: 15 }}>⚡</span>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text1 }}>Sprint Velocity</div>
+                <div style={{ fontSize: 10, color: T.text3 }}>{totalSP} story points total</div>
+              </div>
+            </div>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                <span style={{ fontSize: 10, color: T.text3 }}>{doneSP} done · {inProgSP} in progress · {todoSP} to do</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: barColor }}>{pct}%</span>
+              </div>
+              <div style={{ height: 6, borderRadius: 3, background: T.navy3, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 3, transition: "width 0.4s" }} />
+              </div>
+            </div>
+            {[
+              { label: "Done",      val: doneSP,   color: T.teal },
+              { label: "In Prog",   val: inProgSP, color: T.accent },
+              { label: "Remaining", val: todoSP,   color: T.text3 },
+            ].map(s => (
+              <div key={s.label} style={{ textAlign: "center", flexShrink: 0 }}>
+                <div style={{ fontSize: 17, fontWeight: 800, color: s.color }}>{s.val}</div>
+                <div style={{ fontSize: 9, color: T.text3 }}>{s.label} SP</div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Member filter chips */}
       {members.length > 1 && (
@@ -9652,27 +13097,52 @@ function SprintBoard({ user }) {
                 </div>
               )}
               {sprintNotes.map(n => (
-                <div key={n.id} style={{ padding: "12px 14px", background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 10, position: "relative" }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                    <div style={{ flex: 1 }}>
-                      {n.linkedTicket && (
-                        <div style={{ marginBottom: 6 }}>
-                          <a href={`${config?.baseUrl?.replace(/\/$/, "")}/browse/${n.linkedTicket}`} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 10, fontWeight: 700, color: T.accent2, fontFamily: "'Syne', sans-serif", textDecoration: "none", background: `${T.accent}14`, border: `1px solid ${T.accent}30`, borderRadius: 12, padding: "2px 9px" }}>
-                            {n.linkedTicket}
-                          </a>
-                          {n.linkedSummary && <span style={{ fontSize: 11, color: T.text3, marginLeft: 7 }}>{n.linkedSummary.slice(0, 60)}{n.linkedSummary.length > 60 ? "…" : ""}</span>}
-                        </div>
-                      )}
-                      <div style={{ fontSize: 13, color: T.text1, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{n.text}</div>
-                      <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>
-                        {new Date(n.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                <div key={n.id} style={{ padding: "12px 14px", background: T.navy3, border: `1px solid ${editingNoteId === n.id ? T.accent + "50" : T.border}`, borderRadius: 10, marginBottom: 10 }}>
+                  {editingNoteId === n.id ? (
+                    <div>
+                      <textarea
+                        autoFocus
+                        value={editingNoteText}
+                        onChange={e => setEditingNoteText(e.target.value)}
+                        style={{ width: "100%", boxSizing: "border-box", minHeight: 80, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.accent}40`, background: T.navy1, color: T.text1, fontSize: 13, outline: "none", fontFamily: "'DM Sans', sans-serif", resize: "vertical" }}
+                      />
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <button onClick={() => {
+                          if (!editingNoteText.trim()) return;
+                          saveSprintNotes(sprintNotes.map(x => x.id === n.id ? { ...x, text: editingNoteText.trim() } : x));
+                          setEditingNoteId(null); setEditingNoteText("");
+                        }} style={{ padding: "5px 16px", borderRadius: 7, cursor: "pointer", fontWeight: 700, fontSize: 12, background: T.accent, color: "#fff", border: "none" }}>Save</button>
+                        <button onClick={() => { setEditingNoteId(null); setEditingNoteText(""); }}
+                          style={{ padding: "5px 12px", borderRadius: 7, cursor: "pointer", fontSize: 12, background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>Cancel</button>
                       </div>
                     </div>
-                    <button onClick={() => saveSprintNotes(sprintNotes.filter(x => x.id !== n.id))}
-                      style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: "0 4px", flexShrink: 0, lineHeight: 1 }}
-                      title="Delete note">✕</button>
-                  </div>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        {n.linkedTicket && (
+                          <div style={{ marginBottom: 6 }}>
+                            <a href={`${config?.baseUrl?.replace(/\/$/, "")}/browse/${n.linkedTicket}`} target="_blank" rel="noopener noreferrer"
+                              style={{ fontSize: 10, fontWeight: 700, color: T.accent2, fontFamily: "'Syne', sans-serif", textDecoration: "none", background: `${T.accent}14`, border: `1px solid ${T.accent}30`, borderRadius: 12, padding: "2px 9px" }}>
+                              {n.linkedTicket}
+                            </a>
+                            {n.linkedSummary && <span style={{ fontSize: 11, color: T.text3, marginLeft: 7 }}>{n.linkedSummary.slice(0, 60)}{n.linkedSummary.length > 60 ? "…" : ""}</span>}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 13, color: T.text1, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{n.text}</div>
+                        <div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>
+                          {new Date(n.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        <button onClick={() => { setEditingNoteId(n.id); setEditingNoteText(n.text); }}
+                          style={{ background: `${T.accent}14`, border: `1px solid ${T.accent}30`, color: T.accent2, cursor: "pointer", fontSize: 11, padding: "3px 9px", borderRadius: 6, fontWeight: 600, lineHeight: 1.4 }}
+                          title="Edit note">✏️</button>
+                        <button onClick={() => saveSprintNotes(sprintNotes.filter(x => x.id !== n.id))}
+                          style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: "0 4px", lineHeight: 1 }}
+                          title="Delete note">✕</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -9683,39 +13153,49 @@ function SprintBoard({ user }) {
       {/* ── Sprint Retro (collapsible) ──────────────────────── */}
       {tickets.length > 0 && (
         <div style={{ marginBottom: 16, background: T.navy2, border: `1px solid ${T.amber}35`, borderRadius: 14, overflow: "hidden" }}>
+          {/* Header */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", background: T.navy1, borderBottom: retroOpen ? `1px solid ${T.border}` : "none", cursor: "pointer" }} onClick={() => setRetroOpen(o => !o)}>
             <span style={{ fontSize: 13 }}>🔄</span>
-            <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
-              Sprint Retro {savedRetro && sprintName && <span style={{ fontSize: 11, color: T.text3, fontWeight: 400 }}>· {sprintName}</span>}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
+                Sprint Retro {sprintName && <span style={{ fontSize: 11, color: T.text3, fontWeight: 400 }}>· {sprintName}</span>}
+              </div>
             </div>
-            {!retroEditMode && (
-              <button onClick={e => { e.stopPropagation(); setRetroEditMode(true); setRetroOpen(true); if (!savedRetro) setRetroDraft({ went_well: "", to_improve: "", guidance: "", shout_outs: "" }); }}
-                style={{ padding: "4px 12px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 700, background: `${T.amber}18`, color: T.amber, border: `1px solid ${T.amber}45` }}>
-                {savedRetro ? "✏️ Edit" : "+ Add Retro"}
+            {savedRetro && !retroEditMode && (
+              <button onClick={e => { e.stopPropagation(); copyRetroReport(); }}
+                style={{ padding: "4px 12px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 700, background: retroCopied ? `${T.teal}18` : T.navy3, color: retroCopied ? T.teal : T.text2, border: `1px solid ${retroCopied ? T.teal + "40" : T.border}`, transition: "all 0.2s" }}>
+                {retroCopied ? "✓ Copied!" : "📋 Copy Report"}
               </button>
             )}
-            <span style={{ color: T.text3, fontSize: 12, marginLeft: 4 }}>{retroOpen ? "▲" : "▼"}</span>
+            {!retroEditMode && (
+              <button onClick={e => { e.stopPropagation(); setRetroEditMode(true); setRetroOpen(true); if (!savedRetro) setRetroDraft(RETRO_BLANK); }}
+                style={{ padding: "4px 12px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 700, background: `${T.amber}18`, color: T.amber, border: `1px solid ${T.amber}45` }}>
+                {savedRetro ? "✏️ Edit" : "+ Write Retro"}
+              </button>
+            )}
+            <span style={{ color: T.text3, fontSize: 12 }}>{retroOpen ? "▲" : "▼"}</span>
           </div>
 
           {retroOpen && (
-            <div style={{ padding: "14px 18px" }}>
-              {/* Empty state */}
+            <div style={{ padding: "16px 18px" }}>
+
+              {/* ── Empty state */}
               {!savedRetro && !retroEditMode && (
                 <div style={{ textAlign: "center", padding: "28px 16px", color: T.text3, fontSize: 12 }}>
                   <div style={{ fontSize: 28, marginBottom: 8 }}>📋</div>
                   <div style={{ fontWeight: 600, color: T.text2, marginBottom: 4 }}>No retro written yet</div>
-                  <div>Capture what went well, what to improve, and your guidance for the team next sprint.</div>
+                  <div>Capture what went well, what to improve, your guidance, and individual member feedback.</div>
                 </div>
               )}
 
-              {/* Edit mode */}
+              {/* ── Edit mode */}
               {retroEditMode && (
                 <div>
+                  {/* General sections */}
                   {[
-                    { key: "went_well",   label: "✅ What went well this sprint?",         placeholder: "Wins, smooth processes, strong execution, team highlights…",                    color: T.teal   },
-                    { key: "to_improve",  label: "❌ What didn't go well / blockers?",      placeholder: "Delays, process gaps, repeated issues, things that need to change…",           color: T.coral  },
-                    { key: "guidance",    label: "🎯 My guidance for next sprint",          placeholder: "Specific actions, process changes, focus areas I'm recommending to the team…", color: T.accent },
-                    { key: "shout_outs",  label: "🌟 Shout-outs & individual feedback",    placeholder: "Recognise great work, call out growth moments, personal guidance per member…",  color: T.amber  },
+                    { key: "went_well",  label: "✅ What went well this sprint?",    placeholder: "Wins, smooth processes, strong execution, team highlights…",                    color: T.teal   },
+                    { key: "to_improve", label: "❌ What didn't go well / blockers?", placeholder: "Delays, process gaps, repeated issues, things that need to change…",           color: T.coral  },
+                    { key: "guidance",   label: "🎯 My guidance for next sprint",     placeholder: "Specific actions, process changes, focus areas I'm recommending to the team…", color: T.accent },
                   ].map(({ key, label, placeholder, color }) => (
                     <div key={key} style={{ marginBottom: 14 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color, marginBottom: 6, letterSpacing: "0.03em" }}>{label}</div>
@@ -9727,51 +13207,736 @@ function SprintBoard({ user }) {
                       />
                     </div>
                   ))}
+
+                  {/* Per-member feedback */}
+                  {retroMembers.length > 0 && (
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, marginBottom: 10, letterSpacing: "0.03em" }}>👥 Individual team feedback</div>
+                      <div style={{ display: "grid", gridTemplateColumns: retroMembers.length === 1 ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+                        {retroMembers.map(m => (
+                          <div key={m.name} style={{ background: T.navy1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
+                              <div style={{ width: 26, height: 26, borderRadius: "50%", background: `${T.amber}25`, border: `1px solid ${T.amber}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: T.amber, flexShrink: 0 }}>
+                                {m.name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                              </div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: T.text1 }}>{m.name}</div>
+                            </div>
+                            <textarea
+                              value={retroDraft.member_feedback?.[m.name] || ""}
+                              onChange={e => setRetroDraft(d => ({ ...d, member_feedback: { ...d.member_feedback, [m.name]: e.target.value } }))}
+                              placeholder={`Feedback for ${m.name.split(" ")[0]}… shout-out, growth area, guidance…`}
+                              style={{ width: "100%", boxSizing: "border-box", minHeight: 72, padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.navy2, color: T.text1, fontSize: 12, outline: "none", fontFamily: "'DM Sans', sans-serif", resize: "vertical", lineHeight: 1.5 }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                     <button onClick={saveRetro} style={{ padding: "7px 20px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, background: T.amber, color: "#111", border: "none", fontFamily: "'DM Sans', sans-serif" }}>Save Retro</button>
                     {savedRetro && (
-                      <button onClick={() => { if (window.confirm("Delete this retro?")) { localStorage.removeItem(retroKey); setSavedRetro(null); setRetroDraft({ went_well: "", to_improve: "", guidance: "", shout_outs: "" }); setRetroEditMode(false); } }}
+                      <button onClick={() => { if (window.confirm("Delete this retro?")) { localStorage.removeItem(retroKey); setSavedRetro(null); setRetroDraft(RETRO_BLANK); setRetroEditMode(false); } }}
                         style={{ padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13, background: "transparent", color: T.coral, border: `1px solid ${T.coral}40` }}>Delete</button>
                     )}
-                    <button onClick={() => { setRetroEditMode(false); if (savedRetro) setRetroDraft(savedRetro); else setRetroDraft({ went_well: "", to_improve: "", guidance: "", shout_outs: "" }); }}
+                    <button onClick={() => { setRetroEditMode(false); if (savedRetro) setRetroDraft({ ...RETRO_BLANK, ...savedRetro, member_feedback: savedRetro.member_feedback || {} }); else setRetroDraft(RETRO_BLANK); }}
                       style={{ padding: "7px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13, background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>Cancel</button>
                   </div>
                 </div>
               )}
 
-              {/* Saved view */}
+              {/* ── Saved / view mode */}
               {savedRetro && !retroEditMode && (
                 <div>
+                  {/* General sections */}
                   {[
-                    { key: "went_well",  label: "✅ What went well",            color: T.teal   },
-                    { key: "to_improve", label: "❌ What didn't go well",        color: T.coral  },
-                    { key: "guidance",   label: "🎯 Guidance for next sprint",   color: T.accent },
-                    { key: "shout_outs", label: "🌟 Shout-outs",                color: T.amber  },
+                    { key: "went_well",  label: "✅ What went well",          color: T.teal   },
+                    { key: "to_improve", label: "❌ What didn't go well",      color: T.coral  },
+                    { key: "guidance",   label: "🎯 Guidance for next sprint", color: T.accent },
                   ].filter(s => savedRetro[s.key]?.trim()).map(({ key, label, color }) => (
                     <div key={key} style={{ marginBottom: 12, padding: "12px 14px", background: T.navy3, border: `1px solid ${color}18`, borderLeft: `3px solid ${color}`, borderRadius: "0 10px 10px 0" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color, marginBottom: 6, letterSpacing: "0.03em" }}>{label}</div>
                       <div style={{ fontSize: 13, color: T.text1, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{savedRetro[key]}</div>
                     </div>
                   ))}
-                  <button onClick={() => {
-                    const sections = [
-                      { key: "went_well",  lbl: "✅ What went well" },
-                      { key: "to_improve", lbl: "❌ What didn't go well" },
-                      { key: "guidance",   lbl: "🎯 Guidance for next sprint" },
-                      { key: "shout_outs", lbl: "🌟 Shout-outs" },
-                    ];
-                    const lines = [`🔄 Sprint Retro — ${sprintName || "Current Sprint"}`, ""];
-                    sections.forEach(({ key, lbl }) => { if (savedRetro[key]?.trim()) { lines.push(lbl); lines.push(savedRetro[key]); lines.push(""); } });
-                    navigator.clipboard.writeText(lines.join("\n"));
-                  }} style={{ marginTop: 4, padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 700, background: T.navy3, color: T.text2, border: `1px solid ${T.border}` }}>
-                    📋 Copy Retro
-                  </button>
+
+                  {/* Per-member feedback cards */}
+                  {retroMembers.some(m => savedRetro.member_feedback?.[m.name]?.trim()) && (
+                    <div style={{ marginTop: 4, marginBottom: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, marginBottom: 10, letterSpacing: "0.03em" }}>👥 Individual team feedback</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+                        {retroMembers.filter(m => savedRetro.member_feedback?.[m.name]?.trim()).map(m => (
+                          <div key={m.name} style={{ background: T.navy3, border: `1px solid ${T.amber}20`, borderRadius: 10, padding: "12px 14px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
+                              <div style={{ width: 28, height: 28, borderRadius: "50%", background: `${T.amber}20`, border: `1px solid ${T.amber}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: T.amber, flexShrink: 0 }}>
+                                {m.name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                              </div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: T.text1 }}>{m.name}</div>
+                            </div>
+                            <div style={{ fontSize: 13, color: T.text1, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{savedRetro.member_feedback[m.name]}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
         </div>
       )}
+
+      {/* ── Team Standup Result ──────────────────────────────────── */}
+      {standupModal && (
+        <div style={{ marginBottom: 16, background: "linear-gradient(135deg, #0d1c1a 0%, #0f1e1b 100%)", border: `1px solid ${T.teal}40`, borderRadius: 14, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", background: `${T.teal}06`, borderBottom: `1px solid ${T.teal}25` }}>
+            <span style={{ fontSize: 15 }}>🎤</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: T.teal, fontFamily: "'Syne', sans-serif" }}>Daily Standup — {sprintName || "Current Sprint"}</div>
+              {standupModal.headline && <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{standupModal.headline}</div>}
+            </div>
+            <button onClick={() => { navigator.clipboard.writeText(standupModal.standup_text || ""); setStandupCopied(true); setTimeout(() => setStandupCopied(false), 2000); }}
+              style={{ padding: "5px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 700, background: standupCopied ? `${T.teal}18` : T.navy3, color: standupCopied ? T.teal : T.text1, border: `1px solid ${standupCopied ? T.teal + "40" : T.border}`, transition: "all 0.2s" }}>
+              {standupCopied ? "✓ Copied!" : "📋 Copy"}
+            </button>
+            <button onClick={async () => {
+              setCliqError("");
+              try {
+                const actionBlock = (standupModal.action_items || []).filter(a => a?.trim()).length
+                  ? `\n\n⚡ Action Items:\n${standupModal.action_items.filter(a => a?.trim()).map((a, i) => `${i + 1}. ${a}`).join("\n")}`
+                  : "";
+                const msg = `🎤 *Daily Standup — ${sprintName || "Current Sprint"}*\n${standupModal.headline ? `_${standupModal.headline}_\n` : ""}\n${standupModal.standup_text}${actionBlock}`;
+                await sendToCliq(msg);
+                setCliqSent(true); setTimeout(() => setCliqSent(false), 3000);
+              } catch (e) { setCliqError(e.message); }
+            }} style={{ padding: "5px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 700, background: cliqSent ? "#1a2e26" : T.navy3, color: cliqSent ? T.teal : "#f5a623", border: `1px solid ${cliqSent ? T.teal + "40" : "#f5a62330"}`, transition: "all 0.2s" }}>
+              {cliqSent ? "✓ Sent!" : "📣 Cliq"}
+            </button>
+            <button onClick={() => setStandupModal(null)} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>✕</button>
+          </div>
+          <div style={{ padding: "16px 18px" }}>
+            {(standupModal.action_items || []).filter(a => a?.trim()).length > 0 && (
+              <div style={{ marginBottom: 14, padding: "10px 14px", background: `${T.coral}07`, border: `1px solid ${T.coral}25`, borderRadius: 10 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: T.coral, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>⚡ Action Items for Today</div>
+                {standupModal.action_items.filter(a => a?.trim()).map((a, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 7, fontSize: 12, color: T.text2, marginBottom: 4, lineHeight: 1.5 }}>
+                    <span style={{ color: T.coral, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                    <span>{a}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <pre style={{ margin: 0, fontSize: 12.5, color: T.text1, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.7, fontFamily: "'DM Sans', sans-serif" }}>
+              {standupModal.standup_text}
+            </pre>
+          </div>
+        </div>
+      )}
+      {standupError && (
+        <div style={{ marginBottom: 14, padding: "10px 14px", background: `${T.coral}10`, border: `1px solid ${T.coral}30`, borderRadius: 10, fontSize: 12, color: T.coral }}>
+          ⚠ Standup error: {standupError}
+          <button onClick={() => setStandupError("")} style={{ marginLeft: 10, background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>✕</button>
+        </div>
+      )}
+      {cliqError && (
+        <div style={{ marginBottom: 14, padding: "10px 14px", background: "#2a1a0a", border: "1px solid #f5a62340", borderRadius: 10, fontSize: 12, color: "#f5a623" }}>
+          📣 Cliq error: {cliqError}
+          <button onClick={() => setCliqError("")} style={{ marginLeft: 10, background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 12 }}>✕</button>
+        </div>
+      )}
+
+      {/* ── Risk Radar ───────────────────────────────────────────── */}
+      {tickets.length > 0 && (() => {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const risks = [];
+        tickets.forEach(t => {
+          if (t.statusCategory === "Done") return;
+          const m = memberLabel(t);
+          if ((t.status || "").toLowerCase().includes("block"))
+            risks.push({ key: t.key, summary: t.summary, member: m, label: "Blocked", color: T.coral, icon: "🔴", tip: "Needs immediate unblocking — raise in standup or escalate" });
+          else if (t.dueDate && new Date(t.dueDate + "T00:00:00") < today)
+            risks.push({ key: t.key, summary: t.summary, member: m, label: "Overdue", color: T.coral, icon: "📅", tip: `Due ${t.dueDate} — update the ticket or escalate now` });
+          else if ((t.priority === "Highest" || t.priority === "High") && t.statusCategory === "To Do")
+            risks.push({ key: t.key, summary: t.summary, member: m, label: `${t.priority} Priority · Not Started`, color: "#F97316", icon: "🔥", tip: "High priority ticket has not been picked up yet" });
+          else if (!t.storyPoints && t.statusCategory === "In Progress")
+            risks.push({ key: t.key, summary: t.summary, member: m, label: "No Story Points", color: T.amber, icon: "📊", tip: "Active ticket missing SP — won't count toward velocity score" });
+          else if (!t.dueDate && (t.priority === "Highest" || t.priority === "High"))
+            risks.push({ key: t.key, summary: t.summary, member: m, label: "No Due Date · High Priority", color: T.amber, icon: "⏰", tip: "High priority but no due date set — DPS score won't count this ticket" });
+        });
+        if (!risks.length) return null;
+        return (
+          <div style={{ marginBottom: 16, background: T.navy2, border: `1px solid ${T.coral}28`, borderRadius: 14, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", background: `${T.coral}05`, borderBottom: riskOpen ? `1px solid ${T.coral}18` : "none", cursor: "pointer" }} onClick={() => setRiskOpen(o => !o)}>
+              <span style={{ fontSize: 13 }}>⚠️</span>
+              <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
+                Risk Radar <span style={{ fontSize: 11, fontWeight: 400, color: T.coral, marginLeft: 4 }}>{risks.length} item{risks.length !== 1 ? "s" : ""} need attention</span>
+              </div>
+              <span style={{ color: T.text3, fontSize: 12 }}>{riskOpen ? "▲" : "▼"}</span>
+            </div>
+            {riskOpen && (
+              <div style={{ padding: "14px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
+                {risks.map((r, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 12px", background: T.navy3, border: `1px solid ${r.color}18`, borderLeft: `3px solid ${r.color}`, borderRadius: "0 9px 9px 0" }}>
+                    <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{r.icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginBottom: 3 }}>
+                        <a href={config?.baseUrl ? `${config.baseUrl.replace(/\/$/, "")}/browse/${r.key}` : "#"} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: 11, fontWeight: 700, color: T.accent2, textDecoration: "none", fontFamily: "'Syne', sans-serif", flexShrink: 0 }}>{r.key}</a>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: r.color, background: `${r.color}12`, border: `1px solid ${r.color}30`, padding: "1px 7px", borderRadius: 10 }}>{r.label}</span>
+                        <span style={{ fontSize: 11, color: T.text3 }}>· {r.member}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>{r.summary}</div>
+                      <div style={{ fontSize: 11, color: T.text3 }}>{r.tip}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Release Readiness GO/NO-GO ───────────────────────────── */}
+      {tickets.length > 0 && (
+        <div style={{ marginBottom: 16, background: T.navy2, border: `1px solid ${goNoGoResult?.verdict === "NO_GO" ? T.coral + "40" : goNoGoResult?.verdict === "GO" ? T.teal + "40" : T.border}`, borderRadius: 14, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", background: T.navy1, borderBottom: goNoGoOpen && (goNoGoLoading || goNoGoResult || goNoGoError) ? `1px solid ${T.border}` : "none", cursor: "pointer" }}
+            onClick={() => setGoNoGoOpen(o => !o)}>
+            <span style={{ fontSize: 13 }}>🚦</span>
+            <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
+              Release Readiness
+              {goNoGoResult && (
+                <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 800, color: goNoGoResult.verdict === "GO" ? T.teal : goNoGoResult.verdict === "CAUTION" ? T.amber : T.coral }}>
+                  {goNoGoResult.verdict === "GO" ? "✅ GO" : goNoGoResult.verdict === "CAUTION" ? "⚠️ CAUTION" : "🚫 NO-GO"}
+                </span>
+              )}
+            </div>
+            {!goNoGoResult && (
+              <button onClick={e => { e.stopPropagation(); setGoNoGoLoading(true); setGoNoGoError(""); setGoNoGoResult(null);
+                callGroqReleaseReadiness(tickets, sprintName).then(r => { setGoNoGoResult(r); setGoNoGoOpen(true); }).catch(e => setGoNoGoError(e.message)).finally(() => setGoNoGoLoading(false));
+              }} disabled={goNoGoLoading} style={{ fontSize: 11, padding: "4px 12px", borderRadius: 8, cursor: "pointer", background: `${T.accent}18`, border: `1px solid ${T.accent}35`, color: T.accent, fontFamily: "'DM Sans', sans-serif" }}>
+                {goNoGoLoading ? "Analysing…" : "Assess →"}
+              </button>
+            )}
+            {goNoGoResult && <button onClick={e => { e.stopPropagation(); setGoNoGoResult(null); }} style={{ fontSize: 10, padding: "2px 8px", background: "none", border: "none", color: T.text3, cursor: "pointer" }}>Reset</button>}
+            <span style={{ color: T.text3, fontSize: 12 }}>{goNoGoOpen ? "▲" : "▼"}</span>
+          </div>
+          {goNoGoOpen && goNoGoError && <div style={{ padding: "12px 18px", fontSize: 12, color: T.coral }}>{goNoGoError}</div>}
+          {goNoGoOpen && goNoGoLoading && <div style={{ padding: "16px 18px", fontSize: 12, color: T.text3, fontStyle: "italic" }}>Assessing sprint status…</div>}
+          {goNoGoOpen && goNoGoResult && (
+            <div style={{ padding: "14px 18px" }}>
+              {goNoGoResult.reasons?.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  {goNoGoResult.reasons.map((r, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                      <span style={{ color: goNoGoResult.verdict === "GO" ? T.teal : goNoGoResult.verdict === "CAUTION" ? T.amber : T.coral, fontSize: 13, flexShrink: 0 }}>{goNoGoResult.verdict === "GO" ? "✓" : goNoGoResult.verdict === "CAUTION" ? "⚠" : "✗"}</span>
+                      <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.5 }}>{r}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {goNoGoResult.action_items?.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Action required</div>
+                  {goNoGoResult.action_items.map((a, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+                      <span style={{ color: T.amber, fontSize: 12, flexShrink: 0 }}>→</span>
+                      <span style={{ fontSize: 12, color: T.text2 }}>{a}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {goNoGoResult.release_note?.trim() && (
+                <div style={{ background: `${T.teal}0a`, border: `1px solid ${T.teal}28`, borderRadius: 9, padding: "10px 14px", marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.teal, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>📋 Release Note</div>
+                  <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.6 }}>{goNoGoResult.release_note}</div>
+                  <button onClick={() => { navigator.clipboard.writeText(goNoGoResult.release_note); setGoNoGoCopied(true); setTimeout(() => setGoNoGoCopied(false), 2000); }}
+                    style={{ marginTop: 8, fontSize: 11, padding: "3px 10px", background: goNoGoCopied ? `${T.teal}18` : "none", border: `1px solid ${T.teal}35`, borderRadius: 6, color: T.teal, cursor: "pointer" }}>
+                    {goNoGoCopied ? "✓ Copied" : "📋 Copy release note"}
+                  </button>
+                </div>
+              )}
+              <div style={{ fontSize: 10, color: T.text3 }}>Confidence: {goNoGoResult.confidence || "—"}%</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Blocked Escalation Drafter ────────────────────────────── */}
+      {tickets.length > 0 && (() => {
+        const blockedTickets = tickets.filter(t => (t.status || "").toLowerCase().includes("block"));
+        if (!blockedTickets.length) return null;
+        return (
+          <div style={{ marginBottom: 16, background: T.navy2, border: `1px solid ${T.coral}28`, borderRadius: 14, overflow: "hidden" }}>
+            <div style={{ padding: "13px 18px", background: T.navy1, borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
+                ✉️ Escalation Drafter <span style={{ fontSize: 11, fontWeight: 400, color: T.coral }}>· {blockedTickets.length} blocked ticket{blockedTickets.length !== 1 ? "s" : ""}</span>
+              </div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>AI writes a professional escalation message — copy or send to Cliq</div>
+            </div>
+            <div style={{ padding: "12px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+              {blockedTickets.map(t => {
+                const res = escalationResults[t.key];
+                const isLoading = escalatingKey === t.key;
+                const isCopied = escalationCopied === t.key;
+                return (
+                  <div key={t.key} style={{ background: T.navy3, border: `1px solid ${T.coral}18`, borderLeft: `3px solid ${T.coral}`, borderRadius: "0 9px 9px 0", padding: "10px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: res ? 8 : 0, flexWrap: "wrap" }}>
+                      <a href={config?.baseUrl ? `${config.baseUrl.replace(/\/$/, "")}/browse/${t.key}` : "#"} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 11, fontWeight: 700, color: T.accent2, textDecoration: "none", flexShrink: 0 }}>{t.key}</a>
+                      <span style={{ fontSize: 12, color: T.text2, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.summary}</span>
+                      {!res && (
+                        <button onClick={async () => {
+                          setEscalatingKey(t.key);
+                          try {
+                            const text = await callGroqEscalation(t, config);
+                            setEscalationResults(prev => ({ ...prev, [t.key]: text }));
+                          } catch (e) {
+                            setEscalationResults(prev => ({ ...prev, [t.key]: `Error: ${e.message}` }));
+                          }
+                          setEscalatingKey(null);
+                        }} disabled={!!escalatingKey} style={{ fontSize: 11, padding: "3px 10px", background: `${T.coral}12`, border: `1px solid ${T.coral}35`, borderRadius: 7, color: T.coral, cursor: escalatingKey ? "not-allowed" : "pointer", flexShrink: 0, fontFamily: "'DM Sans', sans-serif" }}>
+                          {isLoading ? "Writing…" : "✉️ Draft escalation"}
+                        </button>
+                      )}
+                      {res && (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => { navigator.clipboard.writeText(res); setEscalationCopied(t.key); setTimeout(() => setEscalationCopied(null), 2000); }}
+                            style={{ fontSize: 11, padding: "3px 10px", background: isCopied ? `${T.teal}18` : `${T.accent}12`, border: `1px solid ${isCopied ? T.teal + "40" : T.accent + "35"}`, borderRadius: 7, color: isCopied ? T.teal : T.accent, cursor: "pointer", flexShrink: 0 }}>
+                            {isCopied ? "✓ Copied" : "📋 Copy"}
+                          </button>
+                          <button onClick={async () => { try { await sendToCliq(res); } catch {} }}
+                            style={{ fontSize: 11, padding: "3px 10px", background: `${T.teal}10`, border: `1px solid ${T.teal}30`, borderRadius: 7, color: T.teal, cursor: "pointer", flexShrink: 0 }}>Send to Cliq</button>
+                          <button onClick={() => setEscalationResults(prev => { const n = { ...prev }; delete n[t.key]; return n; })}
+                            style={{ fontSize: 11, background: "none", border: "none", color: T.text3, cursor: "pointer" }}>Clear</button>
+                        </div>
+                      )}
+                    </div>
+                    {res && (
+                      <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.7, background: T.navy2, borderRadius: 7, padding: "10px 12px", marginTop: 4, whiteSpace: "pre-wrap", fontFamily: "'DM Sans', sans-serif" }}>{res}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── My Sprint Wins (Done tickets for current user) ─────── */}
+      {tickets.length > 0 && !teamView && config?.email && (() => {
+        const myEmail = (config.email || "").toLowerCase();
+        const myDone  = tickets.filter(t =>
+          (t.assigneeEmail || "").toLowerCase() === myEmail &&
+          t.statusCategory === "Done"
+        );
+        if (!myDone.length) return null;
+        const totalSP = myDone.reduce((s, t) => s + (t.storyPoints || 0), 0);
+        const copyWins = () => {
+          const dateLbl = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+          const lines = [`🏆 My Sprint Wins — ${sprintName || "Current Sprint"} · ${dateLbl}`, `${myDone.length} tickets completed${totalSP > 0 ? ` · ${totalSP} story points` : ""}`, ""];
+          myDone.forEach(t => { lines.push(`✅ ${t.key} — ${t.summary}${t.storyPoints ? ` (${t.storyPoints} SP)` : ""}`); });
+          lines.push("", "_Generated from Echo Workspace_");
+          navigator.clipboard.writeText(lines.join("\n")).then(() => { setWinsCopied(true); setTimeout(() => setWinsCopied(false), 2500); });
+        };
+        return (
+          <div style={{ marginBottom: 16, background: T.navy2, border: `1px solid ${T.teal}28`, borderRadius: 14, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", background: T.navy1, borderBottom: winsOpen ? `1px solid ${T.border}` : "none", cursor: "pointer" }}
+              onClick={() => setWinsOpen(o => !o)}>
+              <span style={{ fontSize: 13 }}>🏆</span>
+              <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
+                My Sprint Wins <span style={{ fontSize: 11, fontWeight: 400, color: T.teal, marginLeft: 4 }}>{myDone.length} done{totalSP > 0 ? ` · ${totalSP} SP` : ""}</span>
+              </div>
+              <button onClick={e => { e.stopPropagation(); copyWins(); }} style={{ fontSize: 11, padding: "4px 12px", background: winsCopied ? `${T.teal}18` : `${T.teal}0d`, border: `1px solid ${T.teal}35`, borderRadius: 8, color: T.teal, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+                {winsCopied ? "✓ Copied!" : "📋 Copy wins"}
+              </button>
+              <span style={{ color: T.text3, fontSize: 12 }}>{winsOpen ? "▲" : "▼"}</span>
+            </div>
+            {winsOpen && (
+              <div style={{ padding: "12px 18px", display: "flex", flexDirection: "column", gap: 7 }}>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>Ready to paste into appraisals, standups, or your manager update</div>
+                {myDone.map(t => (
+                  <div key={t.key} style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 10px", background: T.navy3, borderRadius: 8, borderLeft: `2px solid ${T.teal}` }}>
+                    <a href={config?.baseUrl ? `${config.baseUrl.replace(/\/$/, "")}/browse/${t.key}` : "#"} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: 11, fontWeight: 700, color: T.accent2, textDecoration: "none", flexShrink: 0 }}>{t.key}</a>
+                    <span style={{ fontSize: 12, color: T.text1, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.summary}</span>
+                    {t.storyPoints > 0 && <span style={{ fontSize: 10, color: T.teal, fontWeight: 700, flexShrink: 0, background: `${T.teal}12`, borderRadius: 8, padding: "1px 7px" }}>{t.storyPoints} SP</span>}
+                    <span style={{ fontSize: 10, color: T.teal, flexShrink: 0 }}>✅</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Team Leaderboard ─────────────────────────────────────── */}
+      {tickets.length > 0 && (() => {
+        const memberStats = Object.entries(allGroups).map(([name, mTickets]) => {
+          const done    = mTickets.filter(t => t.statusCategory === "Done").length;
+          const inProg  = mTickets.filter(t => t.statusCategory === "In Progress" && !(t.status || "").toLowerCase().includes("block")).length;
+          const blocked = mTickets.filter(t => (t.status || "").toLowerCase().includes("block")).length;
+          const spDone  = mTickets.filter(t => t.statusCategory === "Done" && t.storyPoints).reduce((s, t) => s + t.storyPoints, 0);
+          const spTotal = mTickets.filter(t => t.storyPoints).reduce((s, t) => s + t.storyPoints, 0);
+          const pct     = mTickets.length ? Math.round((done / mTickets.length) * 100) : 0;
+          return { name, total: mTickets.length, done, inProg, blocked, spDone, spTotal, pct };
+        });
+        const topByScore = [...memberStats].sort((a, b) => (b.spDone * 2 + b.done) - (a.spDone * 2 + a.done))[0]?.name;
+        return (
+          <div style={{ marginBottom: 16, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", background: T.navy1, borderBottom: leaderboardOpen ? `1px solid ${T.border}` : "none", cursor: "pointer" }} onClick={() => setLeaderboardOpen(o => !o)}>
+              <span style={{ fontSize: 13 }}>🏆</span>
+              <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
+                Team Leaderboard <span style={{ fontSize: 11, fontWeight: 400, color: T.text3 }}>· {sprintName || "current sprint"}</span>
+              </div>
+              <span style={{ color: T.text3, fontSize: 12 }}>{leaderboardOpen ? "▲" : "▼"}</span>
+            </div>
+            {leaderboardOpen && (
+              <div style={{ padding: "14px 18px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
+                  {memberStats.sort((a, b) => b.pct - a.pct || b.done - a.done).map((m) => {
+                    const isTop = m.name === topByScore && (m.spDone > 0 || m.done > 0);
+                    const mColor = m.blocked > 0 ? T.coral : m.pct === 100 ? T.emerald : m.pct >= 60 ? T.teal : T.accent;
+                    return (
+                      <div key={m.name} style={{ background: T.navy3, border: `1px solid ${isTop ? T.amber + "55" : T.border}`, borderRadius: 12, padding: "14px", position: "relative", overflow: "hidden" }}>
+                        {isTop && (
+                          <div style={{ position: "absolute", top: 0, right: 0, background: `${T.amber}18`, borderLeft: `1px solid ${T.amber}35`, borderBottom: `1px solid ${T.amber}35`, borderBottomLeftRadius: 9, padding: "3px 8px", fontSize: 9, fontWeight: 800, color: T.amber, letterSpacing: "0.06em" }}>
+                            ⭐ TOP
+                          </div>
+                        )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
+                          <div style={{ width: 36, height: 36, borderRadius: "50%", background: `${mColor}20`, border: `2px solid ${mColor}45`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: mColor, flexShrink: 0 }}>
+                            {m.name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
+                            <div style={{ fontSize: 10, color: T.text3 }}>{m.done}/{m.total} done</div>
+                          </div>
+                        </div>
+                        <div style={{ width: "100%", height: 4, background: T.border, borderRadius: 2, overflow: "hidden", marginBottom: 10 }}>
+                          <div style={{ width: `${m.pct}%`, height: "100%", background: mColor, borderRadius: 2, transition: "width 0.5s ease" }} />
+                        </div>
+                        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: mColor, background: `${mColor}12`, border: `1px solid ${mColor}28`, padding: "2px 7px", borderRadius: 10 }}>{m.pct}%</span>
+                          {m.spDone > 0 && <span style={{ fontSize: 10, color: T.accent2, background: `${T.accent}10`, border: `1px solid ${T.accent}28`, padding: "2px 7px", borderRadius: 10, fontWeight: 700 }}>{m.spDone}{m.spTotal > 0 ? `/${m.spTotal}` : ""} SP</span>}
+                          {m.inProg > 0 && <span style={{ fontSize: 10, color: T.text2, background: T.navy2, border: `1px solid ${T.border}`, padding: "2px 7px", borderRadius: 10 }}>🔵 {m.inProg}</span>}
+                          {m.blocked > 0 && <span style={{ fontSize: 10, color: T.coral, background: `${T.coral}10`, border: `1px solid ${T.coral}28`, padding: "2px 7px", borderRadius: 10, fontWeight: 700 }}>🔴 {m.blocked}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Sprint Burndown ──────────────────────────────────── */}
+      {tickets.length > 0 && sprintStartIso && sprintEndIso && sprintStartSP != null && (() => {
+        const startMs  = new Date(sprintStartIso).getTime();
+        const endMs    = new Date(sprintEndIso).getTime();
+        const nowMs    = Date.now();
+        const totalDays   = Math.max(1, workingDays(startMs, endMs));
+        const elapsedDays = Math.min(workingDays(startMs, nowMs), totalDays);
+        const doneSP      = tickets.filter(t => t.statusCategory === "Done").reduce((a, t) => a + (t.storyPoints || 0), 0);
+        const currentTotalSP = tickets.reduce((a, t) => a + (t.storyPoints || 0), 0);
+        const scopeCreep  = currentTotalSP - sprintStartSP;
+        const remainingSP = Math.max(0, currentTotalSP - doneSP);
+        const idealRemaining = Math.max(0, sprintStartSP * (1 - elapsedDays / totalDays));
+        // SVG coordinate helpers (400×80 canvas, y=0 = top = all SP remaining, y=H = no SP remaining)
+        const W = 400; const H = 80;
+        const todayX  = Math.min((elapsedDays / totalDays) * W, W);
+        const actualY = sprintStartSP > 0 ? H - (remainingSP  / sprintStartSP) * H : H;
+        const idealY  = sprintStartSP > 0 ? H - (idealRemaining / sprintStartSP) * H : H;
+        const isAhead = actualY >= idealY; // lower in SVG space = less remaining = ahead
+        const allDone = remainingSP === 0;
+        const statusColor = allDone ? T.emerald : isAhead ? T.teal : T.coral;
+        const statusLabel = allDone ? "All SP done!" : isAhead ? "Ahead of schedule" : "Behind schedule";
+        // ── Comparison data (computed only when showCompare + data loaded) ──
+        const myTeamEmails = config ? new Set([
+          (config.email || "").toLowerCase(),
+          ...(config.teamMembers || []).map(m => (m.jiraEmail || "").toLowerCase()).filter(Boolean),
+        ]) : new Set();
+        const othersTickets  = allSprintTickets.filter(t => !myTeamEmails.has(t.assigneeEmail.toLowerCase()));
+        const allDoneSP      = allSprintTickets.filter(t => t.statusCategory === "Done").reduce((a, t) => a + (t.storyPoints || 0), 0);
+        const allCurrentSP   = allSprintTickets.reduce((a, t) => a + (t.storyPoints || 0), 0);
+        const allRemaining   = Math.max(0, allCurrentSP - allDoneSP);
+        const othersStartSP  = (allSprintStartSP || 0) - sprintStartSP;
+        const othersDoneSP   = othersTickets.filter(t => t.statusCategory === "Done").reduce((a, t) => a + (t.storyPoints || 0), 0);
+        const othersRemaining = Math.max(0, othersStartSP - othersDoneSP);
+        const otherAssignees = [...new Set(othersTickets.map(t => t.assigneeName || "Unassigned"))].filter(n => n !== "Unassigned");
+        // Normalized chart positions (% done → Y coord, 0=nothing done=top, H=all done=bottom)
+        const myTeamChartY   = sprintStartSP > 0      ? H - (remainingSP  / sprintStartSP)      * H : H;
+        const allChartY      = (allSprintStartSP || 0) > 0 ? H - (allRemaining / allSprintStartSP) * H : H;
+        const myTeamPctDone  = sprintStartSP > 0          ? Math.round((doneSP        / sprintStartSP)      * 100) : 0;
+        const othersPctDone  = othersStartSP > 0           ? Math.round((othersDoneSP  / othersStartSP)       * 100) : 0;
+        const allPctDone     = (allSprintStartSP || 0) > 0 ? Math.round((allDoneSP    / allSprintStartSP)    * 100) : 0;
+
+        return (
+          <div style={{ marginBottom: 16, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 18px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 13 }}>📉</span>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>Sprint Burndown</div>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>
+                  {sprintName} · day {Math.round(elapsedDays)} of {Math.round(totalDays)} · {sprintDates.start} – {sprintDates.end}
+                </div>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, background: `${statusColor}12`, border: `1px solid ${statusColor}30`, borderRadius: 20, padding: "3px 10px" }}>
+                {statusLabel}
+              </span>
+              {scopeCreep !== 0 && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, background: `${T.amber}10`, border: `1px solid ${T.amber}28`, borderRadius: 20, padding: "2px 8px" }}>
+                  {scopeCreep > 0 ? `+${scopeCreep}` : scopeCreep} SP scope {scopeCreep > 0 ? "added" : "removed"}
+                </span>
+              )}
+              <button
+                onClick={() => { setShowCompare(v => !v); if (!showCompare && !allSprintTickets.length) fetchAllSprint(); }}
+                title="Compare your team vs the full sprint"
+                style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", fontSize: 11, fontWeight: 700, borderRadius: 20, cursor: "pointer", transition: "all 0.2s", background: showCompare ? `${T.violet || T.accent}20` : "transparent", color: showCompare ? (T.violet || T.accent2) : T.text3, border: `1px solid ${showCompare ? (T.violet || T.accent) + "55" : T.border}` }}>
+                🔀 {showCompare ? "Hide compare" : "Compare full sprint"}
+              </button>
+              <button
+                onClick={() => { setShowPrevCompare(v => !v); if (!showPrevCompare && !prevSprintTickets.length) fetchPrevSprint(); }}
+                title="Compare this sprint vs the previous closed sprint"
+                style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", fontSize: 11, fontWeight: 700, borderRadius: 20, cursor: "pointer", transition: "all 0.2s", background: showPrevCompare ? `${T.gold}20` : "transparent", color: showPrevCompare ? T.gold : T.text3, border: `1px solid ${showPrevCompare ? T.gold + "55" : T.border}` }}>
+                📊 {showPrevCompare ? "Hide last sprint" : "vs Last Sprint"}
+              </button>
+            </div>
+            {/* Stats row */}
+            <div style={{ display: "flex", gap: 20, marginBottom: 12, flexWrap: "wrap" }}>
+              {[
+                { label: "Committed", value: `${sprintStartSP} SP`, color: T.text2 },
+                { label: "Done",      value: `${doneSP} SP`,        color: T.teal },
+                { label: "Remaining", value: `${remainingSP} SP`,   color: remainingSP > idealRemaining ? T.coral : T.teal },
+                { label: "Ideal now", value: `${Math.round(idealRemaining)} SP`, color: T.text3 },
+              ].map(s => (
+                <div key={s.label} style={{ fontSize: 11 }}>
+                  <span style={{ color: T.text3 }}>{s.label}: </span>
+                  <span style={{ fontWeight: 700, color: s.color, fontVariantNumeric: "tabular-nums" }}>{s.value}</span>
+                </div>
+              ))}
+            </div>
+            {/* SVG chart — My Team only */}
+            <div style={{ overflowX: "auto" }}>
+              <svg viewBox={`0 0 ${W} ${H + 18}`} style={{ width: "100%", minWidth: 260, display: "block" }} preserveAspectRatio="none">
+                {[0, 0.25, 0.5, 0.75, 1].map(p => (
+                  <line key={p} x1={0} y1={p * H} x2={W} y2={p * H} stroke="rgba(255,255,255,0.05)" strokeWidth={0.8} />
+                ))}
+                <line x1={0} y1={0} x2={W} y2={H} stroke={T.text3} strokeWidth={1.2} strokeDasharray="6 4" />
+                {todayX > 0 && (
+                  <polygon points={`0,0 ${todayX},${idealY} ${todayX},${actualY}`} fill={isAhead ? `${T.teal}20` : `${T.coral}18`} />
+                )}
+                <line x1={0} y1={0} x2={todayX} y2={actualY} stroke={statusColor} strokeWidth={2.5} strokeLinecap="round" />
+                <circle cx={todayX} cy={actualY} r={4.5} fill={statusColor} />
+                <line x1={W} y1={0} x2={W} y2={H} stroke="rgba(255,255,255,0.1)" strokeWidth={1} />
+                <text x={2}           y={H + 14} fill={T.text3}    fontSize={7.5}>{sprintDates.start}</text>
+                <text x={W - 2}       y={H + 14} fill={T.text3}    fontSize={7.5} textAnchor="end">{sprintDates.end}</text>
+                <text x={todayX + 6}  y={actualY - 5} fill={statusColor} fontSize={7.5} fontWeight="bold">Today</text>
+              </svg>
+            </div>
+
+            {/* ── Full-Sprint Comparison Panel ── */}
+            {showCompare && (
+              <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14, marginTop: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: T.text2 }}>Full Sprint Comparison</span>
+                  <span style={{ fontSize: 10, color: T.text3 }}>— your team vs everyone else in this sprint (% of committed SP burned down)</span>
+                  <button onClick={fetchAllSprint} disabled={compareLoading} title="Refresh comparison data"
+                    style={{ marginLeft: "auto", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontSize: 11, background: "transparent", color: T.text3, border: `1px solid ${T.border}` }}>
+                    {compareLoading ? "…" : "↻"}
+                  </button>
+                </div>
+
+                {compareLoading && (
+                  <div style={{ textAlign: "center", padding: "24px", color: T.text3, fontSize: 12 }}>Fetching all sprint tickets…</div>
+                )}
+                {compareError && (
+                  <div style={{ padding: "10px 14px", borderRadius: 8, background: `${T.coral}10`, border: `1px solid ${T.coral}30`, color: T.coral, fontSize: 12, marginBottom: 12 }}>{compareError}</div>
+                )}
+
+                {!compareLoading && allSprintTickets.length > 0 && allSprintStartSP != null && (() => {
+                  const cmpH = 90;
+                  const legendH = 16;
+                  return (
+                    <>
+                      {/* Comparison SVG — normalized % scale */}
+                      <div style={{ overflowX: "auto", marginBottom: 14 }}>
+                        <svg viewBox={`0 0 ${W} ${cmpH + 18 + legendH}`} style={{ width: "100%", minWidth: 260, display: "block" }} preserveAspectRatio="none">
+                          {/* Grid + % labels */}
+                          {[0, 0.25, 0.5, 0.75, 1].map(p => (
+                            <g key={p}>
+                              <line x1={0} y1={p * cmpH} x2={W} y2={p * cmpH} stroke="rgba(255,255,255,0.05)" strokeWidth={0.8} />
+                              <text x={W + 2} y={p * cmpH + 3} fill={T.text3} fontSize={6.5} textAnchor="start">{Math.round((1 - p) * 100)}%</text>
+                            </g>
+                          ))}
+                          {/* Ideal burndown (normalized) */}
+                          <line x1={0} y1={0} x2={W} y2={cmpH} stroke={T.text3} strokeWidth={1.2} strokeDasharray="6 4" />
+                          {/* Full Sprint line (accent/purple) */}
+                          {allChartY !== null && todayX > 0 && (
+                            <>
+                              <polygon points={`0,0 ${todayX},${(H / cmpH) * allChartY * (cmpH / H)} ${todayX},${cmpH}`} fill={`${T.accent}0a`} />
+                              <line x1={0} y1={0} x2={todayX} y2={allChartY * (cmpH / H)} stroke={T.accent} strokeWidth={2} strokeLinecap="round" strokeOpacity={0.85} />
+                              <circle cx={todayX} cy={allChartY * (cmpH / H)} r={4} fill={T.accent} />
+                              <text x={todayX + 5} y={allChartY * (cmpH / H) - 4} fill={T.accent} fontSize={7} fontWeight="bold">{allPctDone}%</text>
+                            </>
+                          )}
+                          {/* My Team line (teal) */}
+                          {todayX > 0 && (
+                            <>
+                              <line x1={0} y1={0} x2={todayX} y2={myTeamChartY * (cmpH / H)} stroke={T.teal} strokeWidth={2.5} strokeLinecap="round" />
+                              <circle cx={todayX} cy={myTeamChartY * (cmpH / H)} r={4.5} fill={T.teal} />
+                              <text x={todayX + 5} y={myTeamChartY * (cmpH / H) + 10} fill={T.teal} fontSize={7} fontWeight="bold">{myTeamPctDone}%</text>
+                            </>
+                          )}
+                          {/* Sprint end marker */}
+                          <line x1={W} y1={0} x2={W} y2={cmpH} stroke="rgba(255,255,255,0.1)" strokeWidth={1} />
+                          {/* X axis labels */}
+                          <text x={2}     y={cmpH + 12} fill={T.text3} fontSize={7.5}>{sprintDates.start}</text>
+                          <text x={W - 2} y={cmpH + 12} fill={T.text3} fontSize={7.5} textAnchor="end">{sprintDates.end}</text>
+                          {/* Legend */}
+                          <circle cx={6}       cy={cmpH + 24} r={3.5} fill={T.teal} />
+                          <text   x={13}       y={cmpH + 27} fill={T.teal}   fontSize={7.5} fontWeight="bold">My Team</text>
+                          <circle cx={W/2 - 4} cy={cmpH + 24} r={3.5} fill={T.accent} />
+                          <text   x={W/2 + 3} y={cmpH + 27} fill={T.accent} fontSize={7.5} fontWeight="bold">Full Sprint</text>
+                          <line   x1={W - 48} y1={cmpH + 24} x2={W - 38} y2={cmpH + 24} stroke={T.text3} strokeWidth={1.2} strokeDasharray="4 3" />
+                          <text   x={W - 36}  y={cmpH + 27} fill={T.text3} fontSize={7.5}>Ideal</text>
+                        </svg>
+                      </div>
+
+                      {/* Stats comparison table */}
+                      <div style={{ overflowX: "auto", marginBottom: 12 }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                          <thead>
+                            <tr>
+                              <th style={{ textAlign: "left",   padding: "5px 10px", color: T.text3, fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.8 }}></th>
+                              <th style={{ textAlign: "center", padding: "5px 10px", color: T.teal,   fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.8 }}>My Team</th>
+                              <th style={{ textAlign: "center", padding: "5px 10px", color: T.accent2, fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.8 }}>Others</th>
+                              <th style={{ textAlign: "center", padding: "5px 10px", color: T.text2,  fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.8 }}>Full Sprint</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              { label: "Committed SP", vals: [sprintStartSP, othersStartSP, allSprintStartSP], fmt: v => `${v} SP` },
+                              { label: "Done SP",      vals: [doneSP, othersDoneSP, allDoneSP],                fmt: v => `${v} SP` },
+                              { label: "Remaining SP", vals: [remainingSP, othersRemaining, allRemaining],     fmt: v => `${v} SP` },
+                              { label: "% Complete",   vals: [myTeamPctDone, othersPctDone, allPctDone],       fmt: v => `${v}%` },
+                            ].map((row, ri) => (
+                              <tr key={row.label} style={{ borderTop: `1px solid ${T.border}`, background: ri % 2 === 0 ? "transparent" : `${T.navy3}50` }}>
+                                <td style={{ padding: "6px 10px", color: T.text3, fontWeight: 600, fontSize: 11 }}>{row.label}</td>
+                                {row.vals.map((v, i) => (
+                                  <td key={i} style={{ padding: "6px 10px", textAlign: "center", fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: 12, color: i === 0 ? T.teal : i === 1 ? T.accent2 : T.text2 }}>{row.fmt(v)}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Others — who they are */}
+                      {otherAssignees.length > 0 && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                          <span style={{ fontSize: 10, color: T.text3, flexShrink: 0 }}>Others in sprint:</span>
+                          {otherAssignees.slice(0, 15).map(name => (
+                            <span key={name} style={{ fontSize: 10, color: T.accent2, background: `${T.accent}0d`, border: `1px solid ${T.border}`, borderRadius: 10, padding: "2px 9px" }}>{name}</span>
+                          ))}
+                          {otherAssignees.length > 15 && <span style={{ fontSize: 10, color: T.text3 }}>+{otherAssignees.length - 15} more</span>}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* ── Previous Sprint Comparison Panel ─────────────────── */}
+            {showPrevCompare && (
+              <div style={{ marginTop: 14, borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+                {prevCompareLoading && (
+                  <div style={{ padding: "20px 0", textAlign: "center", color: T.text3, fontSize: 12 }}>
+                    <div style={{ fontSize: 20, marginBottom: 6 }}>⏳</div>
+                    Fetching previous sprint data…
+                  </div>
+                )}
+                {prevCompareError && (
+                  <div style={{ color: T.coral, fontSize: 12, marginBottom: 8 }}>⚠ {prevCompareError}</div>
+                )}
+                {!prevCompareLoading && !prevCompareError && prevSprintTickets.length > 0 && (() => {
+                  const prevCommitted = prevSprintTickets.reduce((a, t) => a + (t.storyPoints || 0), 0);
+                  const prevDone      = prevSprintTickets.filter(t => t.statusCategory === "Done");
+                  const prevDoneSP    = prevDone.reduce((a, t) => a + (t.storyPoints || 0), 0);
+                  const prevPct       = prevCommitted > 0 ? Math.round((prevDoneSP / prevCommitted) * 100) : 0;
+                  const currPct       = sprintStartSP > 0 ? Math.round((doneSP / sprintStartSP) * 100) : 0;
+                  const currDoneCount = tickets.filter(t => t.statusCategory === "Done").length;
+                  const rows = [
+                    { label: "Committed SP", curr: sprintStartSP,         prev: prevCommitted,           fmt: v => `${v} SP` },
+                    { label: "Done SP",      curr: doneSP,                 prev: prevDoneSP,              fmt: v => `${v} SP` },
+                    { label: "% Complete",   curr: currPct,                prev: prevPct,                 fmt: v => `${v}%` },
+                    { label: "Tickets Done", curr: currDoneCount,          prev: prevDone.length,         fmt: v => `${v}` },
+                    { label: "Total Tickets",curr: tickets.length,         prev: prevSprintTickets.length, fmt: v => `${v}` },
+                  ];
+                  return (
+                    <>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.gold }}>📊 Sprint-over-Sprint</span>
+                        <button onClick={fetchPrevSprint} disabled={prevCompareLoading} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, cursor: "pointer", background: "transparent", color: T.text3, border: `1px solid ${T.border}` }} title="Refresh">↻</button>
+                      </div>
+                      {/* Column headers */}
+                      <div style={{ display: "grid", gridTemplateColumns: "140px 1fr 1fr", gap: 0, marginBottom: 4 }}>
+                        <div />
+                        <div style={{ fontSize: 10, fontWeight: 700, color: T.teal, textAlign: "right", paddingRight: 12, letterSpacing: "0.04em" }}>THIS SPRINT</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: T.gold, textAlign: "right", paddingRight: 4, letterSpacing: "0.04em" }}>LAST SPRINT</div>
+                      </div>
+                      <div style={{ fontSize: 10, color: T.text3, marginBottom: 8, paddingLeft: 2, display: "flex", justifyContent: "space-between" }}>
+                        <span>{sprintName || "Current"}</span>
+                        <span style={{ color: T.gold }}>{prevSprintName}</span>
+                      </div>
+                      {rows.map(row => {
+                        const isBetter = row.curr >= row.prev;
+                        const diff = row.curr - row.prev;
+                        return (
+                          <div key={row.label} style={{ display: "grid", gridTemplateColumns: "140px 1fr 1fr", gap: 0, padding: "5px 0", borderBottom: `1px solid ${T.border}28` }}>
+                            <div style={{ fontSize: 11, color: T.text3 }}>{row.label}</div>
+                            <div style={{ textAlign: "right", paddingRight: 12 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: T.teal, fontVariantNumeric: "tabular-nums" }}>{row.fmt(row.curr)}</span>
+                              {diff !== 0 && (
+                                <span style={{ fontSize: 9, marginLeft: 4, color: isBetter ? T.teal : T.coral, fontWeight: 700 }}>
+                                  {diff > 0 ? `+${row.fmt(Math.abs(diff))}` : `-${row.fmt(Math.abs(diff))}`}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ textAlign: "right", paddingRight: 4 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: T.gold, fontVariantNumeric: "tabular-nums" }}>{row.fmt(row.prev)}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {/* Progress bar comparison */}
+                      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>Completion %</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 60, fontSize: 10, color: T.teal, fontWeight: 700, textAlign: "right" }}>This</div>
+                          <div style={{ flex: 1, height: 8, background: T.border, borderRadius: 4, overflow: "hidden" }}>
+                            <div style={{ width: `${currPct}%`, height: "100%", background: T.teal, borderRadius: 4, transition: "width 0.5s" }} />
+                          </div>
+                          <div style={{ width: 32, fontSize: 11, fontWeight: 700, color: T.teal, fontVariantNumeric: "tabular-nums" }}>{currPct}%</div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 60, fontSize: 10, color: T.gold, fontWeight: 700, textAlign: "right" }}>Last</div>
+                          <div style={{ flex: 1, height: 8, background: T.border, borderRadius: 4, overflow: "hidden" }}>
+                            <div style={{ width: `${prevPct}%`, height: "100%", background: T.gold, borderRadius: 4, transition: "width 0.5s" }} />
+                          </div>
+                          <div style={{ width: 32, fontSize: 11, fontWeight: 700, color: T.gold, fontVariantNumeric: "tabular-nums" }}>{prevPct}%</div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Time Report Panel (top, collapsible) ──────────────── */}
       {showTimeReport && (
@@ -9809,7 +13974,9 @@ function SprintBoard({ user }) {
                 {[
                   { color: T.accent, label: "Dev = time in In Progress / Development" },
                   { color: T.teal,   label: "QA = time in Ready for QA / Review / Testing" },
+                  { color: T.coral,  label: "Blocked = time in Blocked / On Hold" },
                   { color: T.text3,  label: "Idle = time in To Do / not started" },
+                  { color: T.amber,  label: "↩ Re-opens = ticket sent back from QA → Dev" },
                 ].map(l => (
                   <span key={l.label} style={{ fontSize: 10, color: T.text3, display: "flex", alignItems: "center", gap: 5 }}>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: l.color, flexShrink: 0, display: "inline-block" }} />
@@ -9819,16 +13986,19 @@ function SprintBoard({ user }) {
               </div>
               {Object.entries(groups).map(([member, memberTickets]) => {
                 // Per-member summary
+                const extraQa = (config?.qaStatuses || "").split(",").map(s => s.trim()).filter(Boolean);
                 const timeRows = memberTickets.map(t => {
                   const td = timeData[t.key];
                   if (!td || td.error) return null;
                   const assignedAt = findAssignedAt(td.assigneeChanges, t.assigneeEmail, td.created, sprintStartIso);
-                  return { t, tt: calcTicketTime(assignedAt, td.statusChanges) };
+                  return { t, tt: calcTicketTime(assignedAt, td.statusChanges, extraQa) };
                 }).filter(Boolean);
-                const totalDev  = timeRows.reduce((a, r) => a + r.tt.devDays, 0);
-                const totalQA   = timeRows.reduce((a, r) => a + r.tt.qaDays, 0);
-                const totalIdle = timeRows.reduce((a, r) => a + r.tt.idleDays, 0);
-                const staleCount = timeRows.filter(r => r.tt.isStale && r.t.statusCategory !== "Done").length;
+                const totalDev     = timeRows.reduce((a, r) => a + r.tt.devDays, 0);
+                const totalQA      = timeRows.reduce((a, r) => a + r.tt.qaDays, 0);
+                const totalIdle    = timeRows.reduce((a, r) => a + r.tt.idleDays, 0);
+                const totalBlocked = timeRows.reduce((a, r) => a + r.tt.blockedDays, 0);
+                const totalReopens = timeRows.reduce((a, r) => a + r.tt.reopens, 0);
+                const staleCount   = timeRows.filter(r => r.tt.isStale && r.t.statusCategory !== "Done").length;
                 return (
                   <div key={member} style={{ marginBottom: 24 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
@@ -9836,10 +14006,12 @@ function SprintBoard({ user }) {
                         {member} · {memberTickets.length} ticket{memberTickets.length !== 1 ? "s" : ""}
                       </div>
                       {/* Member summary pills */}
-                      {totalDev > 0  && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: `${T.accent}10`, border: `1px solid ${T.accent}28`, borderRadius: 10, padding: "2px 8px" }}>Dev {totalDev.toFixed(1)}d</span>}
-                      {totalQA > 0   && <span style={{ fontSize: 10, fontWeight: 700, color: T.teal,   background: `${T.teal}10`,   border: `1px solid ${T.teal}28`,   borderRadius: 10, padding: "2px 8px" }}>QA {totalQA.toFixed(1)}d</span>}
-                      {totalIdle > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.text3,  background: T.navy3,          border: `1px solid ${T.border}`,   borderRadius: 10, padding: "2px 8px" }}>Idle {totalIdle.toFixed(1)}d</span>}
-                      {staleCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.coral, background: `${T.coral}10`, border: `1px solid ${T.coral}28`, borderRadius: 10, padding: "2px 8px" }}>⚠️ {staleCount} stale</span>}
+                      {totalDev > 0     && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: `${T.accent}10`, border: `1px solid ${T.accent}28`, borderRadius: 10, padding: "2px 8px" }}>Dev {totalDev.toFixed(1)}d</span>}
+                      {totalQA > 0      && <span style={{ fontSize: 10, fontWeight: 700, color: T.teal,   background: `${T.teal}10`,   border: `1px solid ${T.teal}28`,   borderRadius: 10, padding: "2px 8px" }}>QA {totalQA.toFixed(1)}d</span>}
+                      {totalBlocked > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.coral,  background: `${T.coral}10`,  border: `1px solid ${T.coral}28`,  borderRadius: 10, padding: "2px 8px" }}>🔴 Blocked {totalBlocked.toFixed(1)}d</span>}
+                      {totalIdle > 0    && <span style={{ fontSize: 10, fontWeight: 700, color: T.text3,  background: T.navy3,          border: `1px solid ${T.border}`,   borderRadius: 10, padding: "2px 8px" }}>Idle {totalIdle.toFixed(1)}d</span>}
+                      {totalReopens > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.amber,  background: `${T.amber}10`,  border: `1px solid ${T.amber}28`,  borderRadius: 10, padding: "2px 8px" }}>↩ {totalReopens} re-open{totalReopens !== 1 ? "s" : ""}</span>}
+                      {staleCount > 0   && <span style={{ fontSize: 10, fontWeight: 700, color: T.coral,  background: `${T.coral}10`,  border: `1px solid ${T.coral}28`,  borderRadius: 10, padding: "2px 8px" }}>⚠️ {staleCount} stale</span>}
                     </div>
                     <div style={{ overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -9851,7 +14023,9 @@ function SprintBoard({ user }) {
                             <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700 }}>Assigned</th>
                             <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700, color: T.accent }}>Dev</th>
                             <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700, color: T.teal }}>QA</th>
+                            <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700, color: T.coral }}>Blocked</th>
                             <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700 }}>Idle</th>
+                            <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700, color: T.amber }}>↩</th>
                             <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 700 }}></th>
                           </tr>
                         </thead>
@@ -9867,7 +14041,7 @@ function SprintBoard({ user }) {
                               </tr>
                             );
                             const assignedAt = findAssignedAt(td.assigneeChanges, t.assigneeEmail, td.created, sprintStartIso);
-                            const tt = calcTicketTime(assignedAt, td.statusChanges);
+                            const tt = calcTicketTime(assignedAt, td.statusChanges, extraQa);
                             const isDone = t.statusCategory === "Done";
                             const sc = isDone ? T.emerald : jiraStatusColor(t.status, t.statusCategory);
                             // Flag: per-phase stale reason
@@ -9896,8 +14070,14 @@ function SprintBoard({ user }) {
                                 <td style={{ padding: "7px 8px", textAlign: "center", color: tt.qaDays > 0 ? T.teal : T.text3, fontWeight: tt.qaDays > 0 ? 700 : 400 }}>
                                   {tt.qaDays > 0 ? `${tt.qaDays.toFixed(1)}d` : <span style={{ color: T.navy3 }}>—</span>}
                                 </td>
+                                <td style={{ padding: "7px 8px", textAlign: "center", color: tt.blockedDays > 0 ? T.coral : T.text3, fontWeight: tt.blockedDays > 0 ? 700 : 400 }}>
+                                  {tt.blockedDays > 0 ? `${tt.blockedDays.toFixed(1)}d` : <span style={{ color: T.navy3 }}>—</span>}
+                                </td>
                                 <td style={{ padding: "7px 8px", textAlign: "center", color: tt.idleDays > 2 ? T.amber : T.text3 }}>
                                   {tt.idleDays > 0.1 ? `${tt.idleDays.toFixed(1)}d` : <span style={{ color: T.navy3 }}>—</span>}
+                                </td>
+                                <td style={{ padding: "7px 8px", textAlign: "center", fontWeight: 700, color: tt.reopens > 0 ? T.amber : T.navy3 }}>
+                                  {tt.reopens > 0 ? `↩${tt.reopens}` : "—"}
                                 </td>
                                 <td style={{ padding: "7px 8px", textAlign: "center", fontSize: 14 }} title={flag?.tip || ""}>
                                   {flag ? <span style={{ color: flag.color }}>{flag.icon}</span> : ""}
@@ -10078,6 +14258,12 @@ function SprintBoard({ user }) {
                             return <span style={{ fontSize: 10, fontWeight: diff <= 3 ? 700 : 400, color, background: diff < 0 ? `${T.coral}10` : "transparent", padding: "2px 7px", borderRadius: 10, border: `1px solid ${color}28` }}>{label}</span>;
                           })()}
                           {ticket.timeSpent && <span style={{ fontSize: 10, color: T.text3 }}>⏱ {ticket.timeSpent}{ticket.timeEstimate ? ` / ${ticket.timeEstimate}` : ""}</span>}
+                          {forgottenKeySet.has(ticket.key) && (
+                            <span title="Not mentioned in your diary for 7+ days — is this ticket still active?"
+                              style={{ fontSize: 10, fontWeight: 700, color: T.amber, background: `${T.amber}12`, border: `1px solid ${T.amber}35`, padding: "2px 8px", borderRadius: 10, cursor: "default" }}>
+                              👻 7d silent
+                            </span>
+                          )}
                           <button onClick={() => { setEditingNote(ticket.key); setNoteText(note); }}
                             style={{ fontSize: 10, color: note ? T.amber : T.text3, background: note ? `${T.amber}12` : "transparent", border: `1px solid ${note ? T.amber + "35" : T.border}`, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontWeight: note ? 700 : 400 }}>
                             {note ? "📝 Note" : "+ Note"}
@@ -10135,6 +14321,382 @@ function SprintBoard({ user }) {
         );
       })}
 
+    </div>
+  );
+}
+
+// ─── Member Sprint View ───────────────────────────────────────────────────────
+function MemberSprintView({ user }) {
+  const [sprintData, setSprintData]       = useState(null);
+  const [loading, setLoading]             = useState(true);
+  const [dbReady, setDbReady]             = useState(null);
+  const [noManager, setNoManager]         = useState(false);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(true);
+  const [memberJiraEmail, setMemberJiraEmail] = useState(() => localStorage.getItem("echo_member_jira_email") || "");
+  const [memberName, setMemberName]       = useState("");
+  const [editingEmail, setEditingEmail]   = useState(false);
+  const [emailDraft, setEmailDraft]       = useState("");
+
+  const SQL_MIGRATION = `-- Run once in Supabase SQL editor, then ask your manager to reload their Sprint Board:
+
+CREATE TABLE IF NOT EXISTS sprint_cache (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  manager_user_id UUID NOT NULL UNIQUE,
+  manager_email TEXT NOT NULL DEFAULT '',
+  sprint_name TEXT NOT NULL DEFAULT '',
+  sprint_start_date TEXT DEFAULT '',
+  sprint_end_date TEXT DEFAULT '',
+  committed_sp INTEGER DEFAULT 0,
+  tickets JSONB NOT NULL DEFAULT '[]',
+  published_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE sprint_cache ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "manager_write" ON sprint_cache FOR ALL USING (auth.uid() = manager_user_id);
+CREATE POLICY "team_read" ON sprint_cache FOR SELECT USING (
+  auth.uid() IN (
+    SELECT member_user_id FROM team_memberships
+    WHERE manager_user_id = sprint_cache.manager_user_id AND accepted_at IS NOT NULL
+  ) OR auth.uid() = manager_user_id
+);
+
+CREATE TABLE IF NOT EXISTS sprint_retros (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  sprint_name TEXT NOT NULL,
+  went_well TEXT DEFAULT '',
+  to_improve TEXT DEFAULT '',
+  guidance TEXT DEFAULT '',
+  member_feedback JSONB DEFAULT '{}',
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, sprint_name)
+);
+ALTER TABLE sprint_retros ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner_all" ON sprint_retros FOR ALL USING (auth.uid() = user_id);
+
+CREATE TABLE IF NOT EXISTS sprint_notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE,
+  notes JSONB NOT NULL DEFAULT '[]',
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE sprint_notes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`;
+
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      // Find manager via team_memberships
+      const mr = await fetch(
+        `${_REST()}/team_memberships?member_user_id=eq.${user.id}&accepted_at=not.is.null&limit=1`,
+        { headers: h() }
+      ).catch(() => null);
+      if (!mr?.ok) { setDbReady(false); setLoading(false); return; }
+      const [membership] = await mr.json();
+      if (!membership?.manager_user_id) { setNoManager(true); setLoading(false); return; }
+      setMemberName(membership.member_name || "");
+      // Use member_email as the JIRA email if user hasn't manually overridden it
+      if (!localStorage.getItem("echo_member_jira_email") && membership.member_email) {
+        setMemberJiraEmail(membership.member_email.toLowerCase());
+      }
+
+      // Fetch sprint cache published by manager
+      const cr = await fetch(
+        `${_REST()}/sprint_cache?manager_user_id=eq.${membership.manager_user_id}&limit=1`,
+        { headers: h() }
+      ).catch(() => null);
+      if (!cr?.ok) { setDbReady(false); setLoading(false); return; }
+      setDbReady(true);
+      const [cache] = await cr.json();
+      setSprintData(cache || null);
+      setLoading(false);
+    })();
+  }, [user]);
+
+  if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Loading sprint data…</div>;
+
+  if (dbReady === false) return (
+    <div className="echo-content fade-in">
+      <div style={{ background: `${T.coral}10`, border: `1px solid ${T.coral}30`, borderRadius: 12, padding: "24px 28px" }}>
+        <div style={{ fontSize: 14, color: T.coral, fontWeight: 700, marginBottom: 8 }}>⚠ One-time DB setup required</div>
+        <div style={{ fontSize: 13, color: T.text2, marginBottom: 16 }}>Run this SQL in Supabase, then ask your manager to open the Sprint Board once to publish the data.</div>
+        <pre style={{ background: T.navy0, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 16px", fontSize: 11, color: T.teal, overflowX: "auto", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{SQL_MIGRATION}</pre>
+        <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => navigator.clipboard.writeText(SQL_MIGRATION)}>📋 Copy SQL</button>
+      </div>
+    </div>
+  );
+
+  if (noManager) return (
+    <div className="echo-content fade-in">
+      <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "40px 28px", textAlign: "center" }}>
+        <div style={{ fontSize: 28, marginBottom: 12 }}>🔗</div>
+        <div style={{ fontSize: 14, color: T.text2, marginBottom: 6 }}>Not linked to a team yet</div>
+        <div style={{ fontSize: 12, color: T.text3 }}>Ask your manager to send you an invite link from Team Pulse.</div>
+      </div>
+    </div>
+  );
+
+  if (!sprintData) return (
+    <div className="echo-content fade-in">
+      <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "40px 28px", textAlign: "center" }}>
+        <div style={{ fontSize: 28, marginBottom: 12 }}>📋</div>
+        <div style={{ fontSize: 14, color: T.text2, marginBottom: 6 }}>Sprint data not published yet</div>
+        <div style={{ fontSize: 12, color: T.text3 }}>Ask your manager to open the Sprint Board — data is shared automatically when they load it.</div>
+      </div>
+    </div>
+  );
+
+  const tickets = sprintData.tickets || [];
+  const managerEmail = (sprintData.manager_email || "").toLowerCase();
+  // Use member_email (what manager registered) as primary JIRA email; fall back to auth email
+  const effectiveMyEmail = (memberJiraEmail || user.email || "").toLowerCase();
+  const myTickets = tickets.filter(t => {
+    const ae = (t.assigneeEmail || "").toLowerCase();
+    return ae === effectiveMyEmail || (effectiveMyEmail !== (user.email||"").toLowerCase() && ae === (user.email||"").toLowerCase());
+  });
+  const teamTickets = tickets.filter(t => (t.assigneeEmail || "").toLowerCase() !== managerEmail);
+
+  // Burndown calculation
+  const sprintStartSP = sprintData.committed_sp || 0;
+  const sprintStartDate = sprintData.sprint_start_date || "";
+  const sprintEndDate = sprintData.sprint_end_date || "";
+  const doneSP = teamTickets.filter(t => t.statusCategory === "Done").reduce((a, t) => a + (t.storyPoints || 0), 0);
+  const totalSP = teamTickets.reduce((a, t) => a + (t.storyPoints || 0), 0);
+  const remainingSP = Math.max(0, totalSP - doneSP);
+  const startMs = sprintStartDate ? new Date(sprintStartDate).getTime() : 0;
+  const endMs = sprintEndDate ? new Date(sprintEndDate).getTime() : 0;
+  const nowMs = Date.now();
+  const totalDays = startMs && endMs ? Math.max(1, Math.round((endMs - startMs) / 86400000 * 5 / 7)) : 10;
+  const elapsedDays = startMs ? Math.min(Math.round((nowMs - startMs) / 86400000 * 5 / 7), totalDays) : 0;
+  const idealRemaining = sprintStartSP > 0 ? Math.max(0, sprintStartSP * (1 - elapsedDays / totalDays)) : 0;
+  const isAhead = remainingSP <= idealRemaining;
+  const statusColor = remainingSP === 0 ? T.teal : isAhead ? T.teal : T.coral;
+  const W = 400; const H = 80;
+  const todayX = totalDays > 0 ? Math.min((elapsedDays / totalDays) * W, W) : 0;
+  const actualY = sprintStartSP > 0 ? H - (remainingSP / sprintStartSP) * H : H;
+  const idealY  = sprintStartSP > 0 ? H - (idealRemaining / sprintStartSP) * H : H;
+
+  // Leaderboard — exclude manager
+  const memberStats = Object.entries(
+    teamTickets.reduce((acc, t) => {
+      const name = t.assigneeName || "Unassigned";
+      if (!acc[name]) acc[name] = [];
+      acc[name].push(t);
+      return acc;
+    }, {})
+  ).map(([name, mTickets]) => {
+    const done    = mTickets.filter(t => t.statusCategory === "Done").length;
+    const inProg  = mTickets.filter(t => t.statusCategory === "In Progress" && !(t.status || "").toLowerCase().includes("block")).length;
+    const blocked = mTickets.filter(t => (t.status || "").toLowerCase().includes("block")).length;
+    const spDone  = mTickets.filter(t => t.statusCategory === "Done" && t.storyPoints).reduce((s, t) => s + t.storyPoints, 0);
+    const spTotal = mTickets.filter(t => t.storyPoints).reduce((s, t) => s + t.storyPoints, 0);
+    const pct     = mTickets.length ? Math.round((done / mTickets.length) * 100) : 0;
+    return { name, total: mTickets.length, done, inProg, blocked, spDone, spTotal, pct };
+  });
+  const topByScore = [...memberStats].sort((a, b) => (b.spDone * 2 + b.done) - (a.spDone * 2 + a.done))[0]?.name;
+
+  const fmtDate = iso => iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
+  const statusCategoryColor = (cat, status) => {
+    const s = (status || "").toLowerCase();
+    if (s.includes("block")) return T.coral;
+    if (cat === "Done") return T.teal;
+    if (cat === "In Progress") return T.accent;
+    return T.text3;
+  };
+
+  return (
+    <div className="echo-content fade-in">
+      {/* Header */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 11, color: T.text3, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 4 }}>My Sprint</div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>{sprintData.sprint_name || "Active Sprint"}</div>
+        {sprintStartDate && sprintEndDate && (
+          <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>{fmtDate(sprintStartDate)} – {fmtDate(sprintEndDate)}</div>
+        )}
+        <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>
+          Published by manager · {sprintData.published_at ? new Date(sprintData.published_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}
+        </div>
+        {/* JIRA email — editable override so members can fix mismatches */}
+        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {editingEmail ? (
+            <>
+              <input
+                value={emailDraft}
+                onChange={e => setEmailDraft(e.target.value)}
+                placeholder="your-name@company.com"
+                style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: `1px solid ${T.accent}60`, background: T.navy3, color: T.text1, outline: "none", width: 220 }}
+                onKeyDown={e => {
+                  if (e.key === "Enter") { const em = emailDraft.trim().toLowerCase(); setMemberJiraEmail(em); localStorage.setItem("echo_member_jira_email", em); setEditingEmail(false); }
+                  if (e.key === "Escape") setEditingEmail(false);
+                }}
+                autoFocus
+              />
+              <button onClick={() => { const em = emailDraft.trim().toLowerCase(); setMemberJiraEmail(em); localStorage.setItem("echo_member_jira_email", em); setEditingEmail(false); }}
+                style={{ fontSize: 10, padding: "3px 9px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", cursor: "pointer" }}>Save</button>
+              <button onClick={() => setEditingEmail(false)}
+                style={{ fontSize: 10, padding: "3px 9px", borderRadius: 6, background: "transparent", color: T.text3, border: `1px solid ${T.border}`, cursor: "pointer" }}>Cancel</button>
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: 11, color: T.text3 }}>Your JIRA email:</span>
+              <span style={{ fontSize: 11, color: myTickets.length > 0 ? T.teal : T.amber, fontFamily: "'DM Mono', monospace" }}>{effectiveMyEmail || "not set"}</span>
+              <button onClick={() => { setEmailDraft(effectiveMyEmail); setEditingEmail(true); }}
+                style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: "transparent", color: T.text3, border: `1px solid ${T.border}`, cursor: "pointer" }}>
+                {myTickets.length === 0 ? "Fix →" : "Edit"}
+              </button>
+              {memberJiraEmail && localStorage.getItem("echo_member_jira_email") && (
+                <button onClick={() => { localStorage.removeItem("echo_member_jira_email"); setMemberJiraEmail(""); }}
+                  style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: "transparent", color: T.text3, border: `1px solid ${T.border}`, cursor: "pointer" }}>Reset</button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* My Tickets */}
+      <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, marginBottom: 16, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", background: T.navy1, borderBottom: `1px solid ${T.border}` }}>
+          <span style={{ fontSize: 13 }}>🎯</span>
+          <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
+            My Tickets <span style={{ fontSize: 11, fontWeight: 400, color: T.text3 }}>· {myTickets.length} assigned</span>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {["Done", "In Progress", "To Do"].map(cat => {
+              const c = myTickets.filter(t => t.statusCategory === cat).length;
+              if (!c) return null;
+              const col = cat === "Done" ? T.teal : cat === "In Progress" ? T.accent : T.text3;
+              return <span key={cat} style={{ fontSize: 10, fontWeight: 700, color: col, background: `${col}12`, border: `1px solid ${col}28`, padding: "2px 8px", borderRadius: 10 }}>{c} {cat}</span>;
+            })}
+          </div>
+        </div>
+        {myTickets.length === 0 ? (
+          <div style={{ padding: "24px 18px", fontSize: 12, color: T.text3, textAlign: "center" }}>No tickets assigned to you in this sprint yet.</div>
+        ) : (
+          <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+            {myTickets.map(t => {
+              const col = statusCategoryColor(t.statusCategory, t.status);
+              return (
+                <div key={t.key} style={{ display: "flex", alignItems: "center", gap: 10, background: T.navy3, borderRadius: 8, padding: "10px 12px", borderLeft: `3px solid ${col}60` }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: T.text3, fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>{t.key}</span>
+                      {t.priority && <span style={{ fontSize: 9, color: T.text3, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 4, padding: "1px 5px" }}>{t.priority}</span>}
+                      {t.storyPoints && <span style={{ fontSize: 9, fontWeight: 700, color: T.accent2, background: `${T.accent}10`, border: `1px solid ${T.accent}28`, borderRadius: 4, padding: "1px 5px" }}>{t.storyPoints} SP</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: T.text1, lineHeight: 1.4 }}>{t.summary}</div>
+                    {t.dueDate && t.statusCategory !== "Done" && (
+                      <div style={{ fontSize: 10, color: new Date(t.dueDate + "T00:00:00") < new Date() ? T.coral : T.text3, marginTop: 3 }}>
+                        Due {fmtDate(t.dueDate)}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: col, background: `${col}12`, border: `1px solid ${col}28`, borderRadius: 6, padding: "2px 7px", whiteSpace: "nowrap" }}>{t.status}</span>
+                    {t.url && <a href={t.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: T.text3, textDecoration: "none" }}>↗ JIRA</a>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Team Burndown */}
+      {sprintStartSP > 0 && startMs > 0 && (
+        <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13 }}>📉</span>
+            <div style={{ flex: 1, minWidth: 120 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>Team Burndown</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>Day {Math.round(elapsedDays)} of {Math.round(totalDays)}</div>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, background: `${statusColor}12`, border: `1px solid ${statusColor}30`, borderRadius: 20, padding: "3px 10px" }}>
+              {remainingSP === 0 ? "All done!" : isAhead ? "Ahead of schedule" : "Behind schedule"}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 20, marginBottom: 12, flexWrap: "wrap" }}>
+            {[
+              { label: "Committed", value: `${sprintStartSP} SP`, color: T.text2 },
+              { label: "Done",      value: `${doneSP} SP`,        color: T.teal },
+              { label: "Remaining", value: `${remainingSP} SP`,   color: remainingSP > idealRemaining ? T.coral : T.teal },
+              { label: "Ideal now", value: `${Math.round(idealRemaining)} SP`, color: T.text3 },
+            ].map(s => (
+              <div key={s.label} style={{ fontSize: 11 }}>
+                <span style={{ color: T.text3 }}>{s.label}: </span>
+                <span style={{ fontWeight: 700, color: s.color, fontVariantNumeric: "tabular-nums" }}>{s.value}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <svg viewBox={`0 0 ${W} ${H + 18}`} style={{ width: "100%", minWidth: 260, display: "block" }} preserveAspectRatio="none">
+              {[0, 0.25, 0.5, 0.75, 1].map(p => (
+                <line key={p} x1={0} y1={p * H} x2={W} y2={p * H} stroke="rgba(255,255,255,0.05)" strokeWidth={0.8} />
+              ))}
+              <line x1={0} y1={0} x2={W} y2={H} stroke={T.text3} strokeWidth={1.2} strokeDasharray="6 4" />
+              {todayX > 0 && (
+                <polygon points={`0,0 ${todayX},${idealY} ${todayX},${actualY}`} fill={isAhead ? `${T.teal}20` : `${T.coral}18`} />
+              )}
+              <line x1={0} y1={0} x2={todayX} y2={actualY} stroke={statusColor} strokeWidth={2.5} strokeLinecap="round" />
+              <circle cx={todayX} cy={actualY} r={4.5} fill={statusColor} />
+              <line x1={W} y1={0} x2={W} y2={H} stroke="rgba(255,255,255,0.1)" strokeWidth={1} />
+              <text x={2}          y={H + 14} fill={T.text3}    fontSize={7.5}>{fmtDate(sprintStartDate)}</text>
+              <text x={W - 2}      y={H + 14} fill={T.text3}    fontSize={7.5} textAnchor="end">{fmtDate(sprintEndDate)}</text>
+              <text x={todayX + 6} y={actualY - 5} fill={statusColor} fontSize={7.5} fontWeight="bold">Today</text>
+            </svg>
+          </div>
+        </div>
+      )}
+
+      {/* Team Leaderboard */}
+      {teamTickets.length > 0 && (
+        <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", background: T.navy1, borderBottom: leaderboardOpen ? `1px solid ${T.border}` : "none", cursor: "pointer" }}
+            onClick={() => setLeaderboardOpen(o => !o)}>
+            <span style={{ fontSize: 13 }}>🏆</span>
+            <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text1, fontFamily: "'Syne', sans-serif" }}>
+              Team Leaderboard <span style={{ fontSize: 11, fontWeight: 400, color: T.text3 }}>· {sprintData.sprint_name}</span>
+            </div>
+            <span style={{ color: T.text3, fontSize: 12 }}>{leaderboardOpen ? "▲" : "▼"}</span>
+          </div>
+          {leaderboardOpen && (
+            <div style={{ padding: "14px 18px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
+                {memberStats.sort((a, b) => b.pct - a.pct || b.done - a.done).map(m => {
+                  const isTop = m.name === topByScore && (m.spDone > 0 || m.done > 0);
+                  // isMe: match by assigneeName on my tickets, or by email, or by name fragment
+                  const isMe = (myTickets.length > 0 && myTickets[0]?.assigneeName === m.name) ||
+                    teamTickets.some(t => (t.assigneeEmail || "").toLowerCase() === effectiveMyEmail && t.assigneeName === m.name) ||
+                    (memberName && m.name.toLowerCase().includes(memberName.toLowerCase().split(" ")[0].toLowerCase()));
+                  const mColor = m.blocked > 0 ? T.coral : m.pct === 100 ? T.teal : m.pct >= 60 ? T.teal : T.accent;
+                  return (
+                    <div key={m.name} style={{ background: T.navy3, border: `1px solid ${isMe ? T.accent + "55" : isTop ? T.amber + "55" : T.border}`, borderRadius: 12, padding: "14px", position: "relative", overflow: "hidden" }}>
+                      {isTop && !isMe && <div style={{ position: "absolute", top: 0, right: 0, background: `${T.amber}18`, borderLeft: `1px solid ${T.amber}35`, borderBottom: `1px solid ${T.amber}35`, borderBottomLeftRadius: 9, padding: "3px 8px", fontSize: 9, fontWeight: 800, color: T.amber }}>⭐ TOP</div>}
+                      {isMe && <div style={{ position: "absolute", top: 0, right: 0, background: `${T.accent}18`, borderLeft: `1px solid ${T.accent}35`, borderBottom: `1px solid ${T.accent}35`, borderBottomLeftRadius: 9, padding: "3px 8px", fontSize: 9, fontWeight: 800, color: T.accent }}>YOU</div>}
+                      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: "50%", background: `${mColor}20`, border: `2px solid ${mColor}45`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: mColor, flexShrink: 0 }}>
+                          {m.name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: isMe ? T.accent : T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
+                          <div style={{ fontSize: 10, color: T.text3 }}>{m.done}/{m.total} done</div>
+                        </div>
+                      </div>
+                      <div style={{ width: "100%", height: 4, background: T.border, borderRadius: 2, overflow: "hidden", marginBottom: 10 }}>
+                        <div style={{ width: `${m.pct}%`, height: "100%", background: mColor, borderRadius: 2, transition: "width 0.5s ease" }} />
+                      </div>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: mColor, background: `${mColor}12`, border: `1px solid ${mColor}28`, padding: "2px 7px", borderRadius: 10 }}>{m.pct}%</span>
+                        {m.spDone > 0 && <span style={{ fontSize: 10, color: T.accent2, background: `${T.accent}10`, border: `1px solid ${T.accent}28`, padding: "2px 7px", borderRadius: 10, fontWeight: 700 }}>{m.spDone}{m.spTotal > 0 ? `/${m.spTotal}` : ""} SP</span>}
+                        {m.inProg > 0 && <span style={{ fontSize: 10, color: T.text2, background: T.navy2, border: `1px solid ${T.border}`, padding: "2px 7px", borderRadius: 10 }}>🔵 {m.inProg}</span>}
+                        {m.blocked > 0 && <span style={{ fontSize: 10, color: T.coral, background: `${T.coral}10`, border: `1px solid ${T.coral}28`, padding: "2px 7px", borderRadius: 10, fontWeight: 700 }}>🔴 {m.blocked}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -10323,22 +14885,1022 @@ function PremiumGate({ onBack }) {
   );
 }
 
+// ─── Team Progress Report ─────────────────────────────────────────────────────
+function TeamProgressReport({ user }) {
+  const [teammates, setTeammates] = useState([]);
+  const [sessions, setSessions]   = useState([]);
+  const [diaryFb, setDiaryFb]     = useState([]);
+  const [jiraCache, setJiraCache] = useState(null);
+  const [jiraConfig, setJiraConfig] = useState(null);
+  const [summaries, setSummaries] = useState({});
+  const [loading, setLoading]     = useState(true);
+  const [loadErr, setLoadErr]     = useState("");
+  const [expanded, setExpanded]   = useState({});
+  const [reportCopied, setReportCopied] = useState(false);
+  const [generatingAll, setGeneratingAll] = useState(false);
+  const [showOnlyDirect, setShowOnlyDirect] = useState(true);
+
+  const toggleExpand = (id) => setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+
+  useEffect(() => {
+    if (!user?.id) return;
+    try {
+      const jc  = JSON.parse(localStorage.getItem("echo_jira_config") || "null");
+      const jtc = JSON.parse(localStorage.getItem("echo_jira_tickets_cache") || "null");
+      setJiraConfig(jc);
+      setJiraCache(jtc);
+    } catch {}
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    Promise.all([
+      fetch(`${_REST()}/teammates?user_id=eq.${user.id}&order=name.asc`, { headers: h() }).then(r => r.ok ? r.json() : []),
+      fetch(`${_REST()}/one_on_one_sessions?user_id=eq.${user.id}&session_date=gte.${since}&order=session_date.desc`, { headers: h() }).then(r => r.ok ? r.json() : []),
+      fetch(`${_REST()}/diary_entries?user_id=eq.${user.id}&date=gte.${since}&select=date,title,mood,content,team_updates,feedback_given,is_win&order=date.desc`, { headers: h() }).then(r => r.ok ? r.json() : []),
+    ]).then(([tms, sess, diary]) => {
+      setTeammates(tms || []);
+      setSessions(sess || []);
+      setDiaryFb(diary || []);
+      setLoading(false);
+    }).catch(e => { setLoadErr(e.message); setLoading(false); });
+  }, [user]);
+
+  const displayedTeammates = showOnlyDirect
+    ? teammates.filter(tm => tm.relationship === "direct")
+    : teammates;
+
+  const sessionsFor  = (tm) => (sessions || []).filter(s => s.teammate_id === tm.id);
+  const feedbackFor  = (tm) => {
+    const name = tm.name?.toLowerCase().trim() || "";
+    const firstName = name.split(" ")[0];
+    const fb = [];
+    (diaryFb || []).forEach(e => {
+      (e.feedback_given || []).forEach(f => {
+        if (f.to && f.note) {
+          const to = f.to.toLowerCase().trim();
+          if (to === name || to === firstName || name.includes(to) || to.includes(firstName)) {
+            fb.push({ ...f, date: e.date });
+          }
+        }
+      });
+    });
+    return fb;
+  };
+  const mentionsFor  = (tm) => {
+    const name = tm.name?.toLowerCase().trim() || "";
+    const firstName = name.split(" ")[0];
+    const mentions = [];
+    (diaryFb || []).forEach(e => {
+      const haystack = [e.content || "", ...(e.team_updates || []).map(u => typeof u === "string" ? u : (u.text || u.note || ""))].join(" ").toLowerCase();
+      if (haystack.includes(firstName)) {
+        mentions.push({
+          date: e.date, title: e.title || "", mood: e.mood || "",
+          snippet: [e.content, ...(e.team_updates || []).map(u => typeof u === "string" ? u : (u.text || u.note || ""))].filter(Boolean).join(" ").slice(0, 200),
+          is_win: !!e.is_win,
+        });
+      }
+    });
+    return mentions.slice(0, 10);
+  };
+  const ticketsFor   = (tm) => {
+    if (!jiraCache?.tickets) return [];
+    const jiraEmail = ((jiraConfig?.teamMembers || []).find(m => m.name?.toLowerCase().trim() === tm.name?.toLowerCase().trim()) || {}).jiraEmail?.toLowerCase() || "";
+    const firstName = (tm.name || "").split(" ")[0].toLowerCase();
+    return jiraCache.tickets.filter(t =>
+      (jiraEmail && t.assigneeEmail?.toLowerCase() === jiraEmail) ||
+      (!jiraEmail && t.assigneeName?.toLowerCase().includes(firstName))
+    );
+  };
+
+  const generateSummary = async (tm) => {
+    setSummaries(prev => ({ ...prev, [tm.id]: { data: null, generating: true, error: null } }));
+    try {
+      const result = await callGroqTeamMemberReport(tm, sessionsFor(tm), feedbackFor(tm), mentionsFor(tm), ticketsFor(tm));
+      setSummaries(prev => ({ ...prev, [tm.id]: { data: result, generating: false, error: null } }));
+    } catch (e) {
+      setSummaries(prev => ({ ...prev, [tm.id]: { data: null, generating: false, error: e.message } }));
+    }
+  };
+
+  const generateAll = async () => {
+    setGeneratingAll(true);
+    for (const tm of displayedTeammates) { if (!summaries[tm.id]?.data) await generateSummary(tm); }
+    setGeneratingAll(false);
+  };
+
+  const copyReport = () => {
+    const dateLabel = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    const sprintLabel = jiraCache?.sprintName ? ` — ${jiraCache.sprintName}` : "";
+    const lines = [`📊 Team Progress Report${sprintLabel}`, `Generated: ${dateLabel}`, ""];
+    teammates.forEach(tm => {
+      const sess = sessionsFor(tm); const fb = feedbackFor(tm); const tick = ticketsFor(tm);
+      const sum  = summaries[tm.id]?.data;
+      const pending = sess.flatMap(s => (s.action_items || []).filter(a => !a.done)).length;
+      const done = tick.filter(t => t.statusCategory === "Done").length;
+      lines.push(`── ${tm.emoji || "👤"} ${tm.name}${tm.role ? ` (${tm.role})` : ""} ──`);
+      lines.push(`1:1s (90d): ${sess.length} | Diary feedback: ${fb.length} | Tickets: ${done}/${tick.length}${pending ? ` | Pending actions: ${pending}` : ""}`);
+      const last = sess[0];
+      if (last) lines.push(`Last 1:1 ${last.session_date}: ${(last.notes || last.topics || "No notes").slice(0, 150)}`);
+      if (sum) {
+        lines.push(`Summary: ${sum.summary}`);
+        if (sum.strengths?.length)       lines.push(`Strengths: ${sum.strengths.join("; ")}`);
+        if (sum.watchPoints?.length)     lines.push(`Watch: ${sum.watchPoints.join("; ")}`);
+        if (sum.suggestedActions?.length) lines.push(`Actions: ${sum.suggestedActions.join("; ")}`);
+      }
+      lines.push("");
+    });
+    navigator.clipboard.writeText(lines.join("\n"));
+    setReportCopied(true);
+    setTimeout(() => setReportCopied(false), 2000);
+  };
+
+  const sentColor = (s) => ({ excellent: T.teal, positive: T.green, neutral: T.amber, needs_attention: T.coral }[s] || T.text3);
+  const sentLabel = (s) => ({ excellent: "Excellent", positive: "Good", neutral: "Neutral", needs_attention: "Needs Attention" }[s] || s);
+  const dominantSentiment = (sess) => {
+    const recent = sess.filter(s => s.sentiment).slice(0, 3);
+    if (!recent.length) return null;
+    const counts = {}; recent.forEach(s => counts[s.sentiment] = (counts[s.sentiment] || 0) + 1);
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  };
+
+  if (loading) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 220, color: T.text3, fontSize: 13 }}>Loading team data…</div>;
+  if (loadErr) return <div style={{ color: T.coral, padding: 24, textAlign: "center", fontSize: 13 }}>{loadErr}</div>;
+
+  return (
+    <div style={{ maxWidth: 800, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif" }}>Team Progress Report</div>
+          <div style={{ fontSize: 12, color: T.text3, marginTop: 3 }}>
+            {displayedTeammates.length} member{displayedTeammates.length !== 1 ? "s" : ""} · 1:1 notes, feedback &amp; JIRA — last 90 days
+            {jiraCache?.sprintName && <span style={{ color: T.accent, marginLeft: 8 }}>· {jiraCache.sprintName}</span>}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {/* Direct / All toggle */}
+          <div style={{ display: "flex", background: T.navy3, borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden", fontSize: 11, fontWeight: 700 }}>
+            <button onClick={() => setShowOnlyDirect(true)}
+              style={{ padding: "5px 12px", cursor: "pointer", border: "none", background: showOnlyDirect ? T.accent : "transparent", color: showOnlyDirect ? "#fff" : T.text3, transition: "all 0.15s" }}>
+              My Directs
+            </button>
+            <button onClick={() => setShowOnlyDirect(false)}
+              style={{ padding: "5px 12px", cursor: "pointer", border: "none", background: !showOnlyDirect ? T.navy2 : "transparent", color: !showOnlyDirect ? T.text1 : T.text3, transition: "all 0.15s" }}>
+              All Team
+            </button>
+          </div>
+          <button onClick={generateAll} disabled={generatingAll || !GROQ_API_KEY}
+            style={{ background: generatingAll ? T.navy3 : T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: !GROQ_API_KEY ? 0.4 : 1 }}>
+            {generatingAll ? "Generating…" : "Generate All"}
+          </button>
+          <button onClick={copyReport}
+            style={{ background: reportCopied ? T.teal : T.navy3, color: reportCopied ? "#fff" : T.text2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            {reportCopied ? "Copied!" : "Copy Report"}
+          </button>
+        </div>
+      </div>
+
+      {jiraCache && Date.now() - jiraCache.ts > 4 * 60 * 60 * 1000 && (
+        <div style={{ fontSize: 11, color: T.amber, background: `${T.amber}10`, border: `1px solid ${T.amber}30`, borderRadius: 8, padding: "6px 12px", marginBottom: 12 }}>
+          JIRA ticket data is {Math.floor((Date.now() - jiraCache.ts) / 3600000)}h old — open Sprint Board to refresh
+        </div>
+      )}
+      {!jiraCache && (
+        <div style={{ fontSize: 11, color: T.text3, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 12px", marginBottom: 12 }}>
+          No JIRA data loaded — open Sprint Board first to populate ticket progress
+        </div>
+      )}
+
+      {!displayedTeammates.length && (
+        <div style={{ textAlign: "center", color: T.text3, padding: 56, fontSize: 13 }}>
+          {showOnlyDirect && teammates.length > 0
+            ? <>No direct reports found. Set relationship to <strong>Direct</strong> in My Team, or switch to <strong>All Team</strong> view.</>
+            : <>No team members yet — add them in <strong>My Team</strong> first.</>}
+        </div>
+      )}
+
+      {displayedTeammates.map(tm => {
+        const sess   = sessionsFor(tm);
+        const fb     = feedbackFor(tm);
+        const mentions = mentionsFor(tm);
+        const tick   = ticketsFor(tm);
+        const sum    = summaries[tm.id];
+        const isExp  = !!expanded[tm.id];
+        const pending = sess.flatMap(s => (s.action_items || []).filter(a => !a.done));
+        const last   = sess[0];
+        const domSent = dominantSentiment(sess);
+        const last30d = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+        const sess30  = sess.filter(s => s.session_date >= last30d);
+        const doneTick    = tick.filter(t => t.statusCategory === "Done");
+        const blockedTick = tick.filter(t => (t.status || "").toLowerCase().includes("block"));
+
+        return (
+          <div key={tm.id} style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 14, marginBottom: 10, overflow: "hidden" }}>
+            {/* Collapsed header */}
+            <div onClick={() => toggleExpand(tm.id)}
+              style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 18px", cursor: "pointer", borderBottom: isExp ? `1px solid ${T.border}` : "none" }}>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0, background: T.navy3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17 }}>
+                {tm.emoji || "👤"}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text1 }}>{tm.name}</span>
+                  {tm.role && <span style={{ fontSize: 11, color: T.text3, background: T.navy3, borderRadius: 4, padding: "1px 6px" }}>{tm.role}</span>}
+                  {tm.relationship && <span style={{ fontSize: 10, color: T.accent, background: `${T.accent}18`, borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>{tm.relationship === "direct" ? "Direct" : tm.relationship === "manager" ? "Manager" : tm.relationship}</span>}
+                </div>
+                <div style={{ display: "flex", gap: 12, marginTop: 4, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, color: T.text3 }}><span style={{ color: T.text2, fontWeight: 600 }}>{sess30.length}</span> 1:1 this month</span>
+                  {last && <span style={{ fontSize: 11, color: T.text3 }}>Last: <span style={{ color: T.text2 }}>{last.session_date}</span></span>}
+                  {domSent && <span style={{ fontSize: 11, color: sentColor(domSent), fontWeight: 600 }}>{sentLabel(domSent)}</span>}
+                  {pending.length > 0 && <span style={{ fontSize: 11, color: T.coral, fontWeight: 600 }}>{pending.length} pending action{pending.length !== 1 ? "s" : ""}</span>}
+                  {fb.length > 0 && <span style={{ fontSize: 11, color: T.text3 }}><span style={{ color: T.text2, fontWeight: 600 }}>{fb.length}</span> feedback</span>}
+                  {mentions.length > 0 && <span style={{ fontSize: 11, color: T.text3 }}><span style={{ color: T.text2, fontWeight: 600 }}>{mentions.length}</span> diary mentions</span>}
+                  {tick.length > 0 && (
+                    <span style={{ fontSize: 11, color: T.text3 }}>
+                      Tickets: <span style={{ color: doneTick.length === tick.length ? T.teal : T.text2 }}>{doneTick.length}/{tick.length}</span>
+                      {blockedTick.length > 0 && <span style={{ color: T.coral }}> · {blockedTick.length} blocked</span>}
+                    </span>
+                  )}
+                  {sum?.data && <span style={{ fontSize: 10, color: T.accent, fontWeight: 700 }}>AI ✓</span>}
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: T.text3, flexShrink: 0 }}>{isExp ? "▲" : "▼"}</div>
+            </div>
+
+            {isExp && (
+              <div style={{ padding: "4px 18px 18px" }}>
+
+                {/* Recent 1:1 sessions */}
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Recent 1:1 Sessions ({sess.length} in 90d)</div>
+                  {sess.length === 0
+                    ? <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No sessions in last 90 days</div>
+                    : sess.slice(0, 3).map(s => {
+                        const sPend = (s.action_items || []).filter(a => !a.done);
+                        const sDone = (s.action_items || []).filter(a => a.done);
+                        const sFb   = s.feedback_given || [];
+                        return (
+                          <div key={s.id} style={{ background: T.navy3, borderRadius: 8, padding: "10px 12px", marginBottom: 8, borderLeft: `3px solid ${sentColor(s.sentiment)}` }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 5 }}>
+                              <span style={{ fontSize: 11, color: T.text2, fontWeight: 600 }}>{s.session_date}</span>
+                              {s.sentiment && <span style={{ fontSize: 10, color: sentColor(s.sentiment), fontWeight: 700 }}>{sentLabel(s.sentiment)}</span>}
+                              {s.action_items?.length > 0 && <span style={{ fontSize: 10, color: T.text3 }}>{sDone.length}/{s.action_items.length} actions done</span>}
+                            </div>
+                            {s.topics && <div style={{ fontSize: 12, color: T.text2, marginBottom: 3 }}><b>Topics:</b> {s.topics}</div>}
+                            {s.notes && <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.6 }}>{s.notes.slice(0, 220)}{s.notes.length > 220 ? "…" : ""}</div>}
+                            {sPend.length > 0 && <div style={{ marginTop: 5 }}>{sPend.map((a, i) => <div key={i} style={{ fontSize: 11, color: T.coral, display: "flex", gap: 4 }}><span>↳</span><span>{a.text}</span></div>)}</div>}
+                            {sFb.length > 0 && (
+                              <div style={{ marginTop: 5, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                {sFb.map((f, i) => (
+                                  <span key={i} style={{ fontSize: 11, color: T.text2, background: f.type === "praise" ? `${T.teal}18` : f.type === "critical" ? `${T.coral}18` : `${T.amber}18`, borderRadius: 4, padding: "2px 7px" }}>
+                                    [{f.type}] {f.note}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                  }
+                </div>
+
+                {/* Diary feedback */}
+                {fb.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Feedback from Diary ({fb.length} items)</div>
+                    {fb.slice(0, 6).map((f, i) => (
+                      <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, flexShrink: 0, color: f.type === "praise" ? T.teal : f.type === "critical" ? T.coral : T.amber, background: f.type === "praise" ? `${T.teal}15` : f.type === "critical" ? `${T.coral}15` : `${T.amber}15`, padding: "2px 6px", borderRadius: 4, marginTop: 1 }}>{f.type}</span>
+                        <span style={{ fontSize: 12, color: T.text2, flex: 1, lineHeight: 1.5 }}>{f.note}</span>
+                        <span style={{ fontSize: 10, color: T.text3, flexShrink: 0 }}>{f.date}</span>
+                      </div>
+                    ))}
+                    {fb.length > 6 && <div style={{ fontSize: 11, color: T.text3 }}>+{fb.length - 6} more</div>}
+                  </div>
+                )}
+
+                {/* Diary mentions */}
+                {mentions.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Diary Mentions ({mentions.length} entries)</div>
+                    {mentions.slice(0, 5).map((m, i) => (
+                      <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }}>
+                        <span style={{ fontSize: 10, color: T.text3, flexShrink: 0, paddingTop: 1, minWidth: 72 }}>{m.date}</span>
+                        {m.mood && <span style={{ fontSize: 10, color: T.text3, flexShrink: 0 }}>{m.mood}</span>}
+                        {m.is_win && <span style={{ fontSize: 10, color: T.gold, flexShrink: 0 }}>🏆</span>}
+                        <span style={{ fontSize: 12, color: T.text2, flex: 1, lineHeight: 1.5 }}>{m.snippet.slice(0, 160)}{m.snippet.length > 160 ? "…" : ""}</span>
+                      </div>
+                    ))}
+                    {mentions.length > 5 && <div style={{ fontSize: 11, color: T.text3 }}>+{mentions.length - 5} more diary entries mention {tm.name.split(" ")[0]}</div>}
+                  </div>
+                )}
+
+                {/* JIRA tickets */}
+                {tick.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Sprint Tickets{jiraCache?.sprintName ? ` — ${jiraCache.sprintName}` : ""}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {tick.map(t => {
+                        const isDone = t.statusCategory === "Done";
+                        const isBlk  = (t.status || "").toLowerCase().includes("block");
+                        return (
+                          <div key={t.key} style={{ background: T.navy3, borderRadius: 6, padding: "5px 10px", border: `1px solid ${isDone ? T.teal + "50" : isBlk ? T.coral + "50" : T.border}`, maxWidth: 290 }}>
+                            <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: T.accent }}>{t.key}</span>
+                              {t.storyPoints && <span style={{ fontSize: 10, color: T.amber }}>{t.storyPoints}SP</span>}
+                              <span style={{ fontSize: 10, color: isDone ? T.teal : isBlk ? T.coral : T.text2, fontWeight: 600 }}>{t.status}</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{t.summary.slice(0, 65)}{t.summary.length > 65 ? "…" : ""}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: "flex", gap: 14, marginTop: 8 }}>
+                      <span style={{ fontSize: 11, color: T.teal }}>{doneTick.length} done</span>
+                      <span style={{ fontSize: 11, color: T.text3 }}>{tick.length - doneTick.length} in progress</span>
+                      {blockedTick.length > 0 && <span style={{ fontSize: 11, color: T.coral }}>{blockedTick.length} blocked</span>}
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Summary */}
+                <div style={{ marginTop: 16, padding: "12px 14px", background: `${T.accent}08`, border: `1px solid ${T.accent}20`, borderRadius: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: sum?.data ? 10 : 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: 1 }}>AI Progress Summary</div>
+                    {!sum?.generating && (
+                      <button onClick={() => generateSummary(tm)} disabled={!GROQ_API_KEY}
+                        style={{ background: sum?.data ? T.navy3 : T.accent, color: sum?.data ? T.text2 : "#fff", border: `1px solid ${sum?.data ? T.border : "transparent"}`, borderRadius: 6, padding: "4px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", opacity: !GROQ_API_KEY ? 0.4 : 1 }}>
+                        {sum?.data ? "Regenerate" : "Generate Summary"}
+                      </button>
+                    )}
+                  </div>
+                  {sum?.generating && <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>Analysing {sessionsFor(tm).length} sessions, {feedbackFor(tm).length} feedback items, {mentionsFor(tm).length} diary mentions, {ticketsFor(tm).length} tickets…</div>}
+                  {sum?.error && <div style={{ fontSize: 12, color: T.coral, marginTop: 6 }}>{sum.error}</div>}
+                  {sum?.data && !sum.generating && (
+                    <div>
+                      <div style={{ fontSize: 13, color: T.text1, lineHeight: 1.75, marginBottom: 10 }}>{sum.data.summary}</div>
+                      {sum.data.strengths?.length > 0 && (
+                        <div style={{ marginBottom: 7 }}>
+                          <div style={{ fontSize: 11, color: T.teal, fontWeight: 700, marginBottom: 3 }}>Strengths</div>
+                          {sum.data.strengths.map((s, i) => <div key={i} style={{ fontSize: 12, color: T.text2, marginLeft: 10, marginBottom: 2 }}>· {s}</div>)}
+                        </div>
+                      )}
+                      {sum.data.watchPoints?.length > 0 && (
+                        <div style={{ marginBottom: 7 }}>
+                          <div style={{ fontSize: 11, color: T.amber, fontWeight: 700, marginBottom: 3 }}>Watch Points</div>
+                          {sum.data.watchPoints.map((w, i) => <div key={i} style={{ fontSize: 12, color: T.text2, marginLeft: 10, marginBottom: 2 }}>· {w}</div>)}
+                        </div>
+                      )}
+                      {sum.data.suggestedActions?.length > 0 && (
+                        <div style={{ marginBottom: 8 }}>
+                          <div style={{ fontSize: 11, color: T.violet, fontWeight: 700, marginBottom: 3 }}>Suggested Actions</div>
+                          {sum.data.suggestedActions.map((a, i) => <div key={i} style={{ fontSize: 12, color: T.text2, marginLeft: 10, marginBottom: 2 }}>→ {a}</div>)}
+                        </div>
+                      )}
+                      {sum.data.dataQuality && (
+                        <div style={{ fontSize: 10, color: T.text3, marginTop: 6, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <span>Analysed from:</span>
+                          <span style={{ color: sum.data.dataQuality.sessions > 0 ? T.text2 : T.text3 }}>{sum.data.dataQuality.sessions} sessions</span>
+                          <span style={{ color: sum.data.dataQuality.feedbackEntries > 0 ? T.text2 : T.text3 }}>{sum.data.dataQuality.feedbackEntries} feedback</span>
+                          <span style={{ color: sum.data.dataQuality.diaryMentions > 0 ? T.text2 : T.text3 }}>{sum.data.dataQuality.diaryMentions} diary mentions</span>
+                          <span style={{ color: sum.data.dataQuality.tickets > 0 ? T.text2 : T.text3 }}>{sum.data.dataQuality.tickets} tickets</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {!sum && !GROQ_API_KEY && <div style={{ fontSize: 11, color: T.text3, fontStyle: "italic", marginTop: 4 }}>AI key not configured</div>}
+                </div>
+
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Inbox (replaced by topbar bell drawer) ───────────────────────────────────
+// eslint-disable-next-line no-unused-vars
+function Inbox({ user }) {
+  const [loading, setLoading]                       = useState(true);
+  const [refreshing, setRefreshing]                 = useState(false);
+  const [overdueCommitments, setOverdueCommitments] = useState([]);
+  const [oneOnOneGaps, setOneOnOneGaps]             = useState([]);
+  const [forgottenTickets, setForgottenTickets]     = useState([]);
+  const [recentInterrupts, setRecentInterrupts]     = useState([]);
+
+  useEffect(() => { if (user?.id) load(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function load(isRefresh = false) {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
+    try {
+      const today     = new Date().toISOString().slice(0, 10);
+      const sevenAgo  = new Date(Date.now() - 7  * 86400000).toISOString().slice(0, 10);
+      const thirtyAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+      const [commRows, teammatesRows, sessionsRows, diaryRows, interruptRows] = await Promise.all([
+        fetch(`${_REST()}/commitments?user_id=eq.${user.id}&resolved_at=is.null&direction=eq.i_owe&select=id,person,what,due_date,inserted_at`, { headers: h() }).then(r => r.ok ? r.json() : []),
+        fetch(`${_REST()}/teammates?user_id=eq.${user.id}&select=id,name,relationship`, { headers: h() }).then(r => r.ok ? r.json() : []),
+        fetch(`${_REST()}/one_on_one_sessions?user_id=eq.${user.id}&session_date=gte.${thirtyAgo}&select=teammate_id`, { headers: h() }).then(r => r.ok ? r.json() : []),
+        fetch(`${_REST()}/diary_entries?user_id=eq.${user.id}&date=gte.${sevenAgo}&select=content,jira_links`, { headers: h() }).then(r => r.ok ? r.json() : []),
+        fetch(`${_REST()}/pattern_interrupts?user_id=eq.${user.id}&created_at=gte.${sevenAgo}T00%3A00%3A00&select=id,created_at,text&order=created_at.desc`, { headers: h() }).then(r => r.ok ? r.json() : []),
+      ]);
+
+      // Overdue i_owe commitments: past due_date, or older than 7 days with no due date
+      setOverdueCommitments((commRows || []).filter(c =>
+        c.due_date ? c.due_date < today : (c.inserted_at || "").slice(0, 10) < sevenAgo
+      ));
+
+      // 1:1 gaps: direct reports with no session in last 30 days
+      const sessionedIds = new Set((sessionsRows || []).map(s => s.teammate_id));
+      const directs = (teammatesRows || []).filter(t => !t.relationship || t.relationship === "direct");
+      setOneOnOneGaps(directs.filter(t => !sessionedIds.has(t.id)));
+
+      // Forgotten JIRA tickets: in-progress but not mentioned in diary this week
+      const jiraCache = (() => {
+        try { const c = JSON.parse(localStorage.getItem("echo_jira_tickets_cache") || "null"); return (c && Array.isArray(c.tickets)) ? c.tickets : []; }
+        catch { return []; }
+      })();
+      const inProgress = jiraCache.filter(t => t.statusCategory === "In Progress");
+      if (inProgress.length) {
+        const diaryText = (diaryRows || []).map(e =>
+          `${e.content || ""} ${Array.isArray(e.jira_links) ? e.jira_links.join(" ") : ""}`
+        ).join(" ").toUpperCase();
+        setForgottenTickets(inProgress.filter(t => !diaryText.includes(t.key.toUpperCase())));
+      } else {
+        setForgottenTickets([]);
+      }
+
+      // Wellbeing: pattern interrupts in the last 7 days
+      setRecentInterrupts(interruptRows || []);
+    } catch (_) { /* silent */ }
+    setLoading(false); setRefreshing(false);
+  }
+
+  const totalItems = overdueCommitments.length + oneOnOneGaps.length + forgottenTickets.length + (recentInterrupts.length > 0 ? 1 : 0);
+
+  function SectionHeader({ icon, title, count, color }) {
+    if (!count) return null;
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 15 }}>{icon}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: T.text1, letterSpacing: "-0.2px" }}>{title}</span>
+        <span style={{ fontSize: 10, background: `${color}18`, color, border: `1px solid ${color}38`, borderRadius: 20, padding: "1px 8px", fontWeight: 700 }}>{count}</span>
+      </div>
+    );
+  }
+
+  function InboxItem({ color, title, sub, badge }) {
+    return (
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 13px", background: T.navy2, borderRadius: 8, border: `1px solid ${T.border}`, borderLeft: `3px solid ${color}`, marginBottom: 6 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: T.text1, marginBottom: sub ? 2 : 0, lineHeight: 1.4 }}>{title}</div>
+          {sub && <div style={{ fontSize: 11, color: T.text2, lineHeight: 1.4 }}>{sub}</div>}
+        </div>
+        {badge && <span style={{ fontSize: 10, color, background: `${color}12`, border: `1px solid ${color}30`, padding: "2px 8px", borderRadius: 10, fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>{badge}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="echo-content fade-in">
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 4, gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: T.text1, letterSpacing: "-0.4px" }}>Inbox</div>
+          <div style={{ fontSize: 12, color: T.text3, marginTop: 2 }}>Everything that needs your attention — across all sections</div>
+        </div>
+        <button onClick={() => load(true)} disabled={refreshing}
+          style={{ fontSize: 12, color: T.text3, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, padding: "5px 12px", cursor: "pointer", flexShrink: 0, marginTop: 4 }}>
+          {refreshing ? "…" : "↻ Refresh"}
+        </button>
+      </div>
+
+      <div style={{ height: 1, background: T.border, margin: "16px 0 20px" }} />
+
+      {loading ? (
+        <div style={{ color: T.text3, fontSize: 13, padding: "48px 0", textAlign: "center" }}>Checking…</div>
+      ) : totalItems === 0 ? (
+        <div style={{ textAlign: "center", padding: "64px 0" }}>
+          <div style={{ fontSize: 38, marginBottom: 12 }}>✅</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: T.text1, marginBottom: 6 }}>All clear</div>
+          <div style={{ fontSize: 13, color: T.text3, maxWidth: 320, margin: "0 auto", lineHeight: 1.6 }}>No overdue commitments, no missed 1:1s, no forgotten tickets, no wellbeing signals.</div>
+        </div>
+      ) : (
+        <div>
+          {/* Overdue commitments */}
+          {overdueCommitments.length > 0 && (
+            <div style={{ marginBottom: 22 }}>
+              <SectionHeader icon="🤝" title="Overdue Commitments" count={overdueCommitments.length} color={T.coral} />
+              {overdueCommitments.map((c, i) => {
+                const daysAgo = c.due_date
+                  ? Math.max(0, Math.round((Date.now() - new Date(c.due_date + "T00:00:00").getTime()) / 86400000))
+                  : Math.round((Date.now() - new Date(c.inserted_at).getTime()) / 86400000);
+                return <InboxItem key={c.id || i} color={T.coral}
+                  title={c.what || "Unspecified commitment"}
+                  sub={`Owed to ${c.person || "someone"}`}
+                  badge={c.due_date ? `${daysAgo}d overdue` : `${daysAgo}d old`} />;
+              })}
+            </div>
+          )}
+
+          {/* 1:1 gaps */}
+          {oneOnOneGaps.length > 0 && (
+            <div style={{ marginBottom: 22 }}>
+              <SectionHeader icon="👥" title="Missing 1:1s (last 30 days)" count={oneOnOneGaps.length} color={T.accent} />
+              {oneOnOneGaps.map((t, i) => (
+                <InboxItem key={t.id || i} color={T.accent}
+                  title={t.name}
+                  sub="No 1:1 session logged in the last 30 days"
+                  badge="No session" />
+              ))}
+            </div>
+          )}
+
+          {/* Forgotten JIRA tickets */}
+          {forgottenTickets.length > 0 && (
+            <div style={{ marginBottom: 22 }}>
+              <SectionHeader icon="👻" title="Forgotten JIRA Tickets" count={forgottenTickets.length} color={T.amber} />
+              {forgottenTickets.map((t, i) => (
+                <InboxItem key={t.key || i} color={T.amber}
+                  title={`${t.key}${t.summary ? ` — ${t.summary}` : ""}`}
+                  sub="In Progress · Not mentioned in your diary for 7+ days"
+                  badge={t.storyPoints ? `${t.storyPoints} pts` : "No SP"} />
+              ))}
+            </div>
+          )}
+
+          {/* Wellbeing signals */}
+          {recentInterrupts.length > 0 && (
+            <div style={{ marginBottom: 22 }}>
+              <SectionHeader icon="🧘" title="Wellbeing Signals" count={1} color={T.coral} />
+              <InboxItem color={T.coral}
+                title={`${recentInterrupts.length} pattern interrupt${recentInterrupts.length > 1 ? "s" : ""} in the last 7 days`}
+                sub={recentInterrupts[0]?.text || "Consider protecting some recovery time or raising this in a 1:1."}
+                badge="Review" />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Quick Capture ────────────────────────────────────────────────────────────
+function QuickCapture({ user }) {
+  const [open, setOpen]     = useState(false);
+  const [text, setText]     = useState("");
+  const [mood, setMood]     = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+
+  const MOODS = [
+    { key: "productive",    emoji: "🟢", label: "Productive" },
+    { key: "collaborative", emoji: "🤝", label: "Collaborative" },
+    { key: "challenged",    emoji: "⚡", label: "Challenged" },
+    { key: "frustrated",    emoji: "😤", label: "Frustrated" },
+    { key: "resolved",      emoji: "✅", label: "Resolved" },
+  ];
+
+  const save = async () => {
+    if (!text.trim() || !user?.id) return;
+    setSaving(true);
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      await fetch(`${_REST()}/diary_entries`, {
+        method: "POST",
+        headers: { ...h(), "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ user_id: user.id, date: today, content: text.trim(), title: "Quick capture", ...(mood ? { mood } : {}) }),
+      });
+      setSaved(true);
+      setText("");
+      setMood("");
+      setTimeout(() => { setSaved(false); setOpen(false); }, 1400);
+    } catch { /* silent */ }
+    setSaving(false);
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Quick Capture — save a note instantly"
+        style={{
+          position: "fixed", bottom: 24, right: 80, zIndex: 9999,
+          width: 48, height: 48, borderRadius: "50%",
+          background: open ? T.teal : `linear-gradient(135deg, ${T.teal}80, ${T.teal})`,
+          border: `2px solid ${T.teal}`,
+          boxShadow: `0 4px 20px ${T.teal}40`,
+          color: "#fff", fontSize: 20, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          transition: "all 0.2s ease",
+        }}
+      >
+        {open ? "✕" : "⚡"}
+      </button>
+      {open && (
+        <div style={{
+          position: "fixed", bottom: 84, right: 80, zIndex: 9998,
+          width: 300, background: T.navy2, border: `1px solid ${T.border2}`,
+          borderRadius: 14, padding: 16, boxShadow: "0 8px 40px #00000080",
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text1, marginBottom: 10 }}>⚡ Quick Capture</div>
+          <textarea
+            autoFocus
+            value={text}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save(); }}
+            placeholder="What's on your mind? (⌘↵ to save)"
+            rows={4}
+            style={{
+              width: "100%", boxSizing: "border-box", resize: "none",
+              background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 8,
+              padding: "8px 10px", fontSize: 12, color: T.text1,
+              fontFamily: "DM Sans, sans-serif", lineHeight: 1.55,
+              outline: "none", marginBottom: 10,
+            }}
+          />
+          <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+            {MOODS.map(m => (
+              <button key={m.key} onClick={() => setMood(p => p === m.key ? "" : m.key)} title={m.label}
+                style={{
+                  padding: "3px 9px", fontSize: 13, borderRadius: 12, cursor: "pointer",
+                  background: mood === m.key ? `${T.accent}25` : "transparent",
+                  border: `1px solid ${mood === m.key ? T.accent : T.border}`,
+                  color: mood === m.key ? T.accent : T.text3, transition: "all 0.15s",
+                }}>
+                {m.emoji}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={save}
+            disabled={!text.trim() || saving || saved}
+            style={{
+              width: "100%", padding: "8px 0", borderRadius: 8, border: "none",
+              background: saved ? T.teal : T.accent, color: "#fff", fontSize: 12,
+              fontWeight: 700, cursor: text.trim() && !saving ? "pointer" : "not-allowed",
+              opacity: !text.trim() ? 0.5 : 1, transition: "all 0.2s",
+            }}>
+            {saved ? "✓ Saved to diary!" : saving ? "Saving…" : "Save to Diary"}
+          </button>
+          <div style={{ fontSize: 10, color: T.text3, marginTop: 6, textAlign: "center" }}>Saved as today's diary entry · ⌘↵ to save quickly</div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ─── My Story — merged Shadow Resume + Work Map ───────────────────────────────
+function MyStory({ user }) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [hovered, setHovered] = useState(null);
+  const [selected, setSelected] = useState(null);
+
+  useEffect(() => {
+    if (!isConfigured()) { setLoading(false); return; }
+    probeUserIdDiary().then(uidOk => {
+      const opts = { order: "date.asc" };
+      if (uidOk && user?.id) opts.match = { user_id: user.id };
+      db.from("diary_entries").select("*", opts).then(d => {
+        setEntries(d || []);
+        setLoading(false);
+      });
+    });
+  }, [user]);
+
+  if (loading) return <div style={{ color: T.text3, textAlign: "center", padding: 60 }}>Building your story…</div>;
+
+  if (entries.length < 2) return (
+    <div className="echo-content fade-in" style={{ textAlign: "center", padding: "80px 0" }}>
+      <div style={{ fontSize: 40, marginBottom: 14 }}>📈</div>
+      <div style={{ fontSize: 15, color: T.text2, marginBottom: 8 }}>Not enough data yet</div>
+      <div style={{ fontSize: 13, color: T.text3 }}>Log a few diary entries — your story builds itself from them.</div>
+    </div>
+  );
+
+  // ── Analytics ─────────────────────────────────────────────────────────────
+  const allFocusAreas = {}, allCollabs = {}, allTags = {};
+  const byMonth = {};
+  entries.forEach(e => {
+    getFocusAreas(e).forEach(f => { allFocusAreas[f] = (allFocusAreas[f] || 0) + 1; });
+    (e.tags || []).forEach(t => { if (t.trim()) allTags[t.trim()] = (allTags[t.trim()] || 0) + 1; });
+    (e.collaborators || []).forEach(c => { const n = cleanCollab(c); if (n && n.trim()) allCollabs[n.trim()] = (allCollabs[n.trim()] || 0) + 1; });
+    const m = e.date.slice(0, 7);
+    if (!byMonth[m]) byMonth[m] = { count: 0, wins: 0, moods: {} };
+    byMonth[m].count++;
+    if (e.is_win) byMonth[m].wins++;
+    if (e.mood) byMonth[m].moods[e.mood] = (byMonth[m].moods[e.mood] || 0) + 1;
+  });
+
+  const topFocus   = Object.entries(allFocusAreas).sort((a, b) => b[1] - a[1]);
+  const topCollabs = Object.entries(allCollabs).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const topTags    = Object.entries(allTags).sort((a, b) => b[1] - a[1]).slice(0, 28);
+  const months     = Object.entries(byMonth).sort((a, b) => a[0].localeCompare(b[0]));
+  const myName     = localStorage.getItem("echo_display_name") || "";
+  const winEntries = entries.filter(e => e.is_win);
+  const recentWins = [...winEntries].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+  const numMonths  = months.length;
+  const avgPerMonth = numMonths > 0 ? Math.round(entries.length / numMonths) : 0;
+  const maxFA      = topFocus[0]?.[1] || 1;
+  const dateRange  = `${fmtDate(entries[0].date)} — ${fmtDate(entries[entries.length - 1].date)}`;
+  const faPalette  = [T.accent, T.teal, T.gold, T.coral, T.green, "#a78bfa", "#fb923c", "#38bdf8"];
+  // ── Work Map SVG ──────────────────────────────────────────────────────────
+  const SVG_W = 860, SVG_H = 360;
+  const YOU_X = 90, YOU_Y = SVG_H / 2, YOU_R = 42;
+  const FA_X = 300, FA_HW = 80, FA_HH = 26;
+  const COL_CX = 560;
+  const NODE_R = 16;
+
+  const focusAreas = topFocus.slice(0, 8);
+  const faLen = focusAreas.length;
+  const focusNodes = focusAreas.map(([fa, count], i) => {
+    const y = faLen <= 1 ? SVG_H / 2 : 60 + i * (SVG_H - 120) / (faLen - 1);
+    return { id: `fa:${fa}`, label: fa, count, x: FA_X, y, color: faPalette[i % faPalette.length] };
+  });
+
+  const collabMap = {};
+  entries.forEach(e => {
+    (e.collaborators || []).forEach(c => {
+      const name = (c || "").trim();
+      if (!name || _NAME_BLOCKLIST.has(name.toLowerCase()) || !/^[A-Z]/.test(name)) return;
+      if (!collabMap[name]) collabMap[name] = { name, focusMap: {}, count: 0 };
+      collabMap[name].count++;
+      getFocusAreas(e).forEach(f => { collabMap[name].focusMap[f] = (collabMap[name].focusMap[f] || 0) + 1; });
+    });
+  });
+  const collabs = Object.values(collabMap).sort((a, b) => b.count - a.count).slice(0, 10).map(c => ({
+    ...c, primaryFocus: Object.entries(c.focusMap).sort((a, b) => b[1] - a[1])[0]?.[0] || focusAreas[0]?.[0],
+  }));
+  const pcLen = collabs.length;
+  const colSpacing = Math.min(42, Math.max(28, (SVG_H - 60) / Math.max(pcLen, 1)));
+  const colStartY = SVG_H / 2 - ((pcLen - 1) * colSpacing) / 2;
+  const personNodes = collabs.map((c, i) => {
+    const fn = focusNodes.find(f => f.label === c.primaryFocus) || focusNodes[0];
+    if (!fn) return null;
+    return { id: `p:${c.name}`, label: c.name, count: c.count, r: NODE_R, x: COL_CX, y: colStartY + i * colSpacing, fpColor: fn.color };
+  }).filter(Boolean);
+
+  const active = selected || hovered;
+  const isLit = (nid) => {
+    if (!active) return true;
+    if (nid === active || active === "me") return true;
+    if (active.startsWith("fa:")) {
+      const fn = focusNodes.find(f => f.id === active);
+      if (nid === "me") return true;
+      if (fn && nid.startsWith("p:")) { const c = collabMap[nid.slice(2)]; return !!(c && c.focusMap[fn.label]); }
+      return nid === active;
+    }
+    if (active.startsWith("p:")) {
+      if (nid === "me") return true;
+      const c = collabMap[active.slice(2)];
+      return nid === active || (c && Object.keys(c.focusMap).some(f => `fa:${f}` === nid));
+    }
+    return true;
+  };
+
+  return (
+    <div className="echo-content fade-in">
+
+      {/* ── Hero ── */}
+      <div style={{ marginBottom: 18, background: `linear-gradient(135deg, ${T.navy2} 0%, ${T.navy3} 100%)`, border: `1px solid ${T.borderHover}`, borderRadius: 14, padding: "20px 24px", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${T.accent}, ${T.teal}, ${T.gold})` }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}>
+          <div style={{ width: 44, height: 44, borderRadius: "50%", background: `linear-gradient(135deg, ${T.accent}40, ${T.teal}30)`, border: `2px solid ${T.accent}50`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 18, fontWeight: 800, color: T.accent, fontFamily: "'Syne', sans-serif" }}>
+            {myName ? myName[0].toUpperCase() : "?"}
+          </div>
+          <div>
+            {myName && <div style={{ fontSize: 20, fontWeight: 800, color: T.text1, fontFamily: "'Syne', sans-serif", lineHeight: 1.1 }}>{myName}</div>}
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{dateRange}</div>
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
+          {[
+            { label: "Diary entries", value: entries.length, color: T.accent, icon: "📓" },
+            { label: "Months active", value: numMonths, color: T.teal, icon: "📅" },
+            { label: "Wins logged", value: winEntries.length, color: T.gold, icon: "🏆" },
+            { label: "Avg / month", value: avgPerMonth, color: T.text2, icon: "📊" },
+            { label: "Collaborators", value: topCollabs.length, color: T.coral, icon: "👥" },
+          ].map(s => (
+            <div key={s.label} style={{ background: `${T.navy1}90`, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+              <div style={{ fontSize: 11, marginBottom: 4 }}>{s.icon}</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: s.color, fontFamily: "'Syne', sans-serif", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{s.value}</div>
+              <div style={{ fontSize: 10, color: T.text3, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.3 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Focus Time + Collaborators ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: 14, marginBottom: 18 }}>
+
+        {/* Focus areas */}
+        <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text2, marginBottom: 14, textTransform: "uppercase", letterSpacing: 0.6, display: "flex", justifyContent: "space-between" }}>
+            <span>Where your time went</span>
+            <span style={{ color: T.text3, fontWeight: 400 }}>{entries.length} entries</span>
+          </div>
+          {topFocus.slice(0, 9).map(([fa, count], i) => {
+            const pct = Math.round(count / maxFA * 100);
+            return (
+              <div key={fa} style={{ marginBottom: 9 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, color: T.text1, fontWeight: 500 }}>{fa}</span>
+                  <span style={{ fontSize: 11, color: faPalette[i % faPalette.length], fontFamily: "'DM Mono', monospace", fontWeight: 700 }}>{count}d</span>
+                </div>
+                <div style={{ height: 8, background: T.navy3, borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${faPalette[i % faPalette.length]}CC, ${faPalette[i % faPalette.length]}88)`, borderRadius: 4, transition: "width 0.5s ease" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Collaborators */}
+        <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text2, marginBottom: 14, textTransform: "uppercase", letterSpacing: 0.6 }}>Who you worked with</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {topCollabs.length === 0
+              ? <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>Add collaborators to diary entries to see them here.</div>
+              : topCollabs.map(([name, count], i) => {
+                  const maxC = topCollabs[0][1];
+                  return (
+                    <div key={name}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                        <div style={{ width: 24, height: 24, borderRadius: "50%", background: `${faPalette[i % faPalette.length]}22`, border: `1px solid ${faPalette[i % faPalette.length]}44`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: faPalette[i % faPalette.length] }}>
+                          {name[0].toUpperCase()}
+                        </div>
+                        <span style={{ flex: 1, fontSize: 12, color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+                        <span style={{ fontSize: 10, color: T.text3, fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>{count}×</span>
+                      </div>
+                      <div style={{ height: 3, background: T.navy3, borderRadius: 2, marginLeft: 32, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${Math.round(count / maxC * 100)}%`, background: faPalette[i % faPalette.length], borderRadius: 2 }} />
+                      </div>
+                    </div>
+                  );
+                })
+            }
+          </div>
+        </div>
+      </div>
+
+      {/* ── Network map (Work Map) ── */}
+      {focusNodes.length > 0 && personNodes.length > 0 && (
+        <div style={{ marginBottom: 18, background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "14px 18px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text2, textTransform: "uppercase", letterSpacing: 0.6 }}>Collaboration network</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Hover focus areas or people to see connections</div>
+            </div>
+            {active && <div style={{ fontSize: 11, color: T.accent, fontStyle: "italic" }}>
+              {active === "me" ? "You" : active.startsWith("fa:") ? active.slice(3) : active.slice(2)}
+            </div>}
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <svg width={SVG_W} height={SVG_H} style={{ display: "block" }} onClick={() => setSelected(null)}>
+              <defs>
+                <radialGradient id="youGrad3" cx="50%" cy="35%" r="60%">
+                  <stop offset="0%" stopColor={T.accent} stopOpacity="0.3" />
+                  <stop offset="100%" stopColor={T.accent} stopOpacity="0.05" />
+                </radialGradient>
+              </defs>
+              {focusNodes.map(fn => (
+                <line key={fn.id} x1={YOU_X + YOU_R} y1={YOU_Y} x2={fn.x - FA_HW} y2={fn.y}
+                  stroke={fn.color} strokeWidth={isLit(fn.id) ? 1.5 : 0.3}
+                  strokeOpacity={isLit(fn.id) ? 0.45 : 0.08} strokeDasharray="3 4" />
+              ))}
+              {personNodes.map(pn => {
+                const fn = focusNodes.find(f => f.label === collabMap[pn.label]?.primaryFocus || collabs.find(c => c.name === pn.label)?.primaryFocus);
+                if (!fn) return null;
+                return (
+                  <line key={pn.id} x1={fn.x + FA_HW} y1={fn.y} x2={pn.x - NODE_R} y2={pn.y}
+                    stroke={pn.fpColor} strokeWidth={isLit(pn.id) ? 1.2 : 0.3}
+                    strokeOpacity={isLit(pn.id) ? 0.4 : 0.08} />
+                );
+              })}
+              {focusNodes.map(fn => (
+                <g key={fn.id} style={{ cursor: "pointer" }}
+                  onMouseEnter={() => setHovered(fn.id)} onMouseLeave={() => setHovered(null)}
+                  onClick={e => { e.stopPropagation(); setSelected(s => s === fn.id ? null : fn.id); }}>
+                  <rect x={fn.x - FA_HW} y={fn.y - FA_HH / 2} width={FA_HW * 2} height={FA_HH}
+                    rx={5} fill={isLit(fn.id) ? `${fn.color}1A` : `${fn.color}07`}
+                    stroke={fn.color} strokeOpacity={isLit(fn.id) ? 0.65 : 0.18} strokeWidth={1} />
+                  <text x={fn.x} y={fn.y} textAnchor="middle" dominantBaseline="middle"
+                    fontSize={9.5} fontWeight={600} fill={isLit(fn.id) ? fn.color : T.text3}
+                    style={{ pointerEvents: "none", fontFamily: "'DM Sans', sans-serif" }}>
+                    {fn.label.length > 13 ? fn.label.slice(0, 12) + "…" : fn.label}
+                  </text>
+                  <text x={fn.x + FA_HW - 4} y={fn.y - FA_HH / 2 + 5} textAnchor="end"
+                    fontSize={7.5} fill={fn.color} opacity={isLit(fn.id) ? 0.7 : 0.25}
+                    style={{ pointerEvents: "none", fontFamily: "'DM Mono', monospace" }}>
+                    {fn.count}d
+                  </text>
+                </g>
+              ))}
+              {personNodes.map(pn => (
+                <g key={pn.id} style={{ cursor: "pointer" }}
+                  onMouseEnter={() => setHovered(pn.id)} onMouseLeave={() => setHovered(null)}
+                  onClick={e => { e.stopPropagation(); setSelected(s => s === pn.id ? null : pn.id); }}>
+                  <circle cx={pn.x} cy={pn.y} r={pn.r}
+                    fill={isLit(pn.id) ? `${pn.fpColor}1A` : `${pn.fpColor}06`}
+                    stroke={pn.fpColor} strokeWidth={1} strokeOpacity={isLit(pn.id) ? 0.7 : 0.15} />
+                  <text x={pn.x + pn.r + 5} y={pn.y} dominantBaseline="middle"
+                    fontSize={9.5} fontWeight={500} fill={isLit(pn.id) ? T.text1 : T.text3}
+                    style={{ pointerEvents: "none", fontFamily: "'DM Sans', sans-serif" }}>
+                    {pn.label.length > 11 ? pn.label.slice(0, 10) + "…" : pn.label}
+                  </text>
+                  <text x={pn.x} y={pn.y} textAnchor="middle" dominantBaseline="middle"
+                    fontSize={8} fontWeight={700} fill={pn.fpColor}
+                    style={{ pointerEvents: "none", fontFamily: "'DM Mono', monospace" }}>
+                    {pn.count}
+                  </text>
+                </g>
+              ))}
+              <g style={{ cursor: "pointer" }} onMouseEnter={() => setHovered("me")} onMouseLeave={() => setHovered(null)}
+                onClick={e => { e.stopPropagation(); setSelected(s => s === "me" ? null : "me"); }}>
+                <circle cx={YOU_X} cy={YOU_Y} r={YOU_R} fill="url(#youGrad3)" stroke={T.accent} strokeWidth={2} strokeOpacity={0.7} />
+                <text x={YOU_X} y={YOU_Y - 6} textAnchor="middle" dominantBaseline="middle" fontSize={10} fontWeight={800} fill={T.accent} style={{ fontFamily: "'Syne', sans-serif" }}>
+                  {myName ? myName.split(" ")[0] : "You"}
+                </text>
+                <text x={YOU_X} y={YOU_Y + 8} textAnchor="middle" dominantBaseline="middle" fontSize={8} fill={T.text3} style={{ fontFamily: "'DM Mono', monospace" }}>
+                  {entries.length}d
+                </text>
+              </g>
+            </svg>
+          </div>
+        </div>
+      )}
+
+      {/* ── Recent wins + Tags side by side ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+
+        {/* Recent wins */}
+        <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text2, marginBottom: 14, textTransform: "uppercase", letterSpacing: 0.6, display: "flex", justifyContent: "space-between" }}>
+            <span>Recent wins</span>
+            <span style={{ color: T.gold, fontWeight: 700 }}>🏆 {winEntries.length} total</span>
+          </div>
+          {recentWins.length === 0
+            ? <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic" }}>No wins logged yet. Mark a diary entry as Win when you ship, mentor, or solve something.</div>
+            : recentWins.map(e => (
+                <div key={e.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
+                  <div style={{ flexShrink: 0, textAlign: "center", minWidth: 28 }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: T.gold, fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{e.date?.split("-")[2]}</div>
+                    <div style={{ fontSize: 9, color: T.text3, textTransform: "uppercase" }}>{MONTHS[parseInt(e.date?.split("-")[1]) - 1]}</div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: T.text1, lineHeight: 1.5, marginBottom: 3 }}>
+                      {e.content ? e.content.split("\n").filter(l => l.trim())[0]?.slice(0, 80) + (e.content.length > 80 ? "…" : "") : "Win entry"}
+                    </div>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      {getFocusAreas(e).slice(0, 2).map(f => <span key={f} className="focus-badge" style={{ fontSize: 9 }}>{f}</span>)}
+                      {(e.win_tags || []).slice(0, 1).map(tag => { const wt = WIN_TAGS?.find(w => w.key === tag); return wt ? <span key={tag} style={{ fontSize: 9, color: T.text3, background: T.navy3, border: `1px solid ${T.border}`, borderRadius: 10, padding: "1px 6px" }}>{wt.label}</span> : null; })}
+                    </div>
+                  </div>
+                </div>
+              ))
+          }
+        </div>
+
+        {/* Tags */}
+        {topTags.length > 0 && (
+          <div style={{ background: T.navy2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.text2, marginBottom: 14, textTransform: "uppercase", letterSpacing: 0.6 }}>Your signal — tags</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {topTags.map(([tag, count], i) => {
+                const maxC = topTags[0][1];
+                const weight = count / maxC;
+                const size = Math.round(9 + weight * 5);
+                const col = faPalette[i % faPalette.length];
+                return (
+                  <span key={tag} style={{ fontSize: size, fontWeight: weight > 0.5 ? 600 : 400, color: col, background: `${col}14`, border: `1px solid ${col}30`, borderRadius: 20, padding: `${Math.round(2 + weight * 2)}px ${Math.round(7 + weight * 4)}px`, opacity: 0.55 + weight * 0.45, transition: "opacity 0.2s" }}>
+                    {tag}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────────────────────
 const NAV = [
-  { id: "dashboard",   label: "Dashboard",      icon: "🏠", section: "Overview" },
-  { id: "diary",       label: "Corporate Diary", icon: "📓", dot: T.accent, section: "Modules" },
-  { id: "locker",      label: "DigiLocker",      icon: "🗂️", dot: T.teal,   section: "Modules" },
-  { id: "commitments", label: "Commitments",     icon: "🤝", dot: T.coral,  section: "Modules" },
-  { id: "incidents",   label: "Incident Log",    icon: "🐛", dot: T.coral,  section: "Modules" },
-  { id: "decisions",   label: "Decision Log",    icon: "🧠", dot: T.teal,   section: "Modules" },
-  { id: "releases",   label: "Release Status",  icon: "🚀", dot: T.teal,   section: "Modules" },
-  { id: "sprint",     label: "Sprint Board",     icon: "🎯", dot: T.accent, section: "Modules" },
-  { id: "team",        label: "My Team",         icon: "👥", section: "Insights" },
-  { id: "brag",        label: "Brag Doc",        icon: "🏆", dot: T.gold,   section: "Insights" },
-  { id: "resume",      label: "Shadow Resume",   icon: "📋", dot: T.gold,   section: "Insights" },
-  { id: "workmap",     label: "Work Map",        icon: "🕸️", dot: T.teal,   section: "Insights" },
-  { id: "credits",     label: "Credit Tracker",  icon: "⭐", dot: T.gold,   section: "Insights" },
-  { id: "resolve",     label: "Resolve",         icon: "🔥", dot: T.coral,  section: "Insights" },
+  { id: "dashboard",   label: "Dashboard",      icon: "🏠", section: "Daily" },
+  { id: "diary",       label: "Corporate Diary", icon: "📓", dot: T.accent, section: "Daily" },
+  { id: "sprint",      label: "Sprint Board",    icon: "🎯", dot: T.accent, section: "Daily" },
+  { id: "commitments", label: "Commitments",     icon: "🤝", dot: T.coral,  section: "Daily" },
+  { id: "releases",    label: "Release Status",  icon: "🚀", dot: T.teal,   section: "Track" },
+  { id: "incidents",   label: "Incident Log",    icon: "🐛", dot: T.coral,  section: "Track" },
+  { id: "decisions",   label: "Decision Log",    icon: "🧠", dot: T.teal,   section: "Track" },
+  { id: "team",        label: "My Team",         icon: "👥", section: "People" },
+  { id: "team-pulse",  label: "Team Pulse",      icon: "🫀", dot: T.teal,   section: "People" },
+  { id: "teamreport",  label: "Team Report",     icon: "📊", dot: T.accent, section: "People" },
+  { id: "story",       label: "My Story",        icon: "📈", dot: T.teal,   section: "People" },
+  { id: "locker",      label: "DigiLocker",      icon: "🗂️", dot: T.teal,   section: "People" },
+  { id: "credits",     label: "Credit Tracker",  icon: "⭐", dot: T.gold,   section: "Wellbeing" },
+  { id: "resolve",     label: "Resolve",         icon: "🔥", dot: T.coral,  section: "Wellbeing" },
 ];
 
 const PAGE_META = {
@@ -10351,9 +15913,9 @@ const PAGE_META = {
   releases:    { title: "Release Status",  sub: "Track team ticket and release status by date" },
   sprint:      { title: "Sprint Board",    sub: "Live JIRA sprint tracker for your team" },
   team:        { title: "My Team",         sub: "Saved teammates for quick collaborator selection" },
-  brag:        { title: "Brag Doc",        sub: "Your wins, tagged by impact — appraisal evidence on demand" },
-  resume:      { title: "Shadow Resume",   sub: "Auto-built from your diary — your work in numbers" },
-  workmap:     { title: "Work Map",        sub: "How your focus areas, collaborators and tickets connect" },
+  "team-pulse": { title: "Team Pulse",    sub: "Live view of your team's weekly activity, mood, and blockers" },
+  teamreport:  { title: "Team Report",     sub: "AI-generated per-person summary from diary and sessions" },
+  story:       { title: "My Story",        sub: "Your work in numbers, people, and patterns" },
   credits:     { title: "Credit Tracker",  sub: "Log credit given and received — track the balance" },
   resolve:     { title: "Resolve",         sub: "Days you stayed strong — track habits you're breaking" },
 };
@@ -10596,7 +16158,16 @@ function CommandPalette({ onClose, setView, user }) {
 }
 
 export default function Echo() {
-  useEffect(() => { injectStyles(); }, []);
+  useEffect(() => {
+    injectStyles();
+    // Detect invite token in URL → store for acceptance after login
+    const params = new URLSearchParams(window.location.search);
+    const invite = params.get("invite");
+    if (invite) {
+      localStorage.setItem("echo_pending_invite", invite);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
   const [view, setView]               = useState(() => localStorage.getItem("echo_view") || "dashboard");
   const [diaryCount, setDiaryCount]   = useState(0);
   const [docCount, setDocCount]       = useState(0);
@@ -10619,6 +16190,11 @@ export default function Echo() {
   const [premiumCoachData, setPremiumCoachData]         = useState(null);
   const [teamDueBadge, setTeamDueBadge]       = useState(false);
   const [todayEntryMissing, setTodayEntryMissing] = useState(false);
+  const [aiMenuOpen, setAiMenuOpen]           = useState(false);
+  const aiMenuRef                             = useRef(null);
+  const [notifOpen, setNotifOpen]             = useState(false);
+  const [notifItems, setNotifItems]           = useState({ overdue: [], gaps: [], forgotten: [] });
+  const notifRef                              = useRef(null);
 
   useEffect(() => {
     db.auth.getUser().then(u => {
@@ -10633,6 +16209,41 @@ export default function Echo() {
         else            localStorage.removeItem("echo_display_name");
         if (metaAvatar) localStorage.setItem("echo_avatar", metaAvatar);
         else            localStorage.removeItem("echo_avatar");
+        // Accept pending team invite — by token first, then fall back to email match
+        // (email match catches users who signed up before the token-based fix)
+        const pendingInvite = localStorage.getItem("echo_pending_invite");
+        const acceptByToken = pendingInvite
+          ? fetch(`${_REST()}/team_memberships?invite_token=eq.${pendingInvite}&accepted_at=is.null`, { headers: h() })
+              .then(r => r.ok ? r.json() : [])
+              .then(rows => {
+                if (rows?.length) {
+                  return fetch(`${_REST()}/team_memberships?invite_token=eq.${pendingInvite}`, {
+                    method: "PATCH",
+                    headers: { ...h(), "Content-Type": "application/json", "Prefer": "return=minimal" },
+                    body: JSON.stringify({ member_user_id: u.id, accepted_at: new Date().toISOString() }),
+                  });
+                }
+              })
+              .catch(() => {})
+              .finally(() => localStorage.removeItem("echo_pending_invite"))
+          : Promise.resolve();
+        // Self-heal: if no token but user's email matches an unaccepted invite, accept it now
+        acceptByToken.then(() => {
+          if (u.email) {
+            fetch(`${_REST()}/team_memberships?member_email=eq.${encodeURIComponent(u.email)}&accepted_at=is.null&member_user_id=is.null&select=id&limit=1`, { headers: h() })
+              .then(r => r.ok ? r.json() : [])
+              .then(rows => {
+                if (rows?.length) {
+                  return fetch(`${_REST()}/team_memberships?member_email=eq.${encodeURIComponent(u.email)}&accepted_at=is.null`, {
+                    method: "PATCH",
+                    headers: { ...h(), "Content-Type": "application/json", "Prefer": "return=minimal" },
+                    body: JSON.stringify({ member_user_id: u.id, accepted_at: new Date().toISOString() }),
+                  });
+                }
+              })
+              .catch(() => {});
+          }
+        });
       }
       setAuthLoading(false);
     }).catch(() => setAuthLoading(false));
@@ -10651,6 +16262,43 @@ export default function Echo() {
     if (!user) return;
     refreshTeammates();
     refreshScratchNotes(user.id);
+    // Silent Zoho session refresh — runs once per day on app load.
+    // Keeps stored cookies in Supabase fresh so the 11:00 AM cron can call
+    // reportingCircle without any manual sync step.
+    (async () => {
+      try {
+        const cfg = JSON.parse(localStorage.getItem("echo_zoho_config") || "null");
+        if (!cfg?.cookies) return; // no cookies stored yet — user hasn't set up Zoho
+        const todayKey = new Date().toISOString().slice(0, 10);
+        if (localStorage.getItem("echo_zoho_autosync_date") === todayKey) return; // already done today
+        const cookies = cfg.cookies;
+        const csrfMatch = cookies.match(/(?:^|;\s*)(?:CT_)?CSRF_TOKEN=([^;]+)/);
+        const csrf = csrfMatch ? csrfMatch[1].trim() : "";
+        if (!csrf) return;
+        const r = await fetch("/api/zoho-attendance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cookies, csrf }),
+        });
+        if (!r.ok) return; // session expired or network error — skip silently
+        const data = await r.json();
+        if (data.error || !data.reporteeCircleData) return; // Zoho session invalid
+        // Session still valid — push fresh cookies to Supabase for the cron
+        await Promise.all([
+          fetch(`${_REST()}/user_settings`, {
+            method: "POST",
+            headers: { ...h(), "Prefer": "resolution=merge-duplicates" },
+            body: JSON.stringify({ user_id: user.id, setting_key: "zoho_cookies", setting_value: cookies }),
+          }),
+          fetch(`${_REST()}/user_settings`, {
+            method: "POST",
+            headers: { ...h(), "Prefer": "resolution=merge-duplicates" },
+            body: JSON.stringify({ user_id: user.id, setting_key: "zoho_csrf", setting_value: csrf }),
+          }),
+        ]);
+        localStorage.setItem("echo_zoho_autosync_date", todayKey);
+      } catch (_) {} // always silent
+    })();
   }, [user]);
 
   useEffect(() => {
@@ -10677,6 +16325,30 @@ export default function Echo() {
       });
       setOverdueCount(overdue.length);
     });
+    // Notification drawer data — overdue commitments, 1:1 gaps, forgotten JIRA
+    (async () => {
+      try {
+        const todayStr  = today();
+        const thirtyAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+        const sevenAgo  = new Date(Date.now() - 7  * 86400000).toISOString().slice(0, 10);
+        const [commRows, teammatesRows, sessionsRows, diaryRows] = await Promise.all([
+          fetch(`${_REST()}/commitments?user_id=eq.${user.id}&resolved_at=is.null&direction=eq.i_owe&select=id,person,what,due_date,inserted_at`, { headers: h() }).then(r => r.ok ? r.json() : []),
+          fetch(`${_REST()}/teammates?user_id=eq.${user.id}&select=id,name,relationship`, { headers: h() }).then(r => r.ok ? r.json() : []),
+          fetch(`${_REST()}/one_on_one_sessions?user_id=eq.${user.id}&session_date=gte.${thirtyAgo}&select=teammate_id`, { headers: h() }).then(r => r.ok ? r.json() : []),
+          fetch(`${_REST()}/diary_entries?user_id=eq.${user.id}&date=gte.${sevenAgo}&select=content,jira_links`, { headers: h() }).then(r => r.ok ? r.json() : []),
+        ]);
+        const overdue = (commRows || []).filter(c => c.due_date ? c.due_date < todayStr : (c.inserted_at || "").slice(0, 10) < sevenAgo);
+        const sessionedIds = new Set((sessionsRows || []).map(s => s.teammate_id));
+        const directs = (teammatesRows || []).filter(t => !t.relationship || t.relationship === "direct");
+        const gaps = directs.filter(t => !sessionedIds.has(t.id));
+        const jiraCache = (() => { try { const c = JSON.parse(localStorage.getItem("echo_jira_tickets_cache") || "null"); return (c && Array.isArray(c.tickets)) ? c.tickets : []; } catch { return []; } })();
+        const inProgress = jiraCache.filter(t => t.statusCategory === "In Progress");
+        const diaryText = (diaryRows || []).map(e => `${e.content || ""} ${Array.isArray(e.jira_links) ? e.jira_links.join(" ") : ""}`).join(" ").toUpperCase();
+        const forgotten = inProgress.filter(t => !diaryText.includes(t.key.toUpperCase()));
+        setNotifItems({ overdue, gaps, forgotten });
+      } catch (_) {}
+    })();
+
     // Team 1:1 due badge — last week of month + direct reports without session
     const now = new Date();
     const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -10697,7 +16369,7 @@ export default function Echo() {
   // Global keyboard shortcuts: Cmd+K → palette, N → new diary entry, 1-9 → sections, Cmd+? → shortcuts
   useEffect(() => {
     if (!user) return;
-    const NAV_KEYS = { "1": "dashboard", "2": "diary", "3": "commitments", "4": "incidents", "5": "decisions", "6": "releases", "7": "team", "8": "brag", "9": "resume" };
+    const NAV_KEYS = { "1": "dashboard", "2": "diary", "3": "commitments", "4": "incidents", "5": "decisions", "6": "releases", "7": "team", "8": "sprint", "9": "story" };
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setPaletteOpen(p => !p); }
       if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setShortcutsOpen(p => !p); }
@@ -10733,6 +16405,20 @@ export default function Echo() {
       });
     });
   }, [user]);
+
+  useEffect(() => {
+    if (!aiMenuOpen) return;
+    const handler = (e) => { if (aiMenuRef.current && !aiMenuRef.current.contains(e.target)) setAiMenuOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [aiMenuOpen]);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const handler = (e) => { if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [notifOpen]);
 
 
   const openPremiumStandup = async () => {
@@ -10850,19 +16536,37 @@ export default function Echo() {
     ].forEach(k => localStorage.removeItem(k));
     setDisplayName(u.user_metadata?.display_name || "");
     setAvatarData(u.user_metadata?.avatar || "");
+    // Accept pending team invite — runs here because the mount-time useEffect fires
+    // before auth completes for new signups, so the PATCH would use the anon token
+    const pendingInvite = localStorage.getItem("echo_pending_invite");
+    if (pendingInvite) {
+      fetch(`${_REST()}/team_memberships?invite_token=eq.${pendingInvite}&accepted_at=is.null`, { headers: h() })
+        .then(r => r.ok ? r.json() : [])
+        .then(rows => {
+          if (rows?.length) {
+            return fetch(`${_REST()}/team_memberships?invite_token=eq.${pendingInvite}`, {
+              method: "PATCH",
+              headers: { ...h(), "Content-Type": "application/json", "Prefer": "return=minimal" },
+              body: JSON.stringify({ member_user_id: u.id, accepted_at: new Date().toISOString() }),
+            });
+          }
+        })
+        .catch(() => {})
+        .finally(() => localStorage.removeItem("echo_pending_invite"));
+    }
     setUser(u);
   }} />;
 
   const isOwner   = user.email === OWNER_EMAIL;
   const isPremium = user.email === PREMIUM_EMAIL;
-  const PREMIUM_IDS = new Set(["sprint", "resume", "resolve"]);
+  const PREMIUM_IDS = new Set(["incidents", "decisions", "teamreport", "story", "credits", "resolve"]);
   const visibleNav = NAV.filter(n => {
     if (n.id === "locker") return isOwner;
     if (PREMIUM_IDS.has(n.id)) return isPremium;
     return true;
   });
   const sections   = [...new Set(visibleNav.map(n => n.section))];
-  const NAV_SHORTCUT = { dashboard: "1", diary: "2", commitments: "3", incidents: "4", decisions: "5", releases: "6", team: "7", brag: "8", resume: "9" };
+  const NAV_SHORTCUT = { dashboard: "1", diary: "2", commitments: "3", incidents: "4", decisions: "5", releases: "6", team: "7", sprint: "8", story: "9" };
 
   return (
     <div className="echo-root">
@@ -10942,16 +16646,8 @@ export default function Echo() {
               a.href = url; a.download = `echo-export-${new Date().toISOString().slice(0,10)}.json`;
               a.click(); URL.revokeObjectURL(url);
               toast("Data exported as JSON", "info");
-            }} style={{
-              flex: 1, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6,
-              color: T.text3, cursor: "pointer", fontSize: 11, padding: "5px 0",
-              fontFamily: "'DM Sans', sans-serif",
-            }} title="Download all your data as JSON">⬇ Export</button>
-            <button onClick={logout} style={{
-              flex: 1, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6,
-              color: T.text3, cursor: "pointer", fontSize: 11, padding: "5px 0",
-              fontFamily: "'DM Sans', sans-serif",
-            }}>Sign out</button>
+            }} className="sidebar-action-btn" title="Download all your data as JSON">⬇ Export</button>
+            <button onClick={logout} className="sidebar-action-btn">Sign out</button>
           </div>
         </div>
       </aside>
@@ -10959,43 +16655,119 @@ export default function Echo() {
       <main className="echo-main">
         <div className="echo-topbar">
           <div style={{ display: "flex", alignItems: "center" }}>
-            <button className="echo-hamburger" onClick={() => setSidebarOpen(o => !o)} aria-label="Menu">☰</button>
+            <button className="echo-hamburger" onClick={() => setSidebarOpen(o => !o)} aria-label="Menu">
+            <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <line x1="0" y1="1" x2="18" y2="1"/><line x1="0" y1="7" x2="18" y2="7"/><line x1="0" y1="13" x2="18" y2="13"/>
+            </svg>
+          </button>
             <div>
               <div className="echo-page-title">{PAGE_META[view]?.title}</div>
               <div className="echo-page-sub">{PAGE_META[view]?.sub}</div>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {(() => {
+              const notifCount = notifItems.overdue.length + notifItems.gaps.length + notifItems.forgotten.length;
+              return (
+                <div style={{ position: "relative" }} ref={notifRef}>
+                  <button onClick={() => setNotifOpen(o => !o)} title="Attention items"
+                    style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, cursor: "pointer", background: notifOpen ? `${T.coral}18` : T.navy2, border: `1px solid ${notifOpen ? T.coral + "50" : T.border}`, color: notifCount > 0 ? T.coral : T.text3, transition: "all 0.15s", flexShrink: 0 }}>
+                    <svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M7.5 1.5a5 5 0 0 1 5 5v3l1 2H1.5l1-2v-3a5 5 0 0 1 5-5z"/>
+                      <path d="M6 13.5a1.5 1.5 0 0 0 3 0"/>
+                    </svg>
+                    {notifCount > 0 && (
+                      <span style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: T.coral, color: "#fff", fontSize: 9, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>
+                        {notifCount}
+                      </span>
+                    )}
+                  </button>
+                  {notifOpen && (
+                    <div style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, width: 300, background: T.navy1, border: `1px solid ${T.border2}`, borderRadius: 12, boxShadow: `0 12px 40px rgba(0,0,0,0.5)`, zIndex: 500, overflow: "hidden" }}>
+                      <div style={{ padding: "12px 14px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.text1 }}>Needs Attention</span>
+                        {notifCount === 0 && <span style={{ fontSize: 11, color: T.teal }}>All clear ✓</span>}
+                        {notifCount > 0 && <span style={{ fontSize: 10, color: T.coral, background: `${T.coral}15`, border: `1px solid ${T.coral}30`, borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{notifCount} items</span>}
+                      </div>
+                      <div style={{ maxHeight: 380, overflowY: "auto" }}>
+                        {notifCount === 0 && (
+                          <div style={{ padding: "20px 14px", textAlign: "center", color: T.text3, fontSize: 12 }}>Nothing needs your attention right now.</div>
+                        )}
+                        {notifItems.overdue.length > 0 && (
+                          <div style={{ padding: "10px 14px 4px" }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: T.coral, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>Overdue Commitments · {notifItems.overdue.length}</div>
+                            {notifItems.overdue.map(c => (
+                              <div key={c.id} onClick={() => { setView("commitments"); setNotifOpen(false); }} style={{ padding: "7px 10px", borderRadius: 7, background: T.navy2, border: `1px solid ${T.border}`, borderLeft: `3px solid ${T.coral}`, marginBottom: 5, cursor: "pointer" }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: T.text1, marginBottom: 1 }}>{c.what?.slice(0, 50) || "Unnamed"}</div>
+                                <div style={{ fontSize: 10, color: T.text3 }}>To: {c.person || "—"}{c.due_date ? ` · Due ${c.due_date}` : ""}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {notifItems.gaps.length > 0 && (
+                          <div style={{ padding: "10px 14px 4px" }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: T.gold, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>1:1 Gaps · {notifItems.gaps.length}</div>
+                            {notifItems.gaps.map(t => (
+                              <div key={t.id} onClick={() => { setView("team"); setNotifOpen(false); }} style={{ padding: "7px 10px", borderRadius: 7, background: T.navy2, border: `1px solid ${T.border}`, borderLeft: `3px solid ${T.gold}`, marginBottom: 5, cursor: "pointer" }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: T.text1 }}>{t.name}</div>
+                                <div style={{ fontSize: 10, color: T.text3 }}>No 1:1 in the last 30 days</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {notifItems.forgotten.length > 0 && (
+                          <div style={{ padding: "10px 14px 10px" }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>JIRA Not in Diary · {notifItems.forgotten.length}</div>
+                            {notifItems.forgotten.slice(0, 5).map(t => (
+                              <div key={t.key} onClick={() => { setView("sprint"); setNotifOpen(false); }} style={{ padding: "7px 10px", borderRadius: 7, background: T.navy2, border: `1px solid ${T.border}`, borderLeft: `3px solid ${T.accent}`, marginBottom: 5, cursor: "pointer" }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: T.text1 }}>{t.key}</div>
+                                <div style={{ fontSize: 10, color: T.text3 }}>{(t.summary || "").slice(0, 55)}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {todayEntryMissing && view !== "diary" && (
               <button onClick={() => { setView("diary"); localStorage.setItem("echo_diary_new", "1"); setTodayEntryMissing(false); }}
+                className="log-today-nudge"
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 11px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: `${T.amber}18`, border: `1px solid ${T.amber}40`, color: T.amber, fontFamily: "'DM Sans', sans-serif", transition: "opacity 0.15s" }}
                 title="No diary entry for today yet">
                 📓 Log today
               </button>
             )}
             {isPremium && (
-              <>
-                <button onClick={openPremiumStandup}
-                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: `${T.accent}18`, border: `1px solid ${T.accent}40`, color: T.accent2, fontFamily: "'DM Sans', sans-serif" }}
-                  title="Generate AI standup from your latest diary entry">
-                  ⚡ Standup
+              <div className="ai-dropdown-wrap" ref={aiMenuRef}>
+                <button
+                  onClick={() => setAiMenuOpen(o => !o)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 13px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: aiMenuOpen ? `${T.accent}22` : `${T.accent}14`, border: `1px solid ${aiMenuOpen ? T.accent + "60" : T.accent + "35"}`, color: T.accent2, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s" }}
+                  title="AI-powered actions">
+                  ✨ AI
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" style={{ opacity: 0.7, transition: "transform 0.15s", transform: aiMenuOpen ? "rotate(180deg)" : "rotate(0deg)" }}><path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none"/></svg>
                 </button>
-                <button onClick={openPremiumWeekly}
-                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: `${T.teal}15`, border: `1px solid ${T.teal}35`, color: T.teal, fontFamily: "'DM Sans', sans-serif" }}
-                  title="Generate weekly wrap report">
-                  📋 Weekly
-                </button>
-                <button onClick={openPremiumRetro}
-                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: `${T.amber}15`, border: `1px solid ${T.amber}35`, color: T.amber, fontFamily: "'DM Sans', sans-serif" }}
-                  title="Generate AI sprint retrospective from last 14 days">
-                  🔄 Retro
-                </button>
-                <button onClick={openPremiumCoach}
-                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: `${T.coral}15`, border: `1px solid ${T.coral}35`, color: T.coral, fontFamily: "'DM Sans', sans-serif" }}
-                  title="Get personalised AI career coaching">
-                  🤖 Coach
-                </button>
-              </>
+                {aiMenuOpen && (
+                  <div className="ai-dropdown-menu">
+                    {[
+                      { icon: "⚡", label: "Daily Standup", desc: "From last diary entry", color: T.accent2, action: () => { openPremiumStandup(); setAiMenuOpen(false); } },
+                      { icon: "📋", label: "Weekly Report", desc: "Last 14 days summary", color: T.teal, action: () => { openPremiumWeekly(); setAiMenuOpen(false); } },
+                      { icon: "🔄", label: "Sprint Retro", desc: "Auto-drafted from data", color: T.amber, action: () => { openPremiumRetro(); setAiMenuOpen(false); } },
+                      { icon: "🤖", label: "Career Coach", desc: "Personalised AI coaching", color: T.coral, action: () => { openPremiumCoach(); setAiMenuOpen(false); } },
+                    ].map(item => (
+                      <button key={item.label} className="ai-menu-item" onClick={item.action}>
+                        <span style={{ fontSize: 15 }}>{item.icon}</span>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: item.color }}>{item.label}</div>
+                          <div style={{ fontSize: 10, color: T.text3, marginTop: 1 }}>{item.desc}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
             <button onClick={() => setPaletteOpen(true)} style={{
               display: "flex", alignItems: "center", gap: 7,
@@ -11032,15 +16804,16 @@ export default function Echo() {
           </div>
         )}
         {view === "commitments" && <Commitments user={user} />}
-        {view === "incidents"   && <IncidentLog user={user} />}
-        {view === "decisions"   && <DecisionLog user={user} />}
+        {view === "incidents"   && (isPremium ? <IncidentLog user={user} /> : <PremiumGate onBack={() => setView("dashboard")} />)}
+        {view === "decisions"   && (isPremium ? <DecisionLog user={user} /> : <PremiumGate onBack={() => setView("dashboard")} />)}
         {view === "releases"    && <ReleaseTracker user={user} />}
-        {view === "sprint"     && (isPremium ? <SprintBoard user={user} /> : <PremiumGate onBack={() => setView("dashboard")} />)}
+        {view === "sprint"      && (isPremium ? <SprintBoard user={user} /> : <MemberSprintView user={user} />)}
         {view === "team"        && <MyTeam user={user} />}
-        {view === "brag"        && <BragDoc user={user} />}
-        {view === "resume"      && (isPremium ? <ShadowResume user={user} /> : <PremiumGate onBack={() => setView("dashboard")} />)}
-        {view === "workmap"     && <WorkMap user={user} />}
-        {view === "credits"     && <CreditTracker user={user} />}
+        {view === "team-pulse"  && <TeamPulse user={user} />}
+        {view === "teamreport"  && (isPremium ? <TeamProgressReport user={user} /> : <PremiumGate onBack={() => setView("dashboard")} />)}
+        {view === "story"       && (isPremium ? <MyStory user={user} /> : <PremiumGate onBack={() => setView("dashboard")} />)}
+        {view === "resume"      && <AIShadowResume user={user} />}
+        {view === "credits"     && (isPremium ? <CreditTracker user={user} /> : <PremiumGate onBack={() => setView("dashboard")} />)}
         {view === "resolve"     && (isPremium ? <Resolve user={user} /> : <PremiumGate onBack={() => setView("dashboard")} />)}
       </main>
 
@@ -11134,6 +16907,7 @@ export default function Echo() {
           </svg>
         )}
       </button>
+      <QuickCapture user={user} />
     </div>
   );
 }
