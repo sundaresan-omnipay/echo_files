@@ -14334,8 +14334,6 @@ function MemberSprintView({ user }) {
   const [leaderboardOpen, setLeaderboardOpen] = useState(true);
   const [memberJiraEmail, setMemberJiraEmail] = useState(() => localStorage.getItem("echo_member_jira_email") || "");
   const [memberName, setMemberName]       = useState("");
-  const [editingEmail, setEditingEmail]   = useState(false);
-  const [emailDraft, setEmailDraft]       = useState("");
   // Member's own JIRA credentials (stored in localStorage, never sent to server except JIRA)
   const [memberJiraConfig, setMemberJiraConfig] = useState(() => { try { return JSON.parse(localStorage.getItem("echo_member_jira_config") || "null"); } catch { return null; } });
   const [showMemberJiraSetup, setShowMemberJiraSetup] = useState(false);
@@ -14420,10 +14418,9 @@ CREATE POLICY "owner_all" ON sprint_notes FOR ALL USING (auth.uid() = user_id);`
     })();
   }, [user]);
 
-  // Auto-fetch member's own JIRA tickets if they have credentials stored
-  useEffect(() => {
-    if (memberJiraConfig) fetchMemberTickets(memberJiraConfig);
-  }, []);
+  // Auto-fetch member's own JIRA tickets if they have credentials stored (run once on mount)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (memberJiraConfig) fetchMemberTickets(memberJiraConfig); }, []);
 
   const fetchMemberTickets = async (cfg) => {
     const c = cfg || memberJiraConfig;
