@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Echo — Product & Design Analysis</title>
+<style>
+  :root {
+    --navy0: #0a0e1a; --navy1: #0d1526; --navy2: #111c33; --navy3: #162040;
+    --accent: #4f8ef7; --gold: #e8c66a; --teal: #3fcfb4; --coral: #f07562;
+    --green: #4ecb8d; --purple: #a78bfa;
+    --text1: #e8eef8; --text2: #9bacc8; --text3: #5c6e90;
+    --border: rgba(79,142,247,0.15);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--navy0); color: var(--text1);
+    font-family: 'DM Sans', 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  a { color: var(--accent); }
+
+  /* Layout */
+  .hero {
+    background: linear-gradient(135deg, #0d1526 0%, #111c33 60%, #0a1428 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 48px 40px 36px;
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: "";
+    position: absolute; top: -60px; right: -60px;
+    width: 340px; height: 340px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(79,142,247,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .hero-tag {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--accent); background: rgba(79,142,247,0.12);
+    border: 1px solid rgba(79,142,247,0.3); border-radius: 4px;
+    padding: 3px 10px; margin-bottom: 16px;
+  }
+  .hero h1 {
+    font-size: 30px; font-weight: 800; color: var(--text1);
+    margin-bottom: 8px; letter-spacing: -0.5px;
+  }
+  .hero p { font-size: 15px; color: var(--text2); max-width: 640px; }
+  .hero-meta {
+    display: flex; gap: 28px; margin-top: 24px; flex-wrap: wrap;
+  }
+  .hero-stat { text-align: left; }
+  .hero-stat .val { font-size: 22px; font-weight: 800; color: var(--accent); font-family: 'Syne', monospace; }
+  .hero-stat .lbl { font-size: 11px; color: var(--text3); margin-top: 1px; }
+
+  .container { max-width: 1060px; margin: 0 auto; padding: 40px 32px; }
+
+  /* Score summary strip */
+  .score-strip {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 14px; margin-bottom: 44px;
+  }
+  .score-card {
+    background: var(--navy2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 18px;
+  }
+  .score-card .dim { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+  .score-card .score-row { display: flex; align-items: center; justify-content: space-between; }
+  .score-card .num { font-size: 24px; font-weight: 800; font-family: 'Syne', monospace; }
+  .score-card .bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.06); margin-top: 10px; overflow: hidden; }
+  .score-card .bar-fill { height: 100%; border-radius: 2px; }
+  .grade-a { color: var(--teal); } .grade-a .bar-fill { background: var(--teal); }
+  .grade-b { color: var(--accent); } .grade-b .bar-fill { background: var(--accent); }
+  .grade-c { color: var(--gold); } .grade-c .bar-fill { background: var(--gold); }
+  .grade-d { color: var(--coral); } .grade-d .bar-fill { background: var(--coral); }
+
+  /* Sections */
+  .section { margin-bottom: 52px; }
+  .section-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 22px; padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; flex-shrink: 0;
+  }
+  .section-header h2 { font-size: 17px; font-weight: 700; color: var(--text1); }
+  .section-header .count {
+    margin-left: auto; font-size: 11px; font-weight: 700;
+    padding: 2px 8px; border-radius: 20px;
+    background: rgba(79,142,247,0.1); color: var(--accent);
+  }
+
+  /* Priority cards */
+  .priority-grid { display: flex; flex-direction: column; gap: 14px; }
+  .pcard {
+    background: var(--navy2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px;
+    display: flex; gap: 16px; align-items: flex-start;
+    transition: border-color 0.15s;
+  }
+  .pcard:hover { border-color: rgba(79,142,247,0.3); }
+  .pcard-icon {
+    width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 19px;
+  }
+  .pcard-body { flex: 1; min-width: 0; }
+  .pcard-top { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
+  .pcard-title { font-size: 14px; font-weight: 700; color: var(--text1); flex: 1; }
+  .badge {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 4px; flex-shrink: 0; margin-top: 1px;
+  }
+  .badge-quick { background: rgba(63,207,180,0.12); color: var(--teal); }
+  .badge-medium { background: rgba(232,198,106,0.12); color: var(--gold); }
+  .badge-big { background: rgba(240,117,98,0.12); color: var(--coral); }
+  .badge-arch { background: rgba(167,139,250,0.12); color: var(--purple); }
+  .pcard-desc { font-size: 13px; color: var(--text2); line-height: 1.65; }
+  .pcard-sub {
+    margin-top: 10px; padding: 10px 14px; border-radius: 8px;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);
+    font-size: 12px; color: var(--text3); line-height: 1.7;
+  }
+  .pcard-sub strong { color: var(--text2); }
+
+  /* Two-col layout */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* Feature table */
+  .feat-table { width: 100%; border-collapse: collapse; }
+  .feat-table th {
+    text-align: left; font-size: 10px; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase; color: var(--text3);
+    padding: 8px 14px; border-bottom: 1px solid var(--border);
+  }
+  .feat-table td {
+    padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 13px; vertical-align: top;
+  }
+  .feat-table tr:last-child td { border-bottom: none; }
+  .feat-table tr:hover td { background: rgba(79,142,247,0.03); }
+  .module-name { font-weight: 600; color: var(--text1); }
+  .module-icon { font-size: 16px; margin-right: 6px; }
+  .health-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px;
+  }
+  .dot-green { background: var(--teal); }
+  .dot-yellow { background: var(--gold); }
+  .dot-red { background: var(--coral); }
+  .dot-blue { background: var(--accent); }
+
+  /* Design callouts */
+  .callout {
+    border-radius: 10px; padding: 14px 18px; margin-bottom: 12px;
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .callout-icon { font-size: 18px; flex-shrink: 0; line-height: 1.4; }
+  .callout-body { flex: 1; }
+  .callout-title { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .callout-text { font-size: 12px; color: var(--text2); line-height: 1.6; }
+  .callout-teal { background: rgba(63,207,180,0.07); border: 1px solid rgba(63,207,180,0.2); }
+  .callout-teal .callout-title { color: var(--teal); }
+  .callout-gold { background: rgba(232,198,106,0.07); border: 1px solid rgba(232,198,106,0.2); }
+  .callout-gold .callout-title { color: var(--gold); }
+  .callout-coral { background: rgba(240,117,98,0.07); border: 1px solid rgba(240,117,98,0.2); }
+  .callout-coral .callout-title { color: var(--coral); }
+  .callout-blue { background: rgba(79,142,247,0.07); border: 1px solid rgba(79,142,247,0.2); }
+  .callout-blue .callout-title { color: var(--accent); }
+
+  /* Code snippets */
+  .code-block {
+    background: #080c18; border: 1px solid rgba(79,142,247,0.15);
+    border-radius: 8px; padding: 12px 16px; margin-top: 10px;
+    font-family: 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 11.5px; color: var(--text2); overflow-x: auto;
+    line-height: 1.7; white-space: pre;
+  }
+  .code-block .k { color: #c792ea; } /* keyword */
+  .code-block .s { color: #c3e88d; } /* string */
+  .code-block .c { color: var(--text3); font-style: italic; } /* comment */
+  .code-block .n { color: var(--accent); } /* name/var */
+
+  /* Colour palette display */
+  .color-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .color-chip {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--navy2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px;
+  }
+  .color-swatch { width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0; }
+  .color-label { font-size: 11px; color: var(--text2); font-family: monospace; }
+  .color-name { font-size: 11px; color: var(--text3); margin-left: 4px; }
+
+  /* Roadmap timeline */
+  .roadmap { display: flex; flex-direction: column; gap: 0; }
+  .phase {
+    display: flex; gap: 0; position: relative;
+  }
+  .phase-left {
+    width: 120px; flex-shrink: 0; padding: 0 20px 0 0;
+    display: flex; flex-direction: column; align-items: flex-end;
+    padding-top: 4px;
+  }
+  .phase-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; }
+  .phase-time { font-size: 10px; color: var(--text3); margin-top: 2px; }
+  .phase-line {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 0 16px;
+  }
+  .phase-dot {
+    width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; border: 2px solid var(--navy0); margin-top: 5px;
+  }
+  .phase-connector { flex: 1; width: 2px; background: var(--border); min-height: 30px; }
+  .phase-right { flex: 1; padding: 0 0 28px 0; }
+  .phase-items { display: flex; flex-direction: column; gap: 8px; }
+  .phase-item {
+    background: var(--navy2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px;
+  }
+  .phase-item-title { font-size: 13px; font-weight: 600; color: var(--text1); margin-bottom: 3px; }
+  .phase-item-desc { font-size: 12px; color: var(--text3); line-height: 1.5; }
+
+  /* Tags */
+  .tag { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; }
+  .tag-ux { background: rgba(79,142,247,0.1); color: var(--accent); }
+  .tag-data { background: rgba(63,207,180,0.1); color: var(--teal); }
+  .tag-perf { background: rgba(240,117,98,0.1); color: var(--coral); }
+  .tag-ai { background: rgba(167,139,250,0.1); color: var(--purple); }
+  .tag-product { background: rgba(232,198,106,0.1); color: var(--gold); }
+
+  /* Divider */
+  .divider { height: 1px; background: var(--border); margin: 40px 0; }
+
+  /* Footer */
+  .footer {
+    text-align: center; padding: 32px; color: var(--text3); font-size: 12px;
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-tag">Professional Design & Product Analysis</div>
+  <h1>Echo — Full Platform Audit</h1>
+  <p>A thorough review of every module, design system, UX flow, and technical foundation — with a prioritised roadmap to make this the best personal career intelligence tool it can be.</p>
+  <div class="hero-meta">
+    <div class="hero-stat"><div class="val">13</div><div class="lbl">Modules</div></div>
+    <div class="hero-stat"><div class="val">7,600+</div><div class="lbl">Lines of code (single file)</div></div>
+    <div class="hero-stat"><div class="val">14</div><div class="lbl">Supabase tables</div></div>
+    <div class="hero-stat"><div class="val">3</div><div class="lbl">AI-powered features</div></div>
+    <div class="hero-stat"><div class="val">32</div><div class="lbl">Actionable suggestions</div></div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- SCORE STRIP -->
+  <div class="score-strip" style="margin-top: 0;">
+    <div class="score-card grade-a">
+      <div class="dim">Data Model</div>
+      <div class="score-row"><span class="num">A</span><span style="font-size:11px;color:var(--text3)">9/10</span></div>
+      <div class="bar"><div class="bar-fill" style="width:90%"></div></div>
+    </div>
+    <div class="score-card grade-a">
+      <div class="dim">Feature Depth</div>
+      <div class="score-row"><span class="num">A−</span><span style="font-size:11px;color:var(--text3)">8.5/10</span></div>
+      <div class="bar"><div class="bar-fill" style="width:85%"></div></div>
+    </div>
+    <div class="score-card grade-b">
+      <div class="dim">Visual Design</div>
+      <div class="score-row"><span class="num">B+</span><span style="font-size:11px;color:var(--text3)">7.5/10</span></div>
+      <div class="bar"><div class="bar-fill" style="width:75%"></div></div>
+    </div>
+    <div class="score-card grade-c">
+      <div class="dim">UX / Usability</div>
+      <div class="score-row"><span class="num">B</span><span style="font-size:11px;color:var(--text3)">7/10</span></div>
+      <div class="bar"><div class="bar-fill" style="width:70%"></div></div>
+    </div>
+    <div class="score-card grade-c">
+      <div class="dim">Mobile/Responsive</div>
+      <div class="score-row"><span class="num">C+</span><span style="font-size:11px;color:var(--text3)">5.5/10</span></div>
+      <div class="bar"><div class="bar-fill" style="width:55%"></div></div>
+    </div>
+    <div class="score-card grade-b">
+      <div class="dim">AI Integration</div>
+      <div class="score-row"><span class="num">B+</span><span style="font-size:11px;color:var(--text3)">7/10</span></div>
+      <div class="bar"><div class="bar-fill" style="width:70%"></div></div>
+    </div>
+  </div>
+
+  <!-- ─── MODULE HEALTH ─── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(79,142,247,0.1);">🗂</div>
+      <h2>Module Health Assessment</h2>
+      <div class="count">13 modules</div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="feat-table">
+        <thead>
+          <tr>
+            <th>Module</th>
+            <th>Health</th>
+            <th>Strengths</th>
+            <th>Gaps / Issues</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="module-icon">📓</span><span class="module-name">Corporate Diary</span></td>
+            <td><span class="health-dot dot-green"></span>Strong</td>
+            <td>Rich data model — mood, JIRA, collaborators, blockers, carry-forward, AI categorisation, PDF export</td>
+            <td>Entry form is dense (~12 fields); new users get overwhelmed. No smart defaults or progressive disclosure</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">🏠</span><span class="module-name">Dashboard</span></td>
+            <td><span class="health-dot dot-green"></span>Strong</td>
+            <td>Calendar heatmap, quick stats, mood trend chart, carry-forward surface, pattern interrupt</td>
+            <td>Stats don't link to filtered views. "Insights" section buried at the bottom</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">👥</span><span class="module-name">My Team + 1:1</span></td>
+            <td><span class="health-dot dot-green"></span>Strong</td>
+            <td>1:1 modal is excellent — agenda queue, context from diary, action items, history, sentiment, auto-feedback</td>
+            <td>No way to see all 1:1 history across all teammates in one view. No "next 1:1 due" countdown on cards</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">📋</span><span class="module-name">Shadow Resume</span></td>
+            <td><span class="health-dot dot-blue"></span>Good</td>
+            <td>Auto-generated from diary — unique differentiator. Good stats strip and wins gallery</td>
+            <td>Depends entirely on diary quality. No manual additions. JIRA tickets list is passive — no linking</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">🏆</span><span class="module-name">Brag Doc</span></td>
+            <td><span class="health-dot dot-blue"></span>Good</td>
+            <td>Win tagging, appraisal evidence generator, period filters</td>
+            <td>Copy-paste-only output. No shareable PDF. Win tags are fixed — should be customisable</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">🚀</span><span class="module-name">Release Status</span></td>
+            <td><span class="health-dot dot-yellow"></span>Partial</td>
+            <td>Owner quick-add (with self-chip), Tomorrow status, Copy Report</td>
+            <td>No visual progress bar per release. No link to diary entries for context. Status history not visualised</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">🤝</span><span class="module-name">Commitments</span></td>
+            <td><span class="health-dot dot-blue"></span>Good</td>
+            <td>Urgency coloring, direction filter, resolution tracking</td>
+            <td>No ability to link commitment to a diary entry. No snooze/defer. Bulk actions missing</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">🐛</span><span class="module-name">Incident Log</span></td>
+            <td><span class="health-dot dot-blue"></span>Good</td>
+            <td>Root cause patterns, test gap analysis, severity levels</td>
+            <td>Pattern grouping is rough. No trend over time chart. No export. Severity distribution not visualised</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">🧠</span><span class="module-name">Decision Log</span></td>
+            <td><span class="health-dot dot-yellow"></span>Minimal</td>
+            <td>Clean, simple log with date + context + people</td>
+            <td>No edit after save. No tagging/filtering by domain. No ability to mark a decision as revisited/reversed</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">🗂️</span><span class="module-name">DigiLocker</span></td>
+            <td><span class="health-dot dot-blue"></span>Good</td>
+            <td>File upload, categories, search, preview modal</td>
+            <td>No folder hierarchy. Previews work only for images. No sharing or expiry links</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">⭐</span><span class="module-name">Credit Tracker</span></td>
+            <td><span class="health-dot dot-yellow"></span>Minimal</td>
+            <td>Given vs received balance, project field</td>
+            <td>No visualisation of credit balance over time. No "remind me to give credit" nudge. Feels like a list, not a tool</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">🕸️</span><span class="module-name">Work Map</span></td>
+            <td><span class="health-dot dot-yellow"></span>Unclear</td>
+            <td>Concept is powerful — graph of focus areas, people, tickets</td>
+            <td>Implementation hard to verify from code. No interactive filtering. May just be static SVG. Needs a rebuild with a proper graph library</td>
+          </tr>
+          <tr>
+            <td><span class="module-icon">🔥</span><span class="module-name">Resolve</span></td>
+            <td><span class="health-dot dot-yellow"></span>Minimal</td>
+            <td>Habit streak tracking, slip history, pattern interrupt modal</td>
+            <td>Very niche. No connection to diary mood data. Streak visualisation is basic. Could leverage mood trend data</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ─── DESIGN SYSTEM ─── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(167,139,250,0.1);">🎨</div>
+      <h2>Design System Issues</h2>
+      <div class="count">Critical — affects consistency</div>
+    </div>
+
+    <div class="two-col" style="margin-bottom:16px;">
+      <div>
+        <div class="callout callout-coral">
+          <div class="callout-icon">⚠️</div>
+          <div class="callout-body">
+            <div class="callout-title">20+ Hardcoded Colors Outside T Object</div>
+            <div class="callout-text">Colors like <code style="color:var(--coral)">#F5C243</code>, <code style="color:var(--coral)">#4CAF50</code>, <code style="color:var(--coral)">#FF3B30</code>, <code style="color:var(--coral)">#A78BFA</code> are scattered inline. When the design needs a refresh, each one needs hunting down manually. This is the #1 maintainability risk.</div>
+          </div>
+        </div>
+        <div class="callout callout-gold">
+          <div class="callout-icon">🎯</div>
+          <div class="callout-body">
+            <div class="callout-title">Missing T Tokens for Status Colors</div>
+            <div class="callout-text">Status colors (Released, In Progress, Blocked, Critical, Half Day etc.) are hardcoded everywhere. Add <code>T.amber</code>, <code>T.violet</code>, <code>T.red</code> to the token object and do a replace_all.</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="callout callout-blue">
+          <div class="callout-icon">📐</div>
+          <div class="callout-body">
+            <div class="callout-title">No Spacing Scale</div>
+            <div class="callout-text">Padding/margin values like 5, 7, 8, 9, 10, 12, 14, 16, 18, 20, 24, 28 are all used with no system. This creates subtle visual inconsistency across cards. Define a 4pt grid: 4, 8, 12, 16, 20, 24, 32, 40, 48.</div>
+          </div>
+        </div>
+        <div class="callout callout-teal">
+          <div class="callout-icon">✅</div>
+          <div class="callout-body">
+            <div class="callout-title">What Works Well</div>
+            <div class="callout-text">The T object itself is clean and well-named. Navy scale (navy0–navy5) is a great pattern. Font stack (Syne + DM Sans) is distinctive. Border opacity system creates depth without harshness.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:var(--navy2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-top:4px;">
+      <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px;">Recommended additions to T object</div>
+      <div class="color-grid">
+        <div class="color-chip"><div class="color-swatch" style="background:#F5C243"></div><span class="color-label">T.amber</span><span class="color-name">= "#F5C243"</span></div>
+        <div class="color-chip"><div class="color-swatch" style="background:#7B6EF6"></div><span class="color-label">T.violet</span><span class="color-name">= "#7B6EF6"</span></div>
+        <div class="color-chip"><div class="color-swatch" style="background:#FF3B30"></div><span class="color-label">T.red</span><span class="color-name">= "#FF3B30"</span></div>
+        <div class="color-chip"><div class="color-swatch" style="background:#4CAF50"></div><span class="color-label">T.emerald</span><span class="color-name">= "#4CAF50"</span></div>
+        <div class="color-chip"><div class="color-swatch" style="background:#9A99AD"></div><span class="color-label">T.muted</span><span class="color-name">= "#9A99AD"</span></div>
+        <div class="color-chip"><div class="color-swatch" style="background:#ffffff"></div><span class="color-label">T.white</span><span class="color-name">= "#ffffff"</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── TOP UX ISSUES ─── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(240,117,98,0.1);">🔍</div>
+      <h2>Top UX Issues to Fix Now</h2>
+      <div class="count">High impact</div>
+    </div>
+    <div class="priority-grid">
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(240,117,98,0.1);">📝</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Diary Form — Progressive Disclosure</div>
+            <div class="badge badge-medium">Medium effort</div>
+          </div>
+          <div class="pcard-desc">The diary form shows all 12 fields simultaneously — mood, JIRA links, collaborators, blockers, carry-forward, reminders, team updates, feedback, focus areas, categories, tags, content. This is overwhelming for quick daily logging. The most-used fields (date, mood, content) should be front and center. Everything else should be in a collapsible "More details →" section or second step.</div>
+          <div class="pcard-sub"><strong>Fix:</strong> Show Date + Mood + Content (textarea) by default. Add a "+ More" toggle that expands collaborators, JIRA, blockers, etc. Show badge counts on the toggle to indicate how much is filled. This alone will make daily logging feel light.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(232,198,106,0.1);">🔔</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Empty States Need CTAs, Not Just Illustrations</div>
+            <div class="badge badge-quick">Quick win</div>
+          </div>
+          <div class="pcard-desc">Modules like Credit Tracker, Commitments, and Decision Log show "No entries yet" with an emoji. This is a dead end. Empty states are a prime moment to teach the user the value of the module and guide them to take action.</div>
+          <div class="pcard-sub"><strong>Fix:</strong> Each empty state should have: (1) a one-liner explaining what the module tracks, (2) an example of what a good entry looks like, (3) a primary CTA button pre-filled with a sample. E.g. Commitments empty state: "Track things you've promised or are waiting on → Add your first commitment"</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(79,142,247,0.1);">🔗</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Cross-Module Linking is Missing</div>
+            <div class="badge badge-big">Big feature</div>
+          </div>
+          <div class="pcard-desc">Every module is an island. A commitment can't link to a diary entry. An incident can't trace back to the diary day it was discovered. A decision has no thread to a meeting in the diary. This is a major missed opportunity — Echo's superpower is that all your work data is in one place, but modules don't cross-reference each other.</div>
+          <div class="pcard-sub"><strong>Fix:</strong> Add a "Related diary entries" section to Commitments, Incidents, and Decisions — searchable by date/JIRA/person. When viewing a diary entry, surface any commitments, incidents, or decisions logged on that date. This creates a knowledge graph from existing data with no new tables needed.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(63,207,180,0.1);">🔎</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Global Search Needs to Be Truly Global</div>
+            <div class="badge badge-medium">Medium effort</div>
+          </div>
+          <div class="pcard-desc">The current search appears to be per-module (diary search, locker search). There's no single place to type "Ramveer" and see every diary entry, commitment, 1:1 session, and decision mentioning that person. For a career intelligence tool, this is table stakes.</div>
+          <div class="pcard-sub"><strong>Fix:</strong> Cmd/Ctrl+K command palette that searches across all modules simultaneously. Show results grouped by module with icons. Clicking a result navigates to that module and opens the specific record. This is the feature that will make Echo feel like a pro tool.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(167,139,250,0.1);">📱</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Mobile Experience is Largely Untested</div>
+            <div class="badge badge-big">Big effort</div>
+          </div>
+          <div class="pcard-desc">The app has a hamburger menu and a 720px breakpoint but most module layouts — the diary modal (700px wide), the 1:1 modal (980px max-width), the Shadow Resume stat grid — will overflow or be unusable on a phone. The daily standup use case (log what you did from your phone at end of day) is completely blocked.</div>
+          <div class="pcard-sub"><strong>Fix:</strong> At minimum, make the Diary add/view flow work on mobile. Use full-screen modals on small screens. Replace the sidebar with a bottom tab bar on &lt;768px. The 1:1 modal should collapse its two-column layout to a single column on mobile.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(240,117,98,0.1);">💾</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">No Data Export / Backup</div>
+            <div class="badge badge-medium">Medium effort</div>
+          </div>
+          <div class="pcard-desc">The Diary has a PDF export for single entries, but there's no way to export your entire dataset — all diary entries, commitments, decisions, incidents — as a JSON or CSV backup. For a "personal career record" tool, this is a trust issue: users won't adopt it seriously if they can't own their data.</div>
+          <div class="pcard-sub"><strong>Fix:</strong> Settings page → "Export all data" → download a JSON file containing all tables for the logged-in user. Also add a "Export Diary as CSV" option for spreadsheet users. This costs 2 hours to build and dramatically increases user trust.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── QUICK WINS ─── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(63,207,180,0.1);">⚡</div>
+      <h2>Quick Wins — Ship This Week</h2>
+      <div class="count">High ROI, low effort</div>
+    </div>
+    <div class="two-col">
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(79,142,247,0.1);">⌨️</div>
+        <div class="pcard-body">
+          <div class="pcard-top"><div class="pcard-title">Keyboard Shortcuts</div><div class="badge badge-quick">1–2 hours</div></div>
+          <div class="pcard-desc"><code>N</code> = New diary entry, <code>D</code> = Dashboard, <code>/</code> = Search focus, <code>Esc</code> = Close modal. Power users will notice immediately.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(232,198,106,0.1);">🔖</div>
+        <div class="pcard-body">
+          <div class="pcard-top"><div class="pcard-title">Last Visited Module Memory</div><div class="badge badge-quick">30 mins</div></div>
+          <div class="pcard-desc">Save the active view to localStorage so returning to the app doesn't always land on Dashboard. Already done for <code>echo_view</code> — just make sure it persists correctly.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(63,207,180,0.1);">📊</div>
+        <div class="pcard-body">
+          <div class="pcard-top"><div class="pcard-title">Dashboard Stat Cards → Clickable</div><div class="badge badge-quick">1 hour</div></div>
+          <div class="pcard-desc">The "This Month: 12 entries" stat card should click through to Diary filtered to this month. "Wins: 3" should click to Brag Doc. "Open Commitments: 5" should navigate to Commitments. Currently, stats are passive display only.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(167,139,250,0.1);">🏷️</div>
+        <div class="pcard-body">
+          <div class="pcard-top"><div class="pcard-title">Next 1:1 Countdown on Team Cards</div><div class="badge badge-quick">1 hour</div></div>
+          <div class="pcard-desc">Each My Team card already shows "last collaborated Xd ago" dot. Add "Next 1:1 in Xd" or "1:1 overdue" below each direct report card based on the <code>next_session_date</code> from the last session.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(240,117,98,0.1);">📅</div>
+        <div class="pcard-body">
+          <div class="pcard-top"><div class="pcard-title">Diary "Streak" Counter</div><div class="badge badge-quick">2 hours</div></div>
+          <div class="pcard-desc">Show a "🔥 12 day streak" badge in the topbar or Dashboard when the user has logged entries on consecutive days. This is a powerful retention mechanism — the Duolingo effect. Reset on a missed day, celebrate milestones.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(63,207,180,0.1);">✂️</div>
+        <div class="pcard-body">
+          <div class="pcard-top"><div class="pcard-title">Standup Generator — Clipboard Copy</div><div class="badge badge-quick">1 hour</div></div>
+          <div class="pcard-desc">The weekly report already generates standup text. Add a "Copy standup for Slack" button that formats yesterday's diary entry as a 3-bullet standup message (Done / Doing / Blocked). This is a daily-use feature.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(232,198,106,0.1);">🌓</div>
+        <div class="pcard-body">
+          <div class="pcard-top"><div class="pcard-title">Loading Skeleton States</div><div class="badge badge-quick">2 hours</div></div>
+          <div class="pcard-desc">Currently, modules show blank space or a spinner while fetching data. Replace with skeleton loaders (pulsing gray blocks in the shape of cards). This makes the app feel faster and more polished even on slow connections.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(79,142,247,0.1);">🗑️</div>
+        <div class="pcard-body">
+          <div class="pcard-top"><div class="pcard-title">Confirmation Dialog for Deletes</div><div class="badge badge-quick">1 hour</div></div>
+          <div class="pcard-desc">Diary entries and sessions are permanently deleted with a single click. At minimum, add an inline "Are you sure? Delete / Cancel" that replaces the delete button for 3 seconds. This prevents accidental data loss.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── AI IMPROVEMENTS ─── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(167,139,250,0.1);">🤖</div>
+      <h2>AI Feature Improvements</h2>
+      <div class="count">Groq / llama-3.1-8b-instant</div>
+    </div>
+    <div class="priority-grid">
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(167,139,250,0.1);">✍️</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">AI Standup Generator (Yesterday → Today → Blockers)</div>
+            <div class="badge badge-medium">Medium</div>
+          </div>
+          <div class="pcard-desc">The current AI categorisation is one-time on save. Add a "Generate Standup" button per diary entry that calls Groq to produce a 3-line standup format. The AI already has the entry content, mood, blockers — combine them into a Slack-ready message.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(167,139,250,0.1);">📝</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">1:1 Prep AI Summary</div>
+            <div class="badge badge-medium">Medium</div>
+          </div>
+          <div class="pcard-desc">Before a 1:1, click "AI Prep" to get a 3-bullet summary of: (1) what this person worked on since last session, (2) any outstanding commitments, (3) suggested talking points based on their recent work and feedback you've given. The modal already loads all this data — just needs a Groq call to synthesise it.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(167,139,250,0.1);">🎯</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Weekly AI Summary on Dashboard</div>
+            <div class="badge badge-big">Big</div>
+          </div>
+          <div class="pcard-desc">Every Monday morning: "Here's what last week looked like for you." A 2-paragraph narrative summary generated from the week's diary entries, highlighting key themes, recurring blockers, wins, and people worked with. Cached per-week so it only runs once. This is the kind of feature that makes the product feel alive.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(167,139,250,0.1);">📈</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Shadow Resume AI Narrative</div>
+            <div class="badge badge-medium">Medium</div>
+          </div>
+          <div class="pcard-desc">The Shadow Resume shows great stats but the "narrative summary" in the hero section is currently hardcoded/template text. Replace with a Groq call that reads the top focus areas, most frequent collaborators, and win count, then writes a genuine 2-sentence career narrative. "Sundar has led delivery across 4 modules over 6 months, with a consistent focus on quality and engineering…"</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── NEW FEATURES ─── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(232,198,106,0.1);">💡</div>
+      <h2>New Features to Build</h2>
+      <div class="count">Product direction</div>
+    </div>
+    <div class="priority-grid">
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(79,142,247,0.1);">⌘</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Command Palette (Cmd+K)</div>
+            <div class="badge badge-medium">2–3 days</div>
+          </div>
+          <div class="pcard-desc">A global search and action launcher. Type to search diary entries, teammates, JIRA tickets, documents, decisions. Also supports actions: "New diary entry", "Open 1:1 with Ramveer", "Go to Brag Doc". This makes Echo feel like a professional tool, not just an app.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(63,207,180,0.1);">📬</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Notifications Centre</div>
+            <div class="badge badge-medium">2 days</div>
+          </div>
+          <div class="pcard-desc">A bell icon in the topbar with a dropdown showing: upcoming 1:1s due, commitments overdue, "You haven't logged in 3 days", monthly 1:1 reminder. Currently reminders are buried in the team page. Surface them prominently. Use browser Notification API (with permission) for the end-of-day reminder already implemented.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(240,117,98,0.1);">📊</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Insights Page — Trends Across All Modules</div>
+            <div class="badge badge-big">3–4 days</div>
+          </div>
+          <div class="pcard-desc">A dedicated analytics view that shows: mood trend over 90 days, focus area distribution over time, most active collaborators by month, incident frequency by module, commitment resolution rate. Currently these insights are scattered or missing. One unified "My Patterns" page would be compelling.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(167,139,250,0.1);">🗓️</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Week View — Everything in One Timeline</div>
+            <div class="badge badge-big">3 days</div>
+          </div>
+          <div class="pcard-desc">A week-by-week calendar view that shows diary entries, scheduled 1:1s, commitments due, and incidents — all in one timeline. Managers think in weeks; this gives a "what happened this week" view that the current month-heatmap calendar can't provide.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(232,198,106,0.1);">🏷️</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Tagging System Across All Modules</div>
+            <div class="badge badge-medium">2 days</div>
+          </div>
+          <div class="pcard-desc">Right now tags exist only in the Diary. Add a shared tag taxonomy across Commitments, Incidents, and Decisions — e.g., tag everything related to "Project Alpha" and then filter across all modules by that tag. This connects the islands.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(79,142,247,0.1);">📤</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Full Appraisal Pack Generator</div>
+            <div class="badge badge-big">3 days</div>
+          </div>
+          <div class="pcard-desc">A single button: "Generate Appraisal Pack for Q2." Produces a professionally formatted PDF with: Shadow Resume stats, top wins from Brag Doc, incident reduction metrics, decision log (showing leadership), commitment completion rate, team feedback given. This is Echo's killer output — everything in one shareable document.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── TECHNICAL IMPROVEMENTS ─── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(63,207,180,0.1);">⚙️</div>
+      <h2>Technical Improvements</h2>
+      <div class="count">Code quality & performance</div>
+    </div>
+    <div class="priority-grid">
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(240,117,98,0.1);">📁</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Split App.js into Components</div>
+            <div class="badge badge-arch">Architectural</div>
+          </div>
+          <div class="pcard-desc">7,600 lines in a single file is the #1 technical risk. Hot module replacement in CRA becomes slow. Code navigation is painful. Any merge conflict affects everything. Split into: <code>components/diary/</code>, <code>components/team/</code>, <code>components/dashboard/</code>, <code>lib/db.js</code>, <code>lib/groq.js</code>.</div>
+          <div class="pcard-sub"><strong>Migration path:</strong> Start with extracting the <code>db</code> object to <code>src/lib/db.js</code> and the <code>T</code> tokens to <code>src/lib/tokens.js</code>. Then extract one component at a time — start with <code>OneOnOneModal</code> (self-contained). Don't try to do it all at once.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(232,198,106,0.1);">🔄</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Column Probing is Fragile</div>
+            <div class="badge badge-medium">Medium</div>
+          </div>
+          <div class="pcard-desc">The app has 8+ <code>probeX()</code> functions that check if a Supabase column exists by making a live API call on every page load. This adds 200–400ms latency per probe. Replace with: a single <code>/api/schema</code> call that checks all optional columns at once, or better — run all migrations as part of a one-time setup flow.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(79,142,247,0.1);">🗄️</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">First-Run Setup Wizard</div>
+            <div class="badge badge-medium">2 days</div>
+          </div>
+          <div class="pcard-desc">Currently, new users see warning banners for missing DB columns with raw SQL that needs to be run in Supabase Studio. This is a terrible first experience. A setup wizard that detects missing columns and runs the migrations automatically (via a one-time service role call) would remove this friction entirely.</div>
+        </div>
+      </div>
+
+      <div class="pcard">
+        <div class="pcard-icon" style="background:rgba(63,207,180,0.1);">⚡</div>
+        <div class="pcard-body">
+          <div class="pcard-top">
+            <div class="pcard-title">Data Caching — Avoid Re-fetching on Tab Switch</div>
+            <div class="badge badge-medium">1–2 days</div>
+          </div>
+          <div class="pcard-desc">Every time you switch from Diary to Dashboard and back, all diary entries are re-fetched from Supabase. Add a simple in-memory cache (React context or a module-level Map) with a 60-second TTL. This makes navigation feel instant and reduces Supabase query costs.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── ROADMAP ─── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(79,142,247,0.1);">🗺️</div>
+      <h2>Suggested Roadmap</h2>
+    </div>
+    <div class="roadmap">
+
+      <div class="phase">
+        <div class="phase-left">
+          <div class="phase-label" style="color:var(--teal)">Phase 1</div>
+          <div class="phase-time">This week</div>
+        </div>
+        <div class="phase-line">
+          <div class="phase-dot" style="background:var(--teal)"></div>
+          <div class="phase-connector"></div>
+        </div>
+        <div class="phase-right">
+          <div class="phase-items">
+            <div class="phase-item">
+              <div class="phase-item-title">Polish & Quick Wins <span class="tag tag-ux">UX</span></div>
+              <div class="phase-item-desc">Add T tokens for amber/violet/red. Dashboard stat cards become clickable. Next 1:1 countdown on team cards. Keyboard shortcut N for new diary entry. Delete confirmation on diary entries. Loading skeletons on Diary and My Team.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-left">
+          <div class="phase-label" style="color:var(--accent)">Phase 2</div>
+          <div class="phase-time">Next 2 weeks</div>
+        </div>
+        <div class="phase-line">
+          <div class="phase-dot" style="background:var(--accent)"></div>
+          <div class="phase-connector"></div>
+        </div>
+        <div class="phase-right">
+          <div class="phase-items">
+            <div class="phase-item">
+              <div class="phase-item-title">Data & Cross-linking <span class="tag tag-data">Data</span></div>
+              <div class="phase-item-desc">Diary entry streak counter. "Related entries" panel in Commitments and Incidents. Data export (JSON + CSV). Progressive disclosure in the diary form (collapse secondary fields). First-run setup wizard for DB migrations.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-left">
+          <div class="phase-label" style="color:var(--gold)">Phase 3</div>
+          <div class="phase-time">Month 2</div>
+        </div>
+        <div class="phase-line">
+          <div class="phase-dot" style="background:var(--gold)"></div>
+          <div class="phase-connector"></div>
+        </div>
+        <div class="phase-right">
+          <div class="phase-items">
+            <div class="phase-item">
+              <div class="phase-item-title">AI Enhancements <span class="tag tag-ai">AI</span></div>
+              <div class="phase-item-desc">1:1 Prep AI summary. AI-generated standup from diary entry. Shadow Resume narrative paragraph. Weekly AI digest on Dashboard Monday mornings.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-left">
+          <div class="phase-label" style="color:var(--coral)">Phase 4</div>
+          <div class="phase-time">Month 3</div>
+        </div>
+        <div class="phase-line">
+          <div class="phase-dot" style="background:var(--coral)"></div>
+          <div class="phase-connector"></div>
+        </div>
+        <div class="phase-right">
+          <div class="phase-items">
+            <div class="phase-item">
+              <div class="phase-item-title">Power Features <span class="tag tag-product">Product</span></div>
+              <div class="phase-item-desc">Command palette (Cmd+K global search + actions). Notifications centre (bell icon). Week View timeline. Full Appraisal Pack PDF generator. Mobile-first diary flow. Insights page with cross-module trends.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-left">
+          <div class="phase-label" style="color:var(--purple)">Phase 5</div>
+          <div class="phase-time">Q3+</div>
+        </div>
+        <div class="phase-line">
+          <div class="phase-dot" style="background:var(--purple)"></div>
+          <div class="phase-connector" style="display:none"></div>
+        </div>
+        <div class="phase-right">
+          <div class="phase-items">
+            <div class="phase-item">
+              <div class="phase-item-title">Architecture <span class="tag tag-perf">Tech</span></div>
+              <div class="phase-item-desc">Split App.js into component files. Replace column probing with single schema check. Add in-memory data cache. Consider migrating to Next.js for SSR and better code splitting.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── WHAT'S EXCELLENT ─── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(63,207,180,0.1);">🏆</div>
+      <h2>What's Already Excellent</h2>
+      <div class="count">Keep building on this</div>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="callout callout-teal">
+          <div class="callout-icon">🗂️</div>
+          <div class="callout-body">
+            <div class="callout-title">Data Model is Best-in-Class</div>
+            <div class="callout-text">14 well-designed tables with proper RLS, JSONB for flexible arrays, timestamp tracking, and cascade deletes. The schema alone is production-ready and would scale to thousands of entries without modification.</div>
+          </div>
+        </div>
+        <div class="callout callout-teal">
+          <div class="callout-icon">🤝</div>
+          <div class="callout-body">
+            <div class="callout-title">1:1 Module is Best-I've-Seen</div>
+            <div class="callout-text">Agenda queue, diary context panel, action items, feedback pre-population, history timeline, sentiment tracking, monthly reminder — this rivals commercial tools like Fellow.app and Lattice at a fraction of the complexity.</div>
+          </div>
+        </div>
+        <div class="callout callout-teal">
+          <div class="callout-icon">🔒</div>
+          <div class="callout-body">
+            <div class="callout-title">Auth & Security is Solid</div>
+            <div class="callout-text">JWT auto-refresh, Supabase RLS on every table, REACT_APP_ env var pattern for API keys, owner-only access gate on sensitive features. No obvious security holes.</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="callout callout-teal">
+          <div class="callout-icon">🧠</div>
+          <div class="callout-body">
+            <div class="callout-title">Concept is Genuinely Novel</div>
+            <div class="callout-text">No other tool combines diary + team management + career intelligence + incident tracking in one personal workspace. The "Shadow Resume" that auto-builds from your work log is a genuinely differentiated idea.</div>
+          </div>
+        </div>
+        <div class="callout callout-teal">
+          <div class="callout-icon">⚡</div>
+          <div class="callout-body">
+            <div class="callout-title">Groq Integration is Smart</div>
+            <div class="callout-text">Using llama-3.1-8b-instant at low temperature (0.1) for categorisation is exactly right. Low-latency, deterministic-ish, free tier. Fallback when API key is missing. System prompt that preserves names and ticket IDs shows careful engineering.</div>
+          </div>
+        </div>
+        <div class="callout callout-teal">
+          <div class="callout-icon">🎨</div>
+          <div class="callout-body">
+            <div class="callout-title">Visual Identity is Distinctive</div>
+            <div class="callout-text">The navy/blue palette is clean, professional, and unique. Syne + DM Sans is an excellent pairing. The accent glow and border opacity system creates genuine depth. This doesn't look like a standard dashboard template — it has a personality.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- FINAL VERDICT -->
+  <div style="background:var(--navy2);border:1px solid var(--border);border-radius:16px;padding:28px 32px;margin-bottom:40px;">
+    <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">Final Verdict</div>
+    <div style="font-size:16px;font-weight:700;color:var(--text1);margin-bottom:12px;line-height:1.5;">Echo is in the top 5% of personal productivity tools I've seen built by a single developer. The data model is excellent, the feature depth is impressive, and the concept is genuinely original.</div>
+    <div style="font-size:14px;color:var(--text2);line-height:1.8;">
+      The gap between "good" and "best" is: <strong style="color:var(--text1)">cross-module intelligence</strong> (modules need to talk to each other), <strong style="color:var(--text1)">progressive UX</strong> (the diary form needs to feel lighter), and <strong style="color:var(--text1)">AI that narrates</strong> rather than just categorises (weekly summaries, 1:1 prep, resume narrative).<br><br>
+      The 1:1 module and Shadow Resume are the standout features. Double down on those. Make the 1:1 so good that every engineering manager wants it. Make the Shadow Resume so accurate and beautiful that sharing it becomes the aspiration. Everything else supports those two.
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;">
+      <span style="background:rgba(63,207,180,0.12);color:var(--teal);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;">✓ Production-ready data layer</span>
+      <span style="background:rgba(63,207,180,0.12);color:var(--teal);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;">✓ Best-in-class 1:1 module</span>
+      <span style="background:rgba(63,207,180,0.12);color:var(--teal);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;">✓ Unique concept</span>
+      <span style="background:rgba(232,198,106,0.12);color:var(--gold);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;">→ Needs cross-module linking</span>
+      <span style="background:rgba(232,198,106,0.12);color:var(--gold);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;">→ Needs progressive diary UX</span>
+      <span style="background:rgba(240,117,98,0.12);color:var(--coral);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;">⚡ Mobile experience required</span>
+    </div>
+  </div>
+
+</div>
+<div class="footer">Echo Platform Analysis · June 2026 · 32 suggestions across design, UX, AI, and product direction</div>
+</body>
+</html>

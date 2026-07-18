@@ -1,0 +1,17 @@
+{
+  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/" }],
+  "crons": [
+    {
+      "path": "/api/zoho-attendance-sync-cron",
+      "schedule": "30 5 * * 1-5"
+    },
+    {
+      "path": "/api/diary-cliq-cron",
+      "schedule": "0 6 * * 1-5"
+    },
+    {
+      "path": "/api/sprint-digest-cron",
+      "schedule": "30 14 * * *"
+    }
+  ]
+}
